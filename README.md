@@ -21,5 +21,4 @@ El. pašto registracijos kaupiamos `data/signups.csv` (kelią keičia `atsidek.s
 ## Prieš viešą paleidimą
 
 Variklis sutikrintas su oficialia VMI/Sodros individualios veiklos skaičiuokle (scenarijai #1–7, #10; žr. VERIFIKAVIMO-REZULTATAI.md). Kitų pajamų (darbas) sumavimas apskaičiuotas pagal VMI DUK, oficiali skaičiuoklė jo nepalaiko. Nerealizuota: pirmųjų metų lengvata, pensininkai, PSD draudimas kitur.
-mokesčio kredito formulė 20–42,5 tūkst. € ruože, ar VSD/PSD atimamos iš GPM bazės, kaip IV dalis virš 42 500 € sumuojama su darbo pajamomis.
 Nepadaryta (mokama dalis, kiti etapai): paskyros, magic link, mėnesio suvestinė, mokėjimai, priminimai, PostgreSQL.
