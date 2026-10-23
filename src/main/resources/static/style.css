@@ -23,6 +23,10 @@ table { width:100%; border-collapse:collapse; }
 td { padding:.4rem 0; border-bottom:1px solid rgba(128,128,128,.25); }
 td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
 .explain { color:var(--muted); font-size:.95rem; }
+.limits { font-size:.9rem; border-top:1px solid rgba(128,128,128,.25); margin-top:1rem; padding-top:.5rem; }
+.limits h3 { font-size:1rem; margin:.75rem 0 .25rem; }
+.limits ul { margin:.25rem 0; padding-left:1.2rem; }
+.limits a { color:var(--accent); }
 .note { font-size:.8rem; color:var(--muted); }
 button { background:var(--accent); color:#fff; border:0; padding:.7rem 1.2rem; font-size:1rem; border-radius:8px; cursor:pointer; }
 .ok { color:var(--accent); font-weight:600; }

@@ -70,6 +70,18 @@
                 <span th:if="${saving.abs().signum() > 0}" th:text="'(skirtumas ' + ${#numbers.formatDecimal(saving.abs(), 1, 'WHITESPACE', 2, 'COMMA')} + ' €)'"></span>.
             </p>
         </div>
+        <div class="limits">
+            <h3>Ko skaičiuoklė neįvertina</h3>
+            <ul>
+                <li><b>Pirmųjų veiklos metų lengvata.</b> Teisė nemokėti VSD pirmaisiais metais nevertinama – rodomos pilnos įmokos.</li>
+                <li><b>Pensininkų išimtys.</b> Jei gauni pensiją, tavo VSD/PSD gali skirtis nuo čia rodomų.</li>
+                <li><b>PSD draudimas kitur.</b> Jei PSD jau draudžia kitas asmuo ar darbdavys, minimali PSD įmoka (965,76 €) gali netikti.</li>
+                <li><b>Ankstesnių metų nuostoliai, užsienio pajamos, jau sumokėtos įmokos</b> – nevertinami.</li>
+                <li><b>Kitos pajamos</b> laikomos jau apmokestintomis (pvz. darbo užmokestis – pajamų mokestį išskaičiuoja darbdavys 20 %); rodomas tik papildomas GPM dėl pajamų sumavimo.</li>
+            </ul>
+            <h3>PVM</h3>
+            <p>Skaičiuoklė <b>PVM neskaičiuoja</b> ir laiko, kad nesi PVM mokėtojas. Privalai registruotis PVM mokėtoju ir skaičiuoti PVM, kai Lietuvoje teikiamų prekių ar paslaugų atlygis per paskutinius 12 mėnesių viršija PVM įstatymo 71 straipsnyje nustatytą ribą (šiuo metu 45 000 €; ruošiamas ribos didinimas, todėl <a href="https://www.vmi.lt" rel="noopener">tikrink galiojančią ribą vmi.lt</a>), arba numatai ją viršyti per einamuosius metus. Registracija gali būti privaloma ir žemiau ribos, pvz. teikiant tam tikras paslaugas kitų ES šalių verslui ar perkant paslaugas iš jų. PVM mokėtojui šie skaičiai netinka.</p>
+        </div>
         <p class="note">Skaičiavimai orientaciniai (2026 m. taisyklės, VDU 2 312,15 €), jie nėra mokesčių ar buhalterinė konsultacija. Galutinę sumą nustato VMI ir Sodra.</p>
     </section>
 
