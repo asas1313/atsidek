@@ -92,13 +92,13 @@
             <p th:if="${signupOk}" class="ok">Ačiū! Pranešime, kai bus paruošta.</p>
             <form th:unless="${signupOk}" hx-post="/signup" hx-target="#signup" hx-swap="outerHTML">
                 <input type="email" name="email" placeholder="tavo@pastas.lt" required maxlength="254">
-                <label class="inline small"><input type="checkbox" name="consent" value="true" required> Sutinku gauti vieną pranešimą apie paleidimą. Adresą galiu bet kada ištrinti.</label>
+                <label class="inline small"><input type="checkbox" name="consent" value="true" required> Sutinku gauti pranešimą apie paleidimą. Žr. <a href="/privatumas" target="_blank">privatumo politiką</a>; sutikimą galiu bet kada atšaukti.</label>
                 <button type="submit">Pranešti man</button>
                 <p th:if="${signupError}" class="err" th:text="${signupError}"></p>
             </form>
         </div>
     </section>
 </main>
-<footer><p>© Atsidėk · planavimo įrankis, ne apskaitos programa.</p></footer>
+<footer><p>© Atsidėk · planavimo įrankis, ne apskaitos programa. · <a href="/privatumas">Privatumo politika</a></p></footer>
 </body>
 </html>

@@ -41,6 +41,22 @@ class CalculatorControllerTest {
     }
 
     @Test
+    void signupIsRateLimited() throws Exception {
+        for (int i = 0; i < RateLimiter.MAX; i++) {
+            mvc.perform(post("/signup").with(r -> { r.setRemoteAddr("10.9.9.9"); return r; }).param("email", "bad"));
+        }
+        mvc.perform(post("/signup").with(r -> { r.setRemoteAddr("10.9.9.9"); return r; }).param("email", "a@b.lt").param("consent", "true"))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Per daug")));
+    }
+
+    @Test
+    void privacyPageRenders() throws Exception {
+        mvc.perform(get("/privatumas"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Privatumo politika")));
+    }
+
+    @Test
     void garbageInputDoesNotBreak() throws Exception {
         mvc.perform(post("/calculate").param("revenue", "abc").param("otherIncome", "-5"))
                 .andExpect(status().isOk());

@@ -6,6 +6,8 @@ services:
       - ./data:/app/data
     environment:
       SERVER_FORWARD_HEADERS_STRATEGY: framework
+      ATSIDEK_CONTROLLER_NAME: ${CONTROLLER_NAME:?nurodyk CONTROLLER_NAME .env faile}
+      ATSIDEK_CONTACT_EMAIL: ${CONTACT_EMAIL:?nurodyk CONTACT_EMAIL .env faile}
     expose:
       - "8080"
 

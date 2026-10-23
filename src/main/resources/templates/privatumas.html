@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Privatumo politika – Atsidėk</title>
+    <meta name="robots" content="index,follow">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="hero">
+    <h1><a href="/" style="color:inherit;text-decoration:none">Atsidėk</a></h1>
+    <p>Privatumo politika</p>
+</header>
+<main>
+    <article class="card legal">
+        <h2>Kas tvarko tavo duomenis</h2>
+        <p>Duomenų valdytojas: <b th:text="${controllerName}">[valdytojas]</b>.
+           Kontaktai: <a th:href="'mailto:' + ${contactEmail}" th:text="${contactEmail}">[el. paštas]</a>.</p>
+
+        <h2>Kokius duomenis renkame</h2>
+        <ul>
+            <li><b>Skaičiuoklė:</b> skaičiuoklėje įvesti skaičiai (pajamos, išlaidos ir pan.) naudojami tik rezultatui paskaičiuoti.
+                Jie nėra išsaugomi duomenų bazėje ar faile ir nesusiejami su tavimi.</li>
+            <li><b>El. pašto forma:</b> jei palieki el. paštą – saugome el. pašto adresą ir registracijos laiką.</li>
+            <li><b>Slapukai ir analitika:</b> šiuo metu nenaudojame slapukų ir stebėjimo įrankių. Jei pradėsime naudoti privatumui
+                draugišką analitiką be slapukų, ši politika bus atnaujinta.</li>
+            <li><b>Techniniai žurnalai:</b> serveris gali trumpai saugoti techninius įrašus (IP adresą, užklausos laiką) saugumui ir klaidų taisymui.</li>
+        </ul>
+
+        <h2>Kodėl ir kokiu pagrindu</h2>
+        <p>El. pašto adresą naudojame tik tam, kad pranešti apie mėnesinio planavimo paleidimą. Pagrindas – tavo sutikimas
+           (BDAR 6 str. 1 d. a p.). Be tavo sutikimo jo kitiems tikslams nenaudosime ir nesiųsime reklamos.</p>
+
+        <h2>Kiek laiko saugome</h2>
+        <p>Iki to laiko, kol išsiųsime pranešimą apie paleidimą, bet ne ilgiau kaip 24 mėnesius nuo registracijos,
+           arba iki tol, kol atšauksi sutikimą.</p>
+
+        <h2>Kam perduodame</h2>
+        <p>Duomenys saugomi serveryje Europos Sąjungoje (Hetzner). Kai pradėsime siųsti laiškus, naudosime el. pašto siuntimo paslaugų teikėją,
+           su kuriuo sudarysime duomenų tvarkymo sutartį. Duomenų nepardavinėjame.</p>
+
+        <h2>Tavo teisės</h2>
+        <p>Gali bet kada paprašyti: pateikti turimus tavo duomenis, juos ištaisyti ar ištrinti, apriboti tvarkymą,
+           gauti kopiją, atšaukti sutikimą (atšaukimas neturi įtakos iki jo atlikto tvarkymo teisėtumui).
+           Rašyk aukščiau nurodytu el. paštu – atsakysime per 30 dienų. Taip pat turi teisę pateikti skundą
+           <a href="https://vdai.lrv.lt" rel="noopener">Valstybinei duomenų apsaugos inspekcijai</a>.</p>
+
+        <h2>Atsakomybės ribojimas</h2>
+        <p>Skaičiuoklė yra planavimo įrankis, jos rezultatai orientaciniai ir nėra mokesčių, teisinė ar buhalterinė konsultacija.
+           Galutinę mokesčių sumą nustato VMI ir Sodra.</p>
+
+        <p class="note">Atnaujinta: 2026-10-23</p>
+        <p><a href="/">← Atgal į skaičiuoklę</a></p>
+    </article>
+</main>
+</body>
+</html>

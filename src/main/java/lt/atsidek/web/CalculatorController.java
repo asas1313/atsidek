@@ -3,6 +3,7 @@ package lt.atsidek.web;
 import java.io.IOException;
 import lt.atsidek.engine.TaxComparison;
 import lt.atsidek.engine.TaxEngine;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,8 +18,11 @@ public class CalculatorController {
     private final TaxEngine engine = TaxEngine.forYear2026();
     private final SignupStore signups;
 
-    public CalculatorController(SignupStore signups) {
+    private final RateLimiter limiter;
+
+    public CalculatorController(SignupStore signups, RateLimiter limiter) {
         this.signups = signups;
+        this.limiter = limiter;
     }
 
     @GetMapping("/")
@@ -35,11 +39,23 @@ public class CalculatorController {
         return hx != null ? "index :: result" : "index";
     }
 
+    @GetMapping("/privatumas")
+    public String privacy(Model model,
+                          @Value("${atsidek.controller-name:[PRIVALOMA UŽPILDYTI: valdytojo pavadinimas]}") String name,
+                          @Value("${atsidek.contact-email:[PRIVALOMA UŽPILDYTI: el. paštas]}") String email) {
+        model.addAttribute("controllerName", name);
+        model.addAttribute("contactEmail", email);
+        return "privatumas";
+    }
+
     @PostMapping("/signup")
     public String signup(@RequestParam String email,
                          @RequestParam(defaultValue = "false") boolean consent,
+                         jakarta.servlet.http.HttpServletRequest request,
                          Model model) throws IOException {
-        if (!SignupStore.isValid(email)) {
+        if (!limiter.allow(request.getRemoteAddr())) {
+            model.addAttribute("signupError", "Per daug bandymų. Pabandyk vėliau.");
+        } else if (!SignupStore.isValid(email)) {
             model.addAttribute("signupError", "Patikrink el. pašto adresą.");
         } else if (!consent) {
             model.addAttribute("signupError", "Reikalingas sutikimas gauti pranešimą.");

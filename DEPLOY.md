@@ -30,9 +30,12 @@ Rekomenduojama sukurti atskirą vartotoją, atjungti prisijungimą slaptažodži
 
 ## 4. Programa
 
+Privatumo politikai reikia duomenų valdytojo (vardas, pavardė arba įmonė) ir kontaktinio el. pašto. Jie paimami iš `.env` failo:
+
 ```bash
 git clone https://github.com/asas1313/atsidek.git
 cd atsidek
+printf 'CONTROLLER_NAME="Vardas Pavardė, IV pažyma Nr. ..."\nCONTACT_EMAIL="info@atsidek.lt"\n' > .env
 docker compose up -d --build
 docker compose logs -f
 ```
@@ -49,9 +52,9 @@ cd atsidek && git pull && docker compose up -d --build
 
 - Failas: `data/signups.csv` (laikas, el. paštas). Kopijuok kasdien, pvz. `cron`: `rsync` arba `scp` į savo kompiuterį.
 - Ištrynimas pagal prašymą: ištrink eilutę iš failo.
-- Prieš paleidžiant reikia privatumo politikos (kas renkama, kam, kiek laiko, kontaktas) ir nuorodos į ją puslapyje.
+- Privatumo politika yra puslapyje /privatumas, nuoroda poraštėje ir prie sutikimo žymės.
 
 ## Dar neaptarta
 
-- Analitika (Plausible), Uptime Kuma, SEO straipsniai, `sitemap.xml`/`robots.txt`.
-- Registracijų formos apsauga nuo piktnaudžiavimo (rate limit). Kol kas ribojimo nėra.
+- Privatumo politikos tekstą peržiūrėti su teisininku; analitika (Plausible), Uptime Kuma, SEO straipsniai, `sitemap.xml`/`robots.txt`.
+- Registracijų forma ribojama atmintyje: 5 bandymai per valandą vienam IP (po paleidimo iš naujo skaitliukas nunulinamas).
