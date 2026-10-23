@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Atsidėk – IV mokesčių skaičiuoklė 2026</title>
+    <meta name="description" content="Kiek atsidėti mokesčiams individualioje veikloje 2026 m.? Nemokama skaičiuoklė su GPM, VSD ir PSD išskaidymu, be registracijos.">
+    <link rel="stylesheet" href="/style.css">
+    <script src="/htmx.min.js"></script>
+</head>
+<body>
+<header class="hero">
+    <h1>Atsidėk</h1>
+    <p>Atsidėk ir pamiršk balandžio stresą.</p>
+</header>
+
+<main>
+    <form id="calc" class="card" method="post" action="/calculate" hx-post="/calculate" hx-trigger="input delay:250ms, change" hx-target="#result" hx-swap="outerHTML">
+        <h2>Tavo 2026 m. pajamos</h2>
+
+        <label>Numatomos metinės IV pajamos (€)
+            <input type="text" name="revenue" th:value="${form.revenue}" inputmode="decimal" autocomplete="off">
+        </label>
+
+        <fieldset>
+            <legend>Išlaidų metodas</legend>
+            <label class="inline"><input type="radio" name="method" value="FLAT_30" th:checked="${form.method == 'FLAT_30'}"> 30 % pajamų</label>
+            <label class="inline"><input type="radio" name="method" value="ACTUAL" th:checked="${form.method == 'ACTUAL'}"> Faktinės išlaidos</label>
+        </fieldset>
+
+        <label>Faktinės IV išlaidos per metus (€)
+            <input type="text" name="actualExpenses" th:value="${form.actualExpenses}" inputmode="decimal" autocomplete="off" placeholder="neprivaloma – palyginimui">
+        </label>
+
+        <label>Kitos pajamos: darbo užmokestis, nuoma (€ per metus)
+            <input type="text" name="otherIncome" th:value="${form.otherIncome}" inputmode="decimal" autocomplete="off" placeholder="0">
+        </label>
+
+        <label class="inline"><input type="checkbox" name="pillar2" value="true" th:checked="${form.pillar2}"> Dalyvauju II pakopos pensijų kaupime</label>
+        <button type="submit">Skaičiuoti</button>
+    </form>
+
+    <section id="result" class="card result" th:fragment="result">
+        <h2>Rezultatas</h2>
+        <p class="big">Iš viso mokesčių: <strong th:text="${#numbers.formatDecimal(r.total, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'">0 €</strong></p>
+        <p class="big2">Atsidėk kas mėnesį: <strong th:text="${#numbers.formatDecimal(r.monthlyReserve, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'">0 €</strong></p>
+
+        <table>
+            <tr><td>Apmokestinamosios IV pajamos</td><td th:text="${#numbers.formatDecimal(r.taxableIncome, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
+            <tr><td>GPM</td><td th:text="${#numbers.formatDecimal(r.gpm, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
+            <tr><td>VSD</td><td th:text="${#numbers.formatDecimal(r.vsd, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
+            <tr><td>PSD</td><td th:text="${#numbers.formatDecimal(r.psd, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
+            <tr th:if="${r.pensionAccumulation.signum() > 0}"><td>Pensijų kaupimas (II pakopa)</td><td th:text="${#numbers.formatDecimal(r.pensionAccumulation, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
+            <tr><td>Efektyvus tarifas</td><td th:text="${#numbers.formatDecimal(r.effectiveRate * 100, 1, 'WHITESPACE', 1, 'COMMA')} + ' %'"></td></tr>
+        </table>
+
+        <div class="explain">
+            <p>Nuo pajamų atėmus išlaidas (<span th:text="${r.method.name() == 'FLAT_30' ? '30 % metodas' : 'faktinės išlaidos'}"></span>)
+               lieka <b th:text="${#numbers.formatDecimal(r.taxableIncome, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></b>.
+               Sodros įmokos skaičiuojamos nuo 90 % šios sumos
+               (<span th:text="${#numbers.formatDecimal(r.sodraBase, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></span>).
+               GPM skaičiuojamas nuo likusios sumos po įmokų
+               (<span th:text="${#numbers.formatDecimal(r.gpmBase, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></span>).</p>
+            <p th:if="${r.sodraCeilingHit}">Pasiektos Sodros įmokų lubos (43 VDU), todėl didesnės pajamos Sodros įmokų nebedidina.</p>
+            <p th:if="${hasActual}">
+                Palyginimas: 30 % metodu – <b th:text="${#numbers.formatDecimal(c.flat.total, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></b>,
+                faktinėmis išlaidomis – <b th:text="${#numbers.formatDecimal(c.actual.total, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></b>.
+                Naudingesnis: <b th:text="${c.better.method.name() == 'FLAT_30' ? '30 % metodas' : 'faktinės išlaidos'}"></b>
+                <span th:if="${saving.abs().signum() > 0}" th:text="'(skirtumas ' + ${#numbers.formatDecimal(saving.abs(), 1, 'WHITESPACE', 2, 'COMMA')} + ' €)'"></span>.
+            </p>
+        </div>
+        <p class="note">Skaičiavimai orientaciniai (2026 m. taisyklės, VDU 2 312,15 €), jie nėra mokesčių ar buhalterinė konsultacija. Galutinę sumą nustato VMI ir Sodra.</p>
+    </section>
+
+    <section class="card cta">
+        <h2>Nori, kad tai būtų skaičiuojama automatiškai?</h2>
+        <p>Kas mėnesį pagal tikras tavo pajamas pasakysime, kiek atsidėti. Palik el. paštą – pranešime, kai mėnesinis planavimas bus paruoštas.</p>
+        <div id="signup" th:fragment="signup">
+            <p th:if="${signupOk}" class="ok">Ačiū! Pranešime, kai bus paruošta.</p>
+            <form th:unless="${signupOk}" hx-post="/signup" hx-target="#signup" hx-swap="outerHTML">
+                <input type="email" name="email" placeholder="tavo@pastas.lt" required maxlength="254">
+                <label class="inline small"><input type="checkbox" name="consent" value="true" required> Sutinku gauti vieną pranešimą apie paleidimą. Adresą galiu bet kada ištrinti.</label>
+                <button type="submit">Pranešti man</button>
+                <p th:if="${signupError}" class="err" th:text="${signupError}"></p>
+            </form>
+        </div>
+    </section>
+</main>
+<footer><p>© Atsidėk · planavimo įrankis, ne apskaitos programa.</p></footer>
+</body>
+</html>
