@@ -1,0 +1,14 @@
+atsidek.lt {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	reverse_proxy app:8080
+}
+
+www.atsidek.lt, kiekatideti.lt, www.kiekatideti.lt {
+	redir https://atsidek.lt{uri} permanent
+}
