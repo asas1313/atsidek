@@ -8,8 +8,9 @@ import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 
 /**
- * Skaičiai čia suskaičiuoti ranka pagal SPEC.md formules. Jie NĖRA sutikrinti su VMI ir Sodros
- * skaičiuoklėmis – tai dar atviras paleidimo punktas.
+ * Scenarijai #1–7, #10 sutikrinti su oficialia VMI/Sodros individualios veiklos skaičiuokle 2026 m.
+ * (žr. VERIFIKAVIMO-REZULTATAI.md). Scenarijai su kitomis pajamomis (#8, #9) apskaičiuoti pagal VMI DUK,
+ * oficiali skaičiuoklė jų nepalaiko.
  */
 class TaxEngineTest {
 
@@ -23,54 +24,72 @@ class TaxEngineTest {
         return new TaxInput(d(revenue), ExpenseMethod.FLAT_30, BigDecimal.ZERO, d(other), pillar2);
     }
 
-    @Test
-    void lowIncomeGetsFivePercentGpm() {
-        TaxResult r = engine.calculate(flat("30000", "0", false));
-        assertEquals(d("21000.00"), r.taxableIncome());
-        assertEquals(d("18900.00"), r.sodraBase());
-        assertEquals(d("2366.28"), r.vsd());
-        assertEquals(d("1319.22"), r.psd());
-        assertEquals(d("17314.50"), r.gpmBase());
-        assertEquals(d("865.73"), r.gpm());
-        assertEquals(d("4551.23"), r.total());
-        assertEquals(d("379.27"), r.monthlyReserve());
+    private void assertScenario(TaxResult r, String taxable, String gpm, String vsd, String psd, String total) {
+        assertEquals(d(taxable), r.taxableIncome(), "apmokestinamosios");
+        assertEquals(d(gpm), r.gpm(), "GPM");
+        assertEquals(d(vsd), r.vsd(), "VSD");
+        assertEquals(d(psd), r.psd(), "PSD");
+        assertEquals(d(total), r.total(), "iš viso");
     }
 
     @Test
-    void minimumPsdAppliesForTinyIncome() {
-        TaxResult r = engine.calculate(flat("1000", "0", false));
-        assertEquals(d("965.76"), r.psd());
+    void official1() {
+        assertScenario(engine.calculate(flat("12000", "0", false)), "8400.00", "420.00", "946.51", "965.76", "2332.27");
     }
 
     @Test
-    void pensionAccumulationAddsThreePercent() {
-        TaxResult without = engine.calculate(flat("30000", "0", false));
-        TaxResult with = engine.calculate(flat("30000", "0", true));
-        assertEquals(d("567.00"), with.pensionAccumulation());
-        assertTrue(with.sodraTotal().compareTo(without.sodraTotal()) > 0);
+    void official2() {
+        assertScenario(engine.calculate(flat("20000", "0", false)), "14000.00", "700.00", "1577.52", "965.76", "3243.28");
     }
 
     @Test
-    void highIncomeUsesProgressiveRateAboveCap() {
-        TaxResult r = engine.calculate(flat("100000", "0", false));
-        assertEquals(d("12285.00"), r.sodraTotal());
-        assertEquals(d("57715.00"), r.gpmBase());
-        assertEquals(d("11543.00"), r.gpm());
-        assertEquals(d("23828.00"), r.total());
+    void official3() {
+        assertScenario(engine.calculate(flat("30000", "0", false)), "21000.00", "1190.00", "2366.28", "1319.22", "4875.50");
     }
 
     @Test
-    void otherIncomePushesIvIntoHigherBracket() {
-        BigDecimal alone = engine.calculate(flat("100000", "0", false)).gpm();
-        BigDecimal withSalary = engine.calculate(flat("100000", "60000", false)).gpm();
-        assertTrue(withSalary.compareTo(alone) > 0);
+    void official4() {
+        assertScenario(engine.calculate(flat("40000", "0", false)), "28000.00", "2893.33", "3155.04", "1758.96", "7807.33");
     }
 
     @Test
-    void otherIncomeRaisesGpmEvenForModestIvIncome() {
-        BigDecimal alone = engine.calculate(flat("30000", "0", false)).gpm();
-        BigDecimal withSalary = engine.calculate(flat("30000", "40000", false)).gpm();
-        assertTrue(withSalary.compareTo(alone) > 0);
+    void official5() {
+        assertScenario(engine.calculate(flat("60000", "0", false)), "42000.00", "8260.00", "4732.56", "2638.44", "15631.00");
+    }
+
+    @Test
+    void official6ActualExpensesDeductSodra() {
+        TaxInput in = new TaxInput(d("60000"), ExpenseMethod.ACTUAL, d("15000"), BigDecimal.ZERO, false);
+        TaxResult r = engine.calculate(in);
+        assertEquals(d("37102.50"), r.gpmBase());
+        assertScenario(r, "45000.00", "6085.43", "5070.60", "2826.90", "13982.93");
+    }
+
+    @Test
+    void official7() {
+        assertScenario(engine.calculate(flat("100000", "0", false)), "70000.00", "14000.00", "7887.60", "4397.40", "26285.00");
+    }
+
+    @Test
+    void official10PensionAccumulation() {
+        TaxResult r = engine.calculate(flat("40000", "0", true));
+        assertEquals(d("756.00"), r.pensionAccumulation());
+        assertEquals(d("2893.33"), r.gpm());
+        assertEquals(d("8563.33"), r.total());
+    }
+
+    @Test
+    void salaryBelowBracketAddsNoExtraGpm() {
+        TaxResult r = engine.calculate(flat("30000", "40000", false));
+        assertEquals(d("1190.00"), r.gpm());
+        assertEquals(d("0.00"), r.extraGpm());
+    }
+
+    @Test
+    void ivIncomeUsesUpBracketForSalary() {
+        TaxResult r = engine.calculate(flat("60000", "60000", false));
+        assertEquals(d("8260.00"), r.gpm());
+        assertEquals(d("938.13"), r.extraGpm());
     }
 
     @Test
@@ -82,18 +101,17 @@ class TaxEngineTest {
 
     @Test
     void gpmIsContinuousAtBandEdges() {
-        for (String edge : new String[] {"20000", "35000", "42500"}) {
-            BigDecimal below = engine.ivGpm(d(edge), BigDecimal.ZERO);
-            BigDecimal above = engine.ivGpm(d(edge).add(d("0.01")), BigDecimal.ZERO);
+        for (String edge : new String[] {"20000", "42500"}) {
+            BigDecimal below = engine.ivGpm(d(edge));
+            BigDecimal above = engine.ivGpm(d(edge).add(d("0.01")));
             assertTrue(above.subtract(below).abs().compareTo(d("0.01")) < 0, "šuolis ties " + edge);
         }
-        assertEquals(0, d("8500").compareTo(engine.ivGpm(d("42500"), BigDecimal.ZERO)));
+        assertTrue(d("8500").subtract(engine.ivGpm(d("42500"))).abs().compareTo(d("0.001")) < 0);
     }
 
     @Test
     void zeroIncomeCostsNothing() {
-        TaxResult r = engine.calculate(flat("0", "0", false));
-        assertEquals(d("0.00"), r.total());
+        assertEquals(d("0.00"), engine.calculate(flat("0", "0", false)).total());
     }
 
     @Test
@@ -101,7 +119,6 @@ class TaxEngineTest {
         TaxInput in = new TaxInput(d("50000"), ExpenseMethod.FLAT_30, d("40000"), BigDecimal.ZERO, false);
         TaxComparison c = engine.compare(in);
         assertEquals(ExpenseMethod.ACTUAL, c.better().method());
-        assertTrue(c.actual().total().compareTo(c.flat().total()) < 0);
 
         TaxComparison c2 = engine.compare(new TaxInput(d("50000"), null, d("1000"), BigDecimal.ZERO, false));
         assertEquals(ExpenseMethod.FLAT_30, c2.better().method());

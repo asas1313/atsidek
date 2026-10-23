@@ -48,6 +48,7 @@
         <table>
             <tr><td>Apmokestinamosios IV pajamos</td><td th:text="${#numbers.formatDecimal(r.taxableIncome, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
             <tr><td>GPM</td><td th:text="${#numbers.formatDecimal(r.gpm, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
+            <tr th:if="${r.extraGpm.signum() > 0}"><td>Papildomas GPM nuo kitų pajamų (sumavimas)</td><td th:text="${#numbers.formatDecimal(r.extraGpm, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
             <tr><td>VSD</td><td th:text="${#numbers.formatDecimal(r.vsd, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
             <tr><td>PSD</td><td th:text="${#numbers.formatDecimal(r.psd, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
             <tr th:if="${r.pensionAccumulation.signum() > 0}"><td>Pensijų kaupimas (II pakopa)</td><td th:text="${#numbers.formatDecimal(r.pensionAccumulation, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></td></tr>
@@ -59,7 +60,7 @@
                lieka <b th:text="${#numbers.formatDecimal(r.taxableIncome, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></b>.
                Sodros įmokos skaičiuojamos nuo 90 % šios sumos
                (<span th:text="${#numbers.formatDecimal(r.sodraBase, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></span>).
-               GPM skaičiuojamas nuo likusios sumos po įmokų
+               <span th:text="${r.method.name() == 'ACTUAL' ? 'GPM skaičiuojamas nuo likusios sumos po Sodros įmokų' : 'GPM skaičiuojamas nuo apmokestinamųjų pajamų (Sodros įmokos taikant 30 % metodą neatimamos)'}"></span>
                (<span th:text="${#numbers.formatDecimal(r.gpmBase, 1, 'WHITESPACE', 2, 'COMMA')} + ' €'"></span>).</p>
             <p th:if="${r.sodraCeilingHit}">Pasiektos Sodros įmokų lubos (43 VDU), todėl didesnės pajamos Sodros įmokų nebedidina.</p>
             <p th:if="${hasActual}">

@@ -36,7 +36,7 @@ class CalculatorControllerTest {
     void calculateReturnsFragmentWithLithuanianNumbers() throws Exception {
         mvc.perform(post("/calculate").header("HX-Request", "true").param("revenue", "30 000").param("method", "FLAT_30"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("4 551,23 €")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("4 875,50 €")))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<html"))));
     }
 

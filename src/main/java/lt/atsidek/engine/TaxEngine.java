@@ -46,12 +46,13 @@ public final class TaxEngine {
                 ? base.multiply(rules.pensionAccumulationRate())
                 : BigDecimal.ZERO;
 
-        // GPM
-        BigDecimal deduction = rules.contributionsDeductible() ? vsd.add(psd).add(pension) : BigDecimal.ZERO;
+        // GPM: taikant 30 % metodą Sodros įmokos iš GPM bazės neatimamos, taikant faktines išlaidas – atimamos
+        BigDecimal deduction = in.method() == ExpenseMethod.ACTUAL ? vsd.add(psd).add(pension) : BigDecimal.ZERO;
         BigDecimal gpmBase = taxable.subtract(deduction).max(BigDecimal.ZERO);
-        BigDecimal gpm = ivGpm(gpmBase, in.otherIncome());
+        BigDecimal gpm = ivGpm(gpmBase);
+        BigDecimal extra = extraGpmOnOther(gpmBase, in.otherIncome());
 
-        BigDecimal total = gpm.add(vsd).add(psd).add(pension);
+        BigDecimal total = gpm.add(extra).add(vsd).add(psd).add(pension);
         BigDecimal effective = taxable.signum() == 0
                 ? BigDecimal.ZERO
                 : total.divide(taxable, 6, RoundingMode.HALF_UP);
@@ -60,42 +61,36 @@ public final class TaxEngine {
                 rules.year(), in.method(),
                 r(revenue), r(expenses), r(taxable), r(base),
                 r(vsd), r(psd), r(pension),
-                r(gpmBase), r(gpm), r(total),
+                r(gpmBase), r(gpm), r(extra), r(total),
                 r(total.divide(MONTHS, 10, RoundingMode.HALF_UP)),
                 effective.setScale(4, RoundingMode.HALF_UP),
                 ceilingHit);
     }
 
     /**
-     * IV GPM: iki 42 500 € – efektyvus tarifas pagal mokesčio kredito schemą (5 % → 15 % → 20 %);
-     * viršijanti dalis apmokestinama progresiniais 20/25/32 % tarifais, sumuojant su kitomis pajamomis.
-     * TIKRINTI: tikslios kredito formulės ir sumavimo tvarka (SPEC.md „Patikrinti prieš paleidimą“).
+     * IV GPM: iki 42 500 € – 20 % minus pajamų mokesčio kreditas; virš – progresiniai tarifai (IV pajamos
+     * į metinę sumą įskaičiuojamos pirmiausia, todėl kitų pajamų jos neveikia).
      */
-    BigDecimal ivGpm(BigDecimal g, BigDecimal other) {
-        return combinedGpm(other.add(g)).subtract(combinedGpm(other));
+    BigDecimal ivGpm(BigDecimal g) {
+        if (g.compareTo(rules.creditPhaseOutEnd()) > 0) {
+            return progressive(g);
+        }
+        BigDecimal start = rules.creditPhaseOutStart();
+        BigDecimal creditRate = rules.creditMax();
+        if (g.compareTo(start) > 0) {
+            BigDecimal slope = rules.creditMax().divide(rules.creditPhaseOutEnd().subtract(start), 15, RoundingMode.HALF_UP);
+            creditRate = creditRate.subtract(slope.multiply(g.subtract(start)));
+        }
+        return g.multiply(rules.rate1()).subtract(g.multiply(creditRate));
     }
 
-    /** Mokestis nuo bendros sumos: kredito schema iki 42 500 €, toliau progresiniai tarifai. */
-    private BigDecimal combinedGpm(BigDecimal g) {
-        BigDecimal t1 = rules.creditStart();
-        BigDecimal t2 = rules.creditMid();
-        BigDecimal t3 = rules.creditEnd();
-        if (g.compareTo(t1) <= 0) {
-            return g.multiply(rules.lowRate());
+    /** Skirtumas tarp progresinio GPM ant kitų pajamų (po IV) ir darbdavio išskaitomų 20 %. */
+    BigDecimal extraGpmOnOther(BigDecimal g, BigDecimal other) {
+        if (other.signum() == 0) {
+            return BigDecimal.ZERO;
         }
-        if (g.compareTo(t2) <= 0) {
-            return g.multiply(interpolate(g, t1, t2, rules.lowRate(), rules.midRate()));
-        }
-        if (g.compareTo(t3) <= 0) {
-            return g.multiply(interpolate(g, t2, t3, rules.midRate(), rules.highRate()));
-        }
-        BigDecimal upToCap = t3.multiply(rules.highRate());
-        return upToCap.add(progressive(g).subtract(progressive(t3)));
-    }
-
-    private static BigDecimal interpolate(BigDecimal x, BigDecimal x0, BigDecimal x1, BigDecimal y0, BigDecimal y1) {
-        BigDecimal frac = x.subtract(x0).divide(x1.subtract(x0), 12, RoundingMode.HALF_UP);
-        return y0.add(y1.subtract(y0).multiply(frac));
+        return progressive(g.add(other)).subtract(progressive(g)).subtract(other.multiply(rules.rate1()))
+                .max(BigDecimal.ZERO);
     }
 
     /** Progresinis GPM nuo bendros sumos: 20 % iki 36 VDU, 25 % iki 60 VDU, 32 % virš. */
