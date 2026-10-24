@@ -35,7 +35,7 @@ Privatumo politikai reikia duomenų valdytojo (vardas, pavardė arba įmonė) ir
 ```bash
 git clone https://github.com/asas1313/atsidek.git
 cd atsidek
-printf 'CONTROLLER_NAME="Vardas Pavardė, IV pažyma Nr. ..."\nCONTACT_EMAIL="info@atsidek.eu"\n' > .env
+printf 'CONTROLLER_NAME="Andrius Riauba, IV pažyma Nr. 1440039"\nCONTACT_EMAIL="info@atsidek.eu"\n' > .env
 docker compose up -d --build
 docker compose logs -f
 ```
