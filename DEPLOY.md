@@ -12,10 +12,10 @@ Architektūra: vienas VPS, `docker compose` paleidžia `app` (Spring Boot) ir `c
 
 | Vardas | Tipas | Reikšmė |
 | --- | --- | --- |
-| `atsidek.lt` | A (ir AAAA) | serverio IP |
-| `www.atsidek.lt` | A (ir AAAA) | serverio IP |
-| `kiekatideti.lt` | A (ir AAAA) | serverio IP |
-| `www.kiekatideti.lt` | A (ir AAAA) | serverio IP |
+| `atsidek.eu` | A (ir AAAA) | serverio IP |
+| `www.atsidek.eu` | A (ir AAAA) | serverio IP |
+
+DNS valdomas Cloudflare. Abu įrašus nustatyk **DNS only** (pilkas debesėlis), kad Caddy pats gautų sertifikatus. Papildomi domenai (`atsidek.lt`, `kiekatideti.lt`) kol kas neužregistruoti; juos užregistravus, reikia pridėti jų DNS ir juos įrašyti į `Caddyfile` kaip nukreipimą į `atsidek.eu`.
 
 Sertifikatai išduodami tik kai DNS jau rodo į serverį, todėl pirmiausia sutvarkyk DNS ir palauk (dažniausiai kelios minutės).
 
@@ -35,12 +35,12 @@ Privatumo politikai reikia duomenų valdytojo (vardas, pavardė arba įmonė) ir
 ```bash
 git clone https://github.com/asas1313/atsidek.git
 cd atsidek
-printf 'CONTROLLER_NAME="Vardas Pavardė, IV pažyma Nr. ..."\nCONTACT_EMAIL="info@atsidek.lt"\n' > .env
+printf 'CONTROLLER_NAME="Vardas Pavardė, IV pažyma Nr. ..."\nCONTACT_EMAIL="info@atsidek.eu"\n' > .env
 docker compose up -d --build
 docker compose logs -f
 ```
 
-Atidaryk https://atsidek.lt ir patikrink, kad skaičiuoklė skaičiuoja, o https://kiekatideti.lt nukreipia į pagrindinį domeną.
+Atidaryk https://atsidek.eu ir patikrink, kad skaičiuoklė skaičiuoja, o https://www.atsidek.eu nukreipia į pagrindinį domeną.
 
 ## 5. Atnaujinimas
 
