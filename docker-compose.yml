@@ -39,7 +39,7 @@ services:
       - app
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?nurodyk TUNNEL_TOKEN .env faile}
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
 
 volumes:
   caddy_data:
