@@ -53,4 +53,10 @@ class CalculatorControllerTest {
         mvc.perform(get("/sitemap.xml")).andExpect(status().isOk());
         mvc.perform(get("/")).andExpect(content().string(org.hamcrest.Matchers.containsString("rel=\"canonical\" href=\"https://atsidek.eu/\"")));
     }
+
+    @Test
+    void articleRenders() throws Exception {
+        mvc.perform(get("/straipsniai/30-proc-ar-faktines-islaidos")).andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("4 876,31 €")));
+    }
 }

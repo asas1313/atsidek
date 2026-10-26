@@ -28,6 +28,11 @@ public class CalculatorController {
         return hx != null ? "index :: result" : "index";
     }
 
+    @GetMapping("/straipsniai/30-proc-ar-faktines-islaidos")
+    public String article30() {
+        return "straipsnis-30-proc";
+    }
+
     @GetMapping("/privatumas")
     public String privacy(Model model,
                           @Value("${atsidek.controller-name:[PRIVALOMA UŽPILDYTI: valdytojo pavadinimas]}") String name,
