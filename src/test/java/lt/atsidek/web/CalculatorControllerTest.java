@@ -45,4 +45,12 @@ class CalculatorControllerTest {
         mvc.perform(post("/calculate").param("revenue", "abc").param("otherIncome", "-5"))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void seoFilesAndCanonicalPresent() throws Exception {
+        mvc.perform(get("/robots.txt")).andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("Sitemap: https://atsidek.eu/sitemap.xml")));
+        mvc.perform(get("/sitemap.xml")).andExpect(status().isOk());
+        mvc.perform(get("/")).andExpect(content().string(org.hamcrest.Matchers.containsString("rel=\"canonical\" href=\"https://atsidek.eu/\"")));
+    }
 }
