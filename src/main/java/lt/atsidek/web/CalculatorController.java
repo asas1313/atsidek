@@ -1,6 +1,5 @@
 package lt.atsidek.web;
 
-import java.io.IOException;
 import lt.atsidek.engine.TaxComparison;
 import lt.atsidek.engine.TaxEngine;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,21 +9,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestParam;
 
 @Controller
 public class CalculatorController {
 
     private final TaxEngine engine = TaxEngine.forYear2026();
-    private final SignupStore signups;
-
-    private final RateLimiter limiter;
-
-    public CalculatorController(SignupStore signups, RateLimiter limiter) {
-        this.signups = signups;
-        this.limiter = limiter;
-    }
-
     @GetMapping("/")
     public String index(@ModelAttribute("form") CalculatorForm form, Model model) {
         addComparison(form, model);
@@ -46,24 +35,6 @@ public class CalculatorController {
         model.addAttribute("controllerName", name);
         model.addAttribute("contactEmail", email);
         return "privatumas";
-    }
-
-    @PostMapping("/signup")
-    public String signup(@RequestParam String email,
-                         @RequestParam(defaultValue = "false") boolean consent,
-                         jakarta.servlet.http.HttpServletRequest request,
-                         Model model) throws IOException {
-        if (!limiter.allow(request.getRemoteAddr())) {
-            model.addAttribute("signupError", "Per daug bandymų. Pabandyk vėliau.");
-        } else if (!SignupStore.isValid(email)) {
-            model.addAttribute("signupError", "Patikrink el. pašto adresą.");
-        } else if (!consent) {
-            model.addAttribute("signupError", "Reikalingas sutikimas gauti pranešimą.");
-        } else {
-            signups.add(email);
-            model.addAttribute("signupOk", true);
-        }
-        return "index :: signup";
     }
 
     private void addComparison(CalculatorForm form, Model model) {

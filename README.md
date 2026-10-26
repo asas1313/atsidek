@@ -11,12 +11,11 @@ mvn spring-boot:run   # http://localhost:8080
 mvn test
 ```
 
-El. pašto registracijos kaupiamos `data/signups.csv` (kelią keičia `atsidek.signups-file`).
 
 ## Struktūra
 
 - `lt.atsidek.engine` – gryna Java, be Spring. `TaxRules.RULES_2026` – versijuojami parametrai; kasmet pridedama nauja versija.
-- `lt.atsidek.web` – Thymeleaf + htmx: `/` (skaičiuoklė), `/calculate` (fragmentas), `/signup`.
+- `lt.atsidek.web` – Thymeleaf + htmx: `/` (skaičiuoklė), `/calculate` (fragmentas).
 
 ## Prieš viešą paleidimą
 

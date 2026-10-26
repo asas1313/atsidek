@@ -84,20 +84,6 @@
         </div>
         <p class="note">Skaičiavimai orientaciniai (2026 m. taisyklės, VDU 2 312,15 €), jie nėra mokesčių ar buhalterinė konsultacija. Galutinę sumą nustato VMI ir Sodra.</p>
     </section>
-
-    <section class="card cta">
-        <h2>Nori, kad tai būtų skaičiuojama automatiškai?</h2>
-        <p>Kas mėnesį pagal tikras tavo pajamas pasakysime, kiek atsidėti. Palik el. paštą – pranešime, kai mėnesinis planavimas bus paruoštas.</p>
-        <div id="signup" th:fragment="signup">
-            <p th:if="${signupOk}" class="ok">Ačiū! Pranešime, kai bus paruošta.</p>
-            <form th:unless="${signupOk}" hx-post="/signup" hx-target="#signup" hx-swap="outerHTML">
-                <input type="email" name="email" placeholder="tavo@pastas.lt" required maxlength="254">
-                <label class="inline small"><input type="checkbox" name="consent" value="true" required> Sutinku gauti pranešimą apie paleidimą. Žr. <a href="/privatumas" target="_blank">privatumo politiką</a>; sutikimą galiu bet kada atšaukti.</label>
-                <button type="submit">Pranešti man</button>
-                <p th:if="${signupError}" class="err" th:text="${signupError}"></p>
-            </form>
-        </div>
-    </section>
 </main>
 <footer><p>© Atsidėk · planavimo įrankis, ne apskaitos programa. · <a href="/privatumas">Privatumo politika</a></p></footer>
 </body>
