@@ -36,7 +36,7 @@ Privatumo politikai reikia duomenų valdytojo (vardas, pavardė arba įmonė) ir
 git clone https://github.com/asas1313/atsidek.git
 cd atsidek
 printf 'CONTROLLER_NAME="Andrius Riauba, IV pažyma Nr. 1440039"\nCONTACT_EMAIL="info@atsidek.eu"\n' > .env
-docker compose up -d --build
+docker compose --profile caddy up -d --build
 docker compose logs -f
 ```
 
@@ -45,8 +45,23 @@ Atidaryk https://atsidek.eu ir patikrink, kad skaičiuoklė skaičiuoja, o https
 ## 5. Atnaujinimas
 
 ```bash
-cd atsidek && git pull && docker compose up -d --build
+cd atsidek && git pull && docker compose --profile caddy up -d --build
 ```
+
+## Alternatyva: namų serveris (Proxmox) su Cloudflare Tunnel
+
+Viešo IP ir atvirų prievadų nereikia, sertifikatus tvarko Cloudflare.
+
+1. Proxmox: sukurk Debian/Ubuntu LXC (arba VM), 1 CPU, 512 MB–1 GB RAM, 4 GB disko. LXC reikia įjungti *Nesting* (Options → Features), kad veiktų Docker.
+2. Įdiek Docker kaip 3 skyriuje, `git clone`, sukurk `.env` (CONTROLLER_NAME, CONTACT_EMAIL).
+3. Cloudflare → Zero Trust → Networks → Tunnels → Create tunnel (Cloudflared) → nukopijuok **token**. Public hostname: `atsidek.eu` → HTTP → `app:8080`; antras: `www.atsidek.eu` → tas pats. (DNS įrašus sukuria pats Cloudflare; senus A įrašus tam hostname pašalink.)
+4. Į `.env` pridėk `TUNNEL_TOKEN=...` ir paleisk:
+
+```bash
+docker compose --profile tunnel up -d --build
+```
+
+Caddy šiame variante nenaudojamas. `X-Forwarded-*` antraštes perduoda Cloudflare.
 
 ## Dar neaptarta
 

@@ -11,7 +11,9 @@ services:
     expose:
       - "8080"
 
+  # Variantas A (VPS su viešu IP): docker compose --profile caddy up -d --build
   caddy:
+    profiles: ["caddy"]
     image: caddy:2
     restart: unless-stopped
     depends_on:
@@ -24,6 +26,17 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+
+  # Variantas B (namų serveris): docker compose --profile tunnel up -d --build
+  cloudflared:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - app
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?nurodyk TUNNEL_TOKEN .env faile}
 
 volumes:
   caddy_data:
