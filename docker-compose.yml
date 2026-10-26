@@ -10,6 +10,9 @@ services:
       ATSIDEK_CONTACT_EMAIL: ${CONTACT_EMAIL:?nurodyk CONTACT_EMAIL .env faile}
     expose:
       - "8080"
+    # Pagal nutylėjimą tik vietinis (127.0.0.1). Su Nginx Proxy Manager .env faile nurodyk APP_BIND=0.0.0.0
+    ports:
+      - "${APP_BIND:-127.0.0.1}:8080:8080"
 
   # Variantas A (VPS su viešu IP): docker compose --profile caddy up -d --build
   caddy:

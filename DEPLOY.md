@@ -48,7 +48,27 @@ Atidaryk https://atsidek.eu ir patikrink, kad skaičiuoklė skaičiuoja, o https
 cd atsidek && git pull && docker compose --profile caddy up -d --build
 ```
 
-## Alternatyva: namų serveris (Proxmox) su Cloudflare Tunnel
+## Alternatyva: namų serveris (Proxmox) su Nginx Proxy Manager
+
+NPM jau priima srautą kaip riaubyne.eu, todėl Caddy ir tunelio nereikia.
+
+1. Proxmox: sukurk atskirą Debian/Ubuntu LXC (arba VM), 1 CPU, 1 GB RAM, 4 GB disko; LXC reikia *Nesting* (Options → Features). Duok jam pastovų LAN IP (DHCP rezervacija).
+2. Įdiek Docker (3 skyrius), `git clone`, sukurk `.env`:
+
+```bash
+printf 'CONTROLLER_NAME="Andrius Riauba, IV pažyma Nr. 1440039"
+CONTACT_EMAIL="info@atsidek.eu"
+APP_BIND=0.0.0.0
+' > .env
+docker compose up -d --build
+```
+
+Be profilio paleidžiamas tik `app` (8080). Ugniasiene / Proxmox firewall leisk 8080 tik iš NPM LXC (100) IP.
+3. NPM → Proxy Hosts → Add: domenai `atsidek.eu` ir `www.atsidek.eu`, scheme `http`, forward host = naujo LXC IP, port `8080`, įjunk *Block Common Exploits*. SSL skirtuke: Request a new certificate (Let's Encrypt), *Force SSL*, *HTTP/2*, *HSTS*.
+4. Cloudflare DNS: `atsidek.eu` ir `www` nukreipk lygiai taip, kaip nukreiptas riaubyne.eu (tas pats viešas IP arba CNAME į jo hostname, ir tas pats Proxied / DNS only nustatymas).
+5. `www` nukreipimą į pagrindinį domeną gali padaryti NPM (Redirection Host) arba palikti abu veikiančius.
+
+## Alternatyva: namų serveris su Cloudflare Tunnel (be NPM)
 
 Viešo IP ir atvirų prievadų nereikia, sertifikatus tvarko Cloudflare.
 
