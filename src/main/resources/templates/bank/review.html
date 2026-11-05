@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{bank/fragments :: head('Peržiūra')}"></head>
+<body>
+<header class="hero"><h1>Atsidėk</h1><p>2. Peržiūra ir patvirtinimas</p></header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
+<main>
+    <section class="card" th:if="${groups.isEmpty()}">
+        <p>Šiame importe gautų mokėjimų nėra. <a href="/importas">Įkelti kitą išrašą</a></p>
+    </section>
+
+    <form method="post" th:action="'/importai/' + ${importId} + '/patvirtinti'" th:if="${!groups.isEmpty()}">
+        <section class="card">
+            <p>Pažymėk, kurie gauti mokėjimai yra tavo veiklos pajamos. Pažymėti jau tinkamai atpažinti;
+               tik pajamos ir darbo užmokestis įskaičiuojamos į atsidėjimo sumą.</p>
+            <button type="submit" name="all" value="1">Patvirtinti viską</button>
+        </section>
+
+        <section class="card group" th:each="g : ${groups}" th:classappend="${g.bucket().name() == 'DECISION' and !g.confirmed()} ? 'need'">
+            <input type="hidden" th:name="'ids_' + ${g.index()}" th:value="${g.idList()}">
+            <p class="need-label" th:if="${g.bucket().name() == 'DECISION' and !g.confirmed()}">⚠ Reikia jūsų sprendimo</p>
+            <h3 th:text="${g.payer()}">Mokėtojas</h3>
+            <p><span th:text="${g.count()} + ' operacijų, '">1 operacija, </span><b th:text="${@money.eur(g.total())}">100,00 EUR</b></p>
+            <p class="explain" th:text="${g.confirmed()} ? 'Patvirtinta' : ${g.reason()}">Priskirta, nes…</p>
+            <label>Kategorija
+                <select th:name="'cat_' + ${g.index()}">
+                    <option th:each="c : ${categories}" th:value="${c.name()}" th:text="${c.label()}"
+                            th:selected="${c == g.category()}">Veiklos pajamos</option>
+                </select>
+            </label>
+            <label class="inline"><input type="checkbox" th:name="'ok_' + ${g.index()}" th:checked="${g.preChecked()}"> Patvirtinti</label>
+            <label class="inline"><input type="checkbox" th:name="'always_' + ${g.index()}"> Visada taip žymėti šį mokėtoją</label>
+        </section>
+
+        <section class="card">
+            <button type="submit">Patvirtinti pažymėtus</button>
+        </section>
+    </form>
+</main>
+</body>
+</html>

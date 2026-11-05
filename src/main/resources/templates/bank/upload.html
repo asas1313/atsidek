@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{bank/fragments :: head('Banko išrašas')}"></head>
+<body>
+<header class="hero"><h1>Atsidėk</h1><p>Įkelk banko išrašą – apskaičiuosime, kiek atsidėti</p></header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
+<main>
+    <section class="card" th:if="${failures != null and !failures.isEmpty()}">
+        <p class="err" th:each="f : ${failures}" th:text="${f}">Klaida</p>
+    </section>
+
+    <section class="card" th:each="r : ${reports}" th:if="${reports != null}">
+        <h2 th:text="${r.fileName()}">failas.xml</h2>
+        <p>Rado <b th:text="${r.parsed()}">0</b> operacijų, iš jų gautų mokėjimų: <b th:text="${r.incoming()}">0</b>.
+           Jau buvo: <b th:text="${r.duplicatesSkipped()}">0</b>. Reikia peržiūros: <b th:text="${r.needsReview()}">0</b>.</p>
+        <p class="err" th:if="${!r.errors().isEmpty()}" th:text="${r.errors().size()} + ' eilučių praleista dėl klaidų.'"></p>
+        <a th:href="'/importai/' + ${r.importId()}">Peržiūrėti ir patvirtinti →</a>
+    </section>
+
+    <section class="card">
+        <h2>1. Įkelk išrašą</h2>
+        <form method="post" action="/importas" enctype="multipart/form-data">
+            <label>Pasirink failą arba kelis (iki 10 MB kiekvienas)
+                <input type="file" name="file" multiple required accept=".xml,.csv,.txt">
+            </label>
+            <label th:if="${!accounts.isEmpty()}">Sąskaita (jei išraše nėra IBAN)
+                <select name="accountId">
+                    <option value="">Nauja / pagal banką</option>
+                    <option th:each="a : ${accounts}" th:value="${a.id()}" th:text="${a.label()}">Sąskaita</option>
+                </select>
+            </label>
+            <button type="submit">Įkelti</button>
+        </form>
+        <p class="small">Palaikome ISO 20022 (camt.053) XML išrašus ir Revolut CSV. Internetinėje bankininkystėje
+            ieškok „Sąskaitos išrašas“ → eksportas XML (ISO 20022 / camt.053) arba CSV. Originalus failas
+            neišsaugomas – saugome tik operacijų duomenis, kuriuos matai kitame žingsnyje.</p>
+    </section>
+
+    <section class="card" th:if="${!imports.isEmpty()}">
+        <h2>Ankstesni importai</h2>
+        <table>
+            <tr th:each="i : ${imports}">
+                <td><a th:href="'/importai/' + ${i.id()}" th:text="${i.from()} + ' – ' + ${i.to()}">2026-10-01 – 2026-10-31</a>
+                    <span class="small" th:text="${i.accountLabel()} + ', ' + ${i.txCount()} + ' operacijų'"></span></td>
+                <td>
+                    <form method="post" th:action="'/importai/' + ${i.id()} + '/istrinti'"
+                          onsubmit="return confirm('Ištrinti šį importą su visomis jo operacijomis?')">
+                        <button type="submit" class="link">Ištrinti</button>
+                    </form>
+                </td>
+            </tr>
+        </table>
+    </section>
+</main>
+</body>
+</html>

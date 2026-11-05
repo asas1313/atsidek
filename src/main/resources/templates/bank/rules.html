@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{bank/fragments :: head('Taisyklės')}"></head>
+<body>
+<header class="hero"><h1>Atsidėk</h1><p>Tavo taisyklės</p></header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
+<main>
+    <section class="card">
+        <p th:if="${rules.isEmpty()}">Taisyklių dar nėra. Jas sukursi peržiūros ekrane pažymėjęs „Visada taip žymėti“.</p>
+        <table th:if="${!rules.isEmpty()}">
+            <tr th:each="r : ${rules}">
+                <td><b th:text="${r.displayName() != null ? r.displayName() : 'Mokėtojas pagal sąskaitą'}">UAB Pavyzdys</b>
+                    <span class="small" th:text="'→ ' + ${r.category().label()}"></span></td>
+                <td>
+                    <form method="post" th:action="'/taisykles/' + ${r.id()} + '/istrinti'">
+                        <button type="submit" class="link">Ištrinti</button>
+                    </form>
+                </td>
+            </tr>
+        </table>
+    </section>
+</main>
+</body>
+</html>

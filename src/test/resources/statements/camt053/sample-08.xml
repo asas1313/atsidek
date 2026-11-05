@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <BkToCstmrStmt>
+    <Stmt>
+      <Id>STMT-8</Id>
+      <Acct><Id><IBAN>LT12 7300 0101 2345 6789</IBAN></Id></Acct>
+      <Ntry>
+        <Amt Ccy="EUR">800.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><DtTm>2026-11-03T10:15:00</DtTm></BookgDt>
+        <AcctSvcrRef>REF-8-1</AcctSvcrRef>
+        <NtryDtls><TxDtls>
+          <RltdPties>
+            <Dbtr><Pty><Nm>Gmbh Kunde GmbH</Nm></Pty></Dbtr>
+            <DbtrAcct><Id><IBAN>DE89370400440532013000</IBAN></Id></DbtrAcct>
+          </RltdPties>
+          <RmtInf><Strd><CdtrRefInf><Ref>RF18539007547034</Ref></CdtrRefInf></Strd></RmtInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

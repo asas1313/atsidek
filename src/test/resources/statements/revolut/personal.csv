@@ -1,0 +1,6 @@
+Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance
+TRANSFER,Current,2026-10-02 09:00:00,2026-10-02 09:00:05,Payment from UAB Klientas,"1,500.00",0.00,EUR,COMPLETED,1500.00
+CARD_PAYMENT,Current,2026-10-03 12:00:00,2026-10-03 12:00:01,Maxima,-12.50,0.00,EUR,COMPLETED,1487.50
+TRANSFER,Current,2026-10-04 12:00:00,,Payment from Petras,40.00,0.00,EUR,PENDING,
+TOPUP,Current,2026-10-05 12:00:00,2026-10-05 12:00:02,Payment from Anna,20.00,0.00,USD,COMPLETED,
+TRANSFER,Current,2026-10-06 12:00:00,31/10/26,Payment from Bad Date,10.00,0.00,EUR,COMPLETED,

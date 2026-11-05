@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{bank/fragments :: head('Suvestinė')}"></head>
+<body>
+<header class="hero"><h1>Atsidėk</h1><p>3. Rezultatas</p></header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
+<main>
+    <section class="card" th:if="${s.headline() == null}">
+        <p>Patvirtintų pajamų už <b th:text="${s.year()}">2026</b> m. dar nėra.
+           <a href="/importas">Įkelk banko išrašą</a>.</p>
+    </section>
+
+    <section class="card" th:if="${s.headline() != null}">
+        <p class="small" th:text="'Už ' + ${s.year()} + '-' + ${#numbers.formatInteger(s.headline().month(), 2)}">Už 2026-10</p>
+        <p class="hugenum">Atsidėk <strong th:text="${@money.eur(s.headline().setAside())}">412,30 EUR</strong></p>
+        <p>Mėnesio pajamos: <b th:text="${@money.eur(s.headline().business())}">0</b>
+           <span th:if="${s.headline().salary().signum() > 0}">
+               (+ darbo užmokestis <span th:text="${@money.eur(s.headline().salary())}"></span>)</span></p>
+        <p>Metų pajamos iki šiol: <b th:text="${@money.eur(s.ytdIncome())}">0</b></p>
+        <div class="bar" role="img" th:attr="aria-label='Pasiekta ' + ${pct} + ' proc. 36 VDU ribos'">
+            <div class="fill" th:style="'width:' + ${pct} + '%'"></div>
+        </div>
+        <p class="small" th:text="${pct} + ' % iki 36 VDU (' + ${@money.eur(s.bracket1())} + '), nuo kurios GPM tarifas didėja iki 25 %.'"></p>
+        <p class="small">Tai orientacinis įvertis pagal Atsidėk skaičiuoklės variklį (GPM + Sodra, geresnis iš 30 % ar faktinių
+           išlaidų metodo; faktinės išlaidos kol kas 0). Darbo užmokestis skaičiuojamas pagal gautą sumą banke.</p>
+    </section>
+
+    <section class="card" th:if="${s.headline() != null}">
+        <h2>Pagal mėnesius</h2>
+        <table>
+            <tr><td><b>Mėn.</b></td><td><b>Pajamos</b></td><td><b>Atsidėti</b></td></tr>
+            <tr th:each="m : ${s.months()}" th:if="${m.hasData()}">
+                <td th:text="${m.month()}">10</td>
+                <td th:text="${@money.eur(m.business().add(m.salary()))}">0</td>
+                <td th:text="${@money.eur(m.setAside())}">0</td>
+            </tr>
+        </table>
+    </section>
+</main>
+</body>
+</html>
