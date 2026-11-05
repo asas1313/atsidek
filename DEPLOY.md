@@ -130,3 +130,15 @@ sudo chown -R <runner-vartotojas> /opt/atsidek && sudo chmod 600 /opt/atsidek/*.
 
 - Privatumo politikos tekstą peržiūrėti su teisininku; analitika (Plausible), Uptime Kuma, SEO straipsniai, `sitemap.xml`/`robots.txt`.
 - El. pašto registracijos forma pašalinta iki mokamos versijos; ji yra git istorijoje (commit 7aac68a), jei reikės grąžinti.
+
+## Banko išrašų importas (PAPILDYNYS-01)
+
+Ekranai (`/importas`, `/suvestine`, `/taisykles`, `/nustatymai`) pagal nutylėjimą **išjungti** (404). Staging `staging.env` faile pridėk:
+
+```bash
+BANK_ENABLED=true
+BANK_PASSWORD=<ilgas atsitiktinis slaptažodis>   # HTTP Basic (bet koks vartotojo vardas)
+BANK_IBAN_SALT=<atsitiktinė druska, nekeisti>    # mokėtojų IBAN maišoms; pakeitus senos taisyklės nebesutaps
+```
+
+Duomenys (H2 failas) gyvena `DATA_DIR` kataloge; `deploy.sh` jį sukuria su teisėmis konteinerio vartotojui. Kol nėra paskyrų, yra tik vienas vartotojas – staging naudok tik su nuasmenintais ar savo duomenimis ir palik Cloudflare Access. Production'e `BANK_ENABLED` nejunk.

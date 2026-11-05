@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{bank/fragments :: head('Nustatymai')}"></head>
+<body>
+<header class="hero"><h1>Atsidėk</h1><p>Nustatymai</p></header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
+<main>
+    <section class="card" th:if="${deleted}">
+        <p class="ok">Visi banko duomenys ištrinti.</p>
+    </section>
+    <section class="card">
+        <h2>Sąskaitos</h2>
+        <p th:if="${accounts.isEmpty()}">Sąskaitų nėra.</p>
+        <ul><li th:each="a : ${accounts}" th:text="${a.label()}">LT12 7300…</li></ul>
+    </section>
+    <section class="card">
+        <h2>Duomenų trynimas</h2>
+        <p>Ištrins visas operacijas, importus, taisykles ir sąskaitas. Veiksmo atšaukti negalima.</p>
+        <form method="post" action="/nustatymai/istrinti-viska"
+              onsubmit="return confirm('Ištrinti VISUS banko duomenis? Veiksmo atšaukti negalima.')">
+            <button type="submit" class="danger">Ištrinti visus banko duomenis</button>
+        </form>
+    </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head(title)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title th:text="${title} + ' – Atsidėk'">Atsidėk</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<nav th:fragment="nav" class="bank-nav">
+    <a href="/">Skaičiuoklė</a>
+    <a href="/importas">Įkelti išrašą</a>
+    <a href="/suvestine">Suvestinė</a>
+    <a href="/taisykles">Taisyklės</a>
+    <a href="/nustatymai">Nustatymai</a>
+</nav>
+</body>
+</html>

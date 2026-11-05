@@ -11,6 +11,9 @@ services:
       ATSIDEK_NOINDEX: ${NOINDEX:-false}
       ATSIDEK_CONTROLLER_NAME: ${CONTROLLER_NAME:?nurodyk CONTROLLER_NAME .env faile}
       ATSIDEK_CONTACT_EMAIL: ${CONTACT_EMAIL:?nurodyk CONTACT_EMAIL .env faile}
+      ATSIDEK_BANK_ENABLED: ${BANK_ENABLED:-false}
+      ATSIDEK_BANK_PASSWORD: ${BANK_PASSWORD:-}
+      ATSIDEK_BANK_IBAN_SALT: ${BANK_IBAN_SALT:-dev-only-salt}
     expose:
       - "8080"
     # Pagal nutylėjimą tik vietinis (127.0.0.1). Su Nginx Proxy Manager .env faile nurodyk APP_BIND=0.0.0.0

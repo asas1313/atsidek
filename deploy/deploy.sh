@@ -3,7 +3,8 @@
 # Naudojimas: deploy/deploy.sh <staging|production> <git-sha>
 #
 # Kiekviena aplinka turi savo failą /opt/atsidek/<aplinka>.env (CONTROLLER_NAME,
-# CONTACT_EMAIL, TUNNEL_TOKEN, APP_PORT, CANONICAL_HOST, NOINDEX, DATA_DIR).
+# CONTACT_EMAIL, TUNNEL_TOKEN, APP_PORT, CANONICAL_HOST, NOINDEX, DATA_DIR,
+# BANK_ENABLED, BANK_PASSWORD, BANK_IBAN_SALT).
 set -euo pipefail
 
 ENV_NAME="${1:?aplinka: staging arba production}"
@@ -15,6 +16,10 @@ TAG="${SHA:0:12}"
 PORT="$(grep -E '^APP_PORT=' "$ENV_FILE" | cut -d= -f2)"
 PORT="${PORT:-8080}"
 export IMAGE_TAG="$TAG"
+
+# Duomenų katalogas (H2 failas) turi būti įrašomas konteinerio vartotojui (uid 10001)
+DATA_DIR="$(grep -E '^DATA_DIR=' "$ENV_FILE" | cut -d= -f2)"
+if [ -n "$DATA_DIR" ]; then mkdir -p "$DATA_DIR" && chmod 0777 "$DATA_DIR"; fi
 
 COMPOSE=(docker compose -p "atsidek-${ENV_NAME}" --env-file "$ENV_FILE" --profile tunnel)
 

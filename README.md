@@ -20,4 +20,5 @@ mvn test
 ## Prieš viešą paleidimą
 
 Variklis sutikrintas su oficialia VMI/Sodros individualios veiklos skaičiuokle (scenarijai #1–7, #10; žr. VERIFIKAVIMO-REZULTATAI.md). Kitų pajamų (darbas) sumavimas apskaičiuotas pagal VMI DUK, oficiali skaičiuoklė jo nepalaiko. Nerealizuota: pirmųjų metų lengvata, pensininkai, PSD draudimas kitur.
-Nepadaryta (mokama dalis, kiti etapai): paskyros, magic link, mėnesio suvestinė, mokėjimai, priminimai, PostgreSQL.
+Banko išrašų importas (PAPILDYNYS-01, vieno vartotojo MVP, išjungtas pagal nutylėjimą; žr. DEPLOY.md): camt.053 (.02/.08) ir Revolut CSV, klasifikavimas, peržiūra, mėnesio suvestinė, H2 failas.
+Nepadaryta: paskyros, magic link, mokėjimai ir plano tikrinimas (402), Swedbank/SEB/Paysera CSV (reikia realių pavyzdžių), priminimai, PostgreSQL.
