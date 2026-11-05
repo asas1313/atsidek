@@ -86,7 +86,7 @@ class BankFlowTest {
         assertThat(oct.setAside()).isPositive();
         // mėnesio suma = metinio įverčio skirtumas (be apvalinimo klaidų)
         assertThat(s.months().stream().map(SummaryService.Month::setAside).reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add))
-                .isEqualByComparingTo(s.months().get(11).ytdTax());
+                .isEqualByComparingTo(oct.ytdTax());
         mvc.perform(get("/suvestine?year=2026").header("Authorization", AUTH)).andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Atsidėk")));
     }
