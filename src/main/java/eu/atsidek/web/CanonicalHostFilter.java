@@ -1,4 +1,4 @@
-package lt.atsidek.web;
+package eu.atsidek.web;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

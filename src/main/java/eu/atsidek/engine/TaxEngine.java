@@ -1,4 +1,4 @@
-package lt.atsidek.engine;
+package eu.atsidek.engine;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;

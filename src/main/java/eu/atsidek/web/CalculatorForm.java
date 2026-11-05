@@ -1,8 +1,8 @@
-package lt.atsidek.web;
+package eu.atsidek.web;
 
 import java.math.BigDecimal;
-import lt.atsidek.engine.ExpenseMethod;
-import lt.atsidek.engine.TaxInput;
+import eu.atsidek.engine.ExpenseMethod;
+import eu.atsidek.engine.TaxInput;
 
 /** Formos laukai laikomi tekstu, kad „12 000,50“ ir panašūs įvedimai nesukeltų klaidos. */
 public class CalculatorForm {

@@ -1,4 +1,4 @@
-package lt.atsidek.engine;
+package eu.atsidek.engine;
 
 public enum ExpenseMethod {
     /** 30 % pajamų išlaidų metodas. */

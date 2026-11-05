@@ -4,7 +4,7 @@ Oct 23, 2026 · @Andrius
 
 ## Pavadinimas
 
-Produktas vadinasi **Atsidėk**, pagrindinis domenas atsidek.lt. Pavadinimas yra pats produkto pažadas: kas mėnesį pasakyti, kiek atsidėti mokesčiams. Papildomas SEO domenas kiekatideti.lt nukreipia į nemokamą skaičiuoklę.
+Produktas vadinasi **Atsidėk**, pagrindinis domenas atsidek.eu (veikia gyvai). Pavadinimas yra pats produkto pažadas: kas mėnesį pasakyti, kiek atsidėti mokesčiams. Papildomas SEO domenas kiekatideti.lt nukreipia į nemokamą skaičiuoklę.
 
 Šūkio variantas: „Atsidėk ir pamiršk balandžio stresą.“ Projekto katalogas: `iv-mokesciu-skaiciuokle`.
 
@@ -179,7 +179,8 @@ Didžiausia rizika yra ne techninė, o rinkos: mažas Lietuvos vartotojų noras 
 
 Atviri klausimai:
 
-- [ ] Patikrinti ir užregistruoti atsidek.lt bei kiekatideti.lt domenus (domreg.lt)
+- [x] Pagrindinis domenas atsidek.eu užregistruotas ir veikia gyvai
+- [ ] Pasirinktinai: užregistruoti atsidek.lt ir kiekatideti.lt (nukreipimui į atsidek.eu)
 - [ ] Stripe ar Paddle (PVM tvarkymas parduodant ES fiziniams asmenims)
 - [ ] Ar teisinis atsakomybės ribojimas pakankamas, ar reikia teisininko peržiūros
 - [ ] Ar verta konsultuotis su buhalteriu dėl skaičiavimo variklio patikrinimo

@@ -14,8 +14,8 @@ mvn test
 
 ## Struktūra
 
-- `lt.atsidek.engine` – gryna Java, be Spring. `TaxRules.RULES_2026` – versijuojami parametrai; kasmet pridedama nauja versija.
-- `lt.atsidek.web` – Thymeleaf + htmx: `/` (skaičiuoklė), `/calculate` (fragmentas).
+- `eu.atsidek.engine` – gryna Java, be Spring. `TaxRules.RULES_2026` – versijuojami parametrai; kasmet pridedama nauja versija.
+- `eu.atsidek.web` – Thymeleaf + htmx: `/` (skaičiuoklė), `/calculate` (fragmentas).
 
 ## Prieš viešą paleidimą
 

@@ -8,7 +8,7 @@ Architektūra: vienas VPS, `docker compose` paleidžia `app` (Spring Boot) ir `c
 2. Cloud Firewall: leisti tik TCP **22**, **80**, **443** ir UDP **443**. SSH geriau riboti savo IP.
 3. Pasirinktinai įjunk Hetzner Backups (+20 % kainos).
 
-## 2. DNS (domreg.lt arba tavo registratoriaus panelėje)
+## 2. DNS (Cloudflare)
 
 | Vardas | Tipas | Reikšmė |
 | --- | --- | --- |

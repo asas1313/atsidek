@@ -1,4 +1,4 @@
-package lt.atsidek;
+package eu.atsidek;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
