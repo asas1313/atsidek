@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 /**
  * Patvirtintas pajamas paduoda esamam skaičiavimo varikliui (mokesčių logika lieka vienoje vietoje).
  * Mėnesio suma = metinė prognozė iki mėnesio pabaigos − prognozė iki ankstesnio mėnesio pabaigos.
+ * Minimalus PSD kaupiasi tik mėnesiais, kuriuos vartotojas nurodė nustatymuose (kitais PSD moka darbdavys).
  */
 @Service
 public class SummaryService {
@@ -36,13 +37,14 @@ public class SummaryService {
     }
 
     /** Metinis mokesčių įvertis (GPM + Sodra) pagal geresnį iš dviejų išlaidų metodų. */
-    BigDecimal estimate(BigDecimal business, BigDecimal salary) {
-        TaxInput in = new TaxInput(business, null, BigDecimal.ZERO, salary, false);
+    BigDecimal estimate(BigDecimal business, BigDecimal salary, int psdMonths) {
+        TaxInput in = new TaxInput(business, null, BigDecimal.ZERO, salary, false, psdMonths);
         return engine.compare(in).better().total();
     }
 
     public Summary summary(int year) {
         List<BankStore.MonthSum> sums = store.confirmedMonthlySums(currentUser.id(), year);
+        int psdFrom = psdFrom(), psdTo = psdTo();
         List<Month> months = new ArrayList<>();
         BigDecimal ytdB = BigDecimal.ZERO, ytdS = BigDecimal.ZERO, prevTax = BigDecimal.ZERO;
         Month headline = null;
@@ -51,7 +53,7 @@ public class SummaryService {
             BigDecimal b = sum(sums, mm, Category.BUSINESS_INCOME), s = sum(sums, mm, Category.SALARY);
             ytdB = ytdB.add(b);
             ytdS = ytdS.add(s);
-            BigDecimal tax = estimate(ytdB, ytdS);
+            BigDecimal tax = estimate(ytdB, ytdS, Math.max(0, Math.min(m, psdTo) - psdFrom + 1));
             Month row = new Month(m, b, s, ytdB, ytdS, tax, tax.subtract(prevTax).setScale(2, RoundingMode.HALF_UP));
             months.add(row);
             if (row.hasData()) headline = row;
@@ -61,6 +63,10 @@ public class SummaryService {
         return new Summary(year, months, headline, ytdB.add(ytdS),
                 rules.bracket1Vdu().multiply(vdu), rules.bracket2Vdu().multiply(vdu));
     }
+
+    public int psdFrom() { return store.intSetting(currentUser.id(), "psd_from", 1); }
+
+    public int psdTo() { return store.intSetting(currentUser.id(), "psd_to", 12); }
 
     private static BigDecimal sum(List<BankStore.MonthSum> sums, int month, Category c) {
         return sums.stream().filter(x -> x.month() == month && x.category() == c)

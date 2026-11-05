@@ -151,4 +151,18 @@ class BankFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("neatpažįstame")));
     }
+
+    @Test
+    void minimumPsdAccruesOnlyInChosenMonths() throws Exception {
+        imports.importFile("a.xml", file("camt053/sample-02.xml"), null);
+        review.apply(review.groups(store.imports(user.id()).get(0).id()).stream()
+                .map(g -> new ReviewService.Decision(g.ids(), g.category(), true, false)).toList());
+        java.math.BigDecimal full = summaries.summary(2026).months().get(9).setAside();   // visi 12 mėn. (numatyta)
+        mvc.perform(post("/nustatymai/psd").header("Authorization", AUTH).param("psdFrom", "10").param("psdTo", "12"))
+                .andExpect(status().is3xxRedirection());
+        SummaryService.Summary s = summaries.summary(2026);
+        // spalį minimalus PSD kaupiamas tik už 1 mėnesį (80,48), o ne už visus 12 (965,76)
+        assertThat(s.months().get(9).setAside()).isLessThan(full);
+        assertThat(full.subtract(s.months().get(9).setAside())).isBetween(java.math.BigDecimal.valueOf(500), new java.math.BigDecimal("885.28"));
+    }
 }

@@ -14,6 +14,20 @@
         <ul><li th:each="a : ${accounts}" th:text="${a.label()}">LT12 7300…</li></ul>
     </section>
     <section class="card">
+        <h2>Kada pats moki PSD?</h2>
+        <p>Jei dalį metų dirbi pagal darbo sutartį ir PSD už tave moka darbdavys, minimalios PSD įmokos už tuos mėnesius
+           mokėti nereikia. Nurodyk mėnesius, kai vykdai IV veiklą be darbdavio mokamo PSD.</p>
+        <form method="post" action="/nustatymai/psd">
+            <label class="inline">Nuo
+                <select name="psdFrom"><option th:each="m : ${#numbers.sequence(1,12)}" th:value="${m}" th:text="${m} + ' mėn.'" th:selected="${m == psdFrom}"></option></select>
+            </label>
+            <label class="inline">Iki
+                <select name="psdTo"><option th:each="m : ${#numbers.sequence(1,12)}" th:value="${m}" th:text="${m} + ' mėn.'" th:selected="${m == psdTo}"></option></select>
+            </label>
+            <button type="submit">Išsaugoti</button>
+        </form>
+    </section>
+    <section class="card">
         <h2>Duomenų trynimas</h2>
         <p>Ištrins visas operacijas, importus, taisykles ir sąskaitas. Veiksmo atšaukti negalima.</p>
         <form method="post" action="/nustatymai/istrinti-viska"

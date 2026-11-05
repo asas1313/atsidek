@@ -88,6 +88,7 @@ public class BankStore {
         jdbc.update("DELETE FROM statement_import WHERE user_id = ?", user);
         jdbc.update("DELETE FROM classification_rule WHERE user_id = ?", user);
         jdbc.update("DELETE FROM bank_account WHERE user_id = ?", user);
+        jdbc.update("DELETE FROM user_setting WHERE user_id = ?", user);
     }
 
     // ---- operacijos
@@ -190,6 +191,23 @@ public class BankStore {
 
     public void deleteRule(String user, long id) {
         jdbc.update("DELETE FROM classification_rule WHERE id = ? AND user_id = ?", id, user);
+    }
+
+    // ---- nustatymai
+
+    public int intSetting(String user, String key, int def) {
+        List<String> v = jdbc.queryForList("SELECT setting_value FROM user_setting WHERE user_id = ? AND setting_key = ?",
+                String.class, user, key);
+        try {
+            return v.isEmpty() ? def : Integer.parseInt(v.get(0));
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    public void setSetting(String user, String key, String value) {
+        jdbc.update("DELETE FROM user_setting WHERE user_id = ? AND setting_key = ?", user, key);
+        jdbc.update("INSERT INTO user_setting (user_id, setting_key, setting_value) VALUES (?,?,?)", user, key, value);
     }
 
     // ---- suvestinė

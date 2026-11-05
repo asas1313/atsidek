@@ -49,3 +49,10 @@ CREATE TABLE IF NOT EXISTS classification_rule (
     category VARCHAR(30) NOT NULL,
     created_at TIMESTAMP NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS user_setting (
+    user_id VARCHAR(64) NOT NULL,
+    setting_key VARCHAR(40) NOT NULL,
+    setting_value VARCHAR(200) NOT NULL,
+    PRIMARY KEY (user_id, setting_key)
+);
