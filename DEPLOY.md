@@ -87,7 +87,7 @@ Caddy šiame variante nenaudojamas. `X-Forwarded-*` antraštes perduoda Cloudfla
 
 Namų serveris (Proxmox LXC su Docker ir Cloudflare Tunnel). Workflow: `.github/workflows/ci.yml`.
 
-Eiga: PR → `mvn test`. Merge į `main` → testai → **staging** (`staging.atsidek.eu`) automatiškai → **production** (`atsidek.eu`) po rankinio patvirtinimo. Production gauna tą patį image (`atsidek:<sha>`), kuris buvo išbandytas staging'e. Diegia `deploy/deploy.sh`, kuris paleidžia `docker compose` ir tikrina, ar programa atsako.
+Eiga: PR → `mvn test`. Merge į `main` → testai → **staging** (`staging.atsidek.eu`) automatiškai ir sustoja. **Production** (`atsidek.eu`) diegiamas tik rankiniu mygtuku: GitHub → Actions → „CI ir diegimas“ → **Run workflow** (šaka `main`). Jei to commit'o image jau sukurtas staging'e (`atsidek:<sha>`), production naudoja būtent jį. Diegia `deploy/deploy.sh`, kuris paleidžia `docker compose` ir tikrina, ar programa atsako.
 
 ### Vienkartinis paruošimas
 
@@ -119,12 +119,12 @@ sudo chown -R <runner-vartotojas> /opt/atsidek && sudo chmod 600 /opt/atsidek/*.
 
 3. **Staging tunelis**: Cloudflare Zero Trust → Tunnels → Create tunnel (antras) → Public hostname `staging.atsidek.eu` → HTTP → `app:8080`. Rekomenduojama papildomai uždėti Cloudflare Access (Zero Trust → Access → Applications), kad staging matytum tik tu.
 4. **Esamas production**: dabartinį rankiniu būdu paleistą stack'ą sustabdyk (`docker compose --profile tunnel down` senoje direktorijoje), kad nesidubliuotų su `atsidek-production` projektu. Naujas projektas naudoja tą patį tunelio tokeną, todėl DNS keisti nereikia.
-5. **GitHub Environments** (repo → Settings → Environments): sukurk `staging` (be apribojimų) ir `production` su **Required reviewers** (pats save). Be reviewers production taip pat bus diegiamas automatiškai.
+5. **GitHub Environments** (repo → Settings → Environments): sukurk `staging` ir `production`. Required reviewers privačiame repo veikia tik mokamuose planuose, todėl patvirtinimo funkciją atlieka rankinis „Run workflow“.
 
 ### Pastabos
 
 - Self-hosted runner vykdo kodą tavo serveryje, todėl diegimo darbai paleidžiami tik `push` į `main`, o PR vykdo tik GitHub hostinamus testus. Jei repo viešas, Settings → Actions → General palik „Require approval for outside collaborators“.
-- Atšaukimas: Actions skiltyje iš naujo paleisk ankstesnio sėkmingo run'o `production` darbą; senas image gali būti jau išvalytas, tada bus perbuildintas iš to commit'o.
+- Atšaukimas: „Run workflow“ visada diegia `main` galvą, todėl atšaukimui padaryk `git revert` ir paleisk jį iš naujo.
 
 ## Dar neaptarta
 
