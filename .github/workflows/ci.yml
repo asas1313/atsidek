@@ -1,0 +1,45 @@
+name: CI ir diegimas
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - run: mvn -B -ntp test
+
+  # Diegimo darbai vyksta tik po merge į main ir tik namų serveryje (self-hosted runner),
+  # niekada PR kodui.
+  staging:
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: [self-hosted, atsidek]
+    environment:
+      name: staging
+      url: https://staging.atsidek.eu
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./deploy/deploy.sh staging "${{ github.sha }}"
+
+  production:
+    needs: staging
+    runs-on: [self-hosted, atsidek]
+    environment:
+      name: production # Settings → Environments → production → Required reviewers
+      url: https://atsidek.eu
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./deploy/deploy.sh production "${{ github.sha }}"
