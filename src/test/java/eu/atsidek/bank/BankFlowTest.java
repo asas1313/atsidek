@@ -78,7 +78,7 @@ class BankFlowTest {
         mvc.perform(req).andExpect(status().is3xxRedirection());
 
         int year = 2026;
-        SummaryService.Summary s = summaries.summary(year);
+        SummaryService.Summary s = summaries.summary(year, java.time.LocalDate.of(2026, 10, 20));
         // UAB Pavyzdys 1210 + MB Vienas 100 + MB Du 50 = 1360 (Jonas nepatvirtintas)
         assertThat(s.ytdIncome()).isEqualByComparingTo("1360.00");
         SummaryService.Month oct = s.months().get(9);
@@ -158,16 +158,21 @@ class BankFlowTest {
         review.apply(review.groups(store.imports(user.id()).get(0).id()).stream()
                 .map(g -> new ReviewService.Decision(g.ids(), g.category(), true, false)).toList());
         // visi 12 mėn. (numatyta): minimalus PSD pasiskirsto per mėnesius iki pirmų pajamų (sausis–rugsėjis)
-        SummaryService.Summary all = summaries.summary(2026);
+        SummaryService.Summary all = summaries.summary(2026, java.time.LocalDate.of(2026, 10, 20));
         assertThat(all.months().get(0).hasData()).isTrue();
         assertThat(all.months().get(0).setAside()).isEqualByComparingTo("80.48");
         assertThat(all.months().get(8).setAside()).isEqualByComparingTo("80.48");
         mvc.perform(post("/nustatymai/psd").header("Authorization", AUTH).param("psdFrom", "10").param("psdTo", "12"))
                 .andExpect(status().is3xxRedirection());
-        SummaryService.Summary s = summaries.summary(2026);
+        SummaryService.Summary s = summaries.summary(2026, java.time.LocalDate.of(2026, 10, 20));
         // tik nuo spalio: ankstesni mėnesiai nerodomi, spalį – vienas minimalaus PSD mėnuo
         assertThat(s.months().get(0).hasData()).isFalse();
         assertThat(s.months().get(8).hasData()).isFalse();
         assertThat(s.months().get(9).setAside()).isEqualByComparingTo(all.months().get(9).setAside());
+        // po paskutinių pajamų: PSD skaičiuojamas iki šiandienos (ne vėliau), laikantis „iki“ ribos
+        SummaryService.Summary dec = summaries.summary(2026, java.time.LocalDate.of(2026, 12, 5));
+        assertThat(dec.months().get(10).setAside()).isEqualByComparingTo("80.48");
+        assertThat(dec.months().get(11).setAside()).isEqualByComparingTo("80.48");
+        assertThat(summaries.summary(2026, java.time.LocalDate.of(2026, 11, 5)).months().get(11).hasData()).isFalse();
     }
 }
