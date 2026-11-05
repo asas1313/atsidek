@@ -1,19 +1,21 @@
 services:
   app:
     build: .
+    image: atsidek:${IMAGE_TAG:-local}
     restart: unless-stopped
     volumes:
-      - ./data:/app/data
+      - ${DATA_DIR:-./data}:/app/data
     environment:
       SERVER_FORWARD_HEADERS_STRATEGY: framework
-      ATSIDEK_CANONICAL_HOST: atsidek.eu
+      ATSIDEK_CANONICAL_HOST: ${CANONICAL_HOST:-atsidek.eu}
+      ATSIDEK_NOINDEX: ${NOINDEX:-false}
       ATSIDEK_CONTROLLER_NAME: ${CONTROLLER_NAME:?nurodyk CONTROLLER_NAME .env faile}
       ATSIDEK_CONTACT_EMAIL: ${CONTACT_EMAIL:?nurodyk CONTACT_EMAIL .env faile}
     expose:
       - "8080"
     # Pagal nutylėjimą tik vietinis (127.0.0.1). Su Nginx Proxy Manager .env faile nurodyk APP_BIND=0.0.0.0
     ports:
-      - "${APP_BIND:-127.0.0.1}:8080:8080"
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
 
   # Variantas A (VPS su viešu IP): docker compose --profile caddy up -d --build
   caddy:

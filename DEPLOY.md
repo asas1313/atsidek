@@ -83,6 +83,49 @@ docker compose --profile tunnel up -d --build
 
 Caddy šiame variante nenaudojamas. `X-Forwarded-*` antraštes perduoda Cloudflare.
 
+## Automatinis diegimas iš GitHub (staging + production)
+
+Namų serveris (Proxmox LXC su Docker ir Cloudflare Tunnel). Workflow: `.github/workflows/ci.yml`.
+
+Eiga: PR → `mvn test`. Merge į `main` → testai → **staging** (`staging.atsidek.eu`) automatiškai → **production** (`atsidek.eu`) po rankinio patvirtinimo. Production gauna tą patį image (`atsidek:<sha>`), kuris buvo išbandytas staging'e. Diegia `deploy/deploy.sh`, kuris paleidžia `docker compose` ir tikrina, ar programa atsako.
+
+### Vienkartinis paruošimas
+
+1. **Runner**: tame pačiame LXC (kur Docker) įdiek GitHub self-hosted runner (repo → Settings → Actions → Runners → New self-hosted runner, Linux x64). Konfigūruodamas pridėk etiketę `atsidek`, įdiek kaip servisą (`sudo ./svc.sh install && sudo ./svc.sh start`), pridėk jo vartotoją į `docker` grupę. Runner jungiasi į GitHub pats, prievadų atidaryti nereikia.
+2. **Aplinkų failai serveryje** (slaptų reikšmių GitHub'e laikyti nereikia):
+
+```bash
+sudo mkdir -p /opt/atsidek/production-data /opt/atsidek/staging-data
+sudo tee /opt/atsidek/production.env >/dev/null <<'EOF'
+CONTROLLER_NAME="Andrius Riauba, IV pažyma Nr. 1440039"
+CONTACT_EMAIL="info@atsidek.eu"
+TUNNEL_TOKEN=<esamo tunelio tokenas>
+APP_PORT=8080
+CANONICAL_HOST=atsidek.eu
+NOINDEX=false
+DATA_DIR=/opt/atsidek/production-data
+EOF
+sudo tee /opt/atsidek/staging.env >/dev/null <<'EOF'
+CONTROLLER_NAME="Andrius Riauba, IV pažyma Nr. 1440039"
+CONTACT_EMAIL="info@atsidek.eu"
+TUNNEL_TOKEN=<naujo staging tunelio tokenas>
+APP_PORT=8081
+CANONICAL_HOST=staging.atsidek.eu
+NOINDEX=true
+DATA_DIR=/opt/atsidek/staging-data
+EOF
+sudo chown -R <runner-vartotojas> /opt/atsidek && sudo chmod 600 /opt/atsidek/*.env
+```
+
+3. **Staging tunelis**: Cloudflare Zero Trust → Tunnels → Create tunnel (antras) → Public hostname `staging.atsidek.eu` → HTTP → `app:8080`. Rekomenduojama papildomai uždėti Cloudflare Access (Zero Trust → Access → Applications), kad staging matytum tik tu.
+4. **Esamas production**: dabartinį rankiniu būdu paleistą stack'ą sustabdyk (`docker compose --profile tunnel down` senoje direktorijoje), kad nesidubliuotų su `atsidek-production` projektu. Naujas projektas naudoja tą patį tunelio tokeną, todėl DNS keisti nereikia.
+5. **GitHub Environments** (repo → Settings → Environments): sukurk `staging` (be apribojimų) ir `production` su **Required reviewers** (pats save). Be reviewers production taip pat bus diegiamas automatiškai.
+
+### Pastabos
+
+- Self-hosted runner vykdo kodą tavo serveryje, todėl diegimo darbai paleidžiami tik `push` į `main`, o PR vykdo tik GitHub hostinamus testus. Jei repo viešas, Settings → Actions → General palik „Require approval for outside collaborators“.
+- Atšaukimas: Actions skiltyje iš naujo paleisk ankstesnio sėkmingo run'o `production` darbą; senas image gali būti jau išvalytas, tada bus perbuildintas iš to commit'o.
+
 ## Dar neaptarta
 
 - Privatumo politikos tekstą peržiūrėti su teisininku; analitika (Plausible), Uptime Kuma, SEO straipsniai, `sitemap.xml`/`robots.txt`.
