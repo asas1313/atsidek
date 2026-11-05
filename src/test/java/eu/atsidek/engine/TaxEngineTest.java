@@ -130,4 +130,18 @@ class TaxEngineTest {
         TaxInput in = new TaxInput(d("10000"), ExpenseMethod.ACTUAL, d("99999"), BigDecimal.ZERO, false);
         assertEquals(d("0.00"), engine.calculate(in).taxableIncome());
     }
+
+    @Test
+    void minimumPsdOnlyForSelectedMonths() {
+        // 12 000 €: PSD nuo pajamų (≈ 527 €) mažesnė už minimumą, todėl minimumas lemia sumą
+        TaxResult all = engine.calculate(flat("12000", "0", false));
+        TaxResult sevenMonths = engine.calculate(
+                new TaxInput(d("12000"), ExpenseMethod.FLAT_30, BigDecimal.ZERO, BigDecimal.ZERO, false, 7));
+        assertEquals(d("563.36"), sevenMonths.psd());                  // 7 × 80,48
+        assertTrue(sevenMonths.total().compareTo(all.total()) < 0);
+        // nulis mėnesių: lieka tik PSD nuo pajamų (6,98 % × 90 % × 8 400)
+        TaxResult none = engine.calculate(
+                new TaxInput(d("12000"), ExpenseMethod.FLAT_30, BigDecimal.ZERO, BigDecimal.ZERO, false, 0));
+        assertEquals(d("527.69"), none.psd());
+    }
 }

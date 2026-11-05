@@ -12,10 +12,18 @@ public class CalculatorForm {
     private String actualExpenses = "";
     private String otherIncome = "";
     private boolean pillar2;
+    private int psdFrom = 1;
+    private int psdTo = 12;
 
     public TaxInput toInput() {
         ExpenseMethod m = "ACTUAL".equals(method) ? ExpenseMethod.ACTUAL : ExpenseMethod.FLAT_30;
-        return new TaxInput(parse(revenue), m, parse(actualExpenses), parse(otherIncome), pillar2);
+        return new TaxInput(parse(revenue), m, parse(actualExpenses), parse(otherIncome), pillar2, psdMonths());
+    }
+
+    /** Mėnesių skaičius nuo–iki imtinai, kai taikomas minimalus PSD. */
+    int psdMonths() {
+        int from = Math.max(1, Math.min(12, psdFrom)), to = Math.max(1, Math.min(12, psdTo));
+        return to >= from ? to - from + 1 : 0;
     }
 
     static BigDecimal parse(String s) {
@@ -42,6 +50,10 @@ public class CalculatorForm {
     public void setActualExpenses(String actualExpenses) { this.actualExpenses = actualExpenses; }
     public String getOtherIncome() { return otherIncome; }
     public void setOtherIncome(String otherIncome) { this.otherIncome = otherIncome; }
+    public int getPsdFrom() { return psdFrom; }
+    public void setPsdFrom(int psdFrom) { this.psdFrom = psdFrom; }
+    public int getPsdTo() { return psdTo; }
+    public void setPsdTo(int psdTo) { this.psdTo = psdTo; }
     public boolean isPillar2() { return pillar2; }
     public void setPillar2(boolean pillar2) { this.pillar2 = pillar2; }
 }

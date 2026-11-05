@@ -45,6 +45,22 @@
             <input type="text" name="otherIncome" th:value="${form.otherIncome}" inputmode="decimal" autocomplete="off" placeholder="0">
         </label>
 
+        <fieldset>
+            <legend>Kada pats moki PSD?</legend>
+            <span class="small">Jei dalį metų dirbi pagal darbo sutartį ir PSD už tave moka darbdavys, minimalios PSD įmokos
+                už tuos mėnesius mokėti nereikia. Nurodyk mėnesius, kai vykdai IV veiklą be darbdavio mokamo PSD.</span>
+            <label class="inline">Nuo
+                <select name="psdFrom">
+                    <option th:each="m : ${#numbers.sequence(1,12)}" th:value="${m}" th:text="${m} + ' mėn.'" th:selected="${m == form.psdFrom}"></option>
+                </select>
+            </label>
+            <label class="inline">Iki
+                <select name="psdTo">
+                    <option th:each="m : ${#numbers.sequence(1,12)}" th:value="${m}" th:text="${m} + ' mėn.'" th:selected="${m == form.psdTo}"></option>
+                </select>
+            </label>
+        </fieldset>
+
         <label class="inline"><input type="checkbox" name="pillar2" value="true" th:checked="${form.pillar2}"> Dalyvauju II pakopos pensijų kaupime</label>
         <button type="submit">Skaičiuoti</button>
     </form>
@@ -84,7 +100,7 @@
             <ul>
                 <li><b>Pirmųjų veiklos metų lengvata.</b> Teisė nemokėti VSD pirmaisiais metais nevertinama – rodomos pilnos įmokos.</li>
                 <li><b>Pensininkų išimtys.</b> Jei gauni pensiją, tavo VSD/PSD gali skirtis nuo čia rodomų.</li>
-                <li><b>PSD draudimas kitur.</b> Jei PSD jau draudžia kitas asmuo ar darbdavys, minimali PSD įmoka (965,76 €) gali netikti.</li>
+                <li><b>PSD draudimas kitur.</b> Minimali PSD įmoka (80,48 € per mėnesį) skaičiuojama tik nurodytiems mėnesiams. PSD nuo pajamų (6,98 %) vis tiek skaičiuojama, jei ji didesnė už minimumą.</li>
                 <li><b>Ankstesnių metų nuostoliai, užsienio pajamos, jau sumokėtos įmokos</b> – nevertinami.</li>
                 <li><b>Kitos pajamos</b> laikomos jau apmokestintomis (pvz. darbo užmokestis – pajamų mokestį išskaičiuoja darbdavys 20 %); rodomas tik papildomas GPM dėl pajamų sumavimo.</li>
             </ul>

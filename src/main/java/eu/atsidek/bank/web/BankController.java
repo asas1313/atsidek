@@ -145,7 +145,16 @@ public class BankController {
     @GetMapping("/nustatymai")
     public String settings(Model model) {
         model.addAttribute("accounts", store.accounts(user.id()));
+        model.addAttribute("psdFrom", summaries.psdFrom());
+        model.addAttribute("psdTo", summaries.psdTo());
         return "bank/settings";
+    }
+
+    @PostMapping("/nustatymai/psd")
+    public String savePsd(@RequestParam int psdFrom, @RequestParam int psdTo) {
+        store.setSetting(user.id(), "psd_from", String.valueOf(Math.max(1, Math.min(12, psdFrom))));
+        store.setSetting(user.id(), "psd_to", String.valueOf(Math.max(1, Math.min(12, psdTo))));
+        return "redirect:/nustatymai";
     }
 
     @PostMapping("/nustatymai/istrinti-viska")

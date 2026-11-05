@@ -38,7 +38,7 @@ public final class TaxEngine {
         boolean ceilingHit = rawBase.compareTo(ceiling) > 0;
         BigDecimal base = rawBase.min(ceiling);
         BigDecimal vsd = base.multiply(rules.vsdRate());
-        BigDecimal psdMin = rules.minMonthlyPsd().multiply(MONTHS);
+        BigDecimal psdMin = rules.minMonthlyPsd().multiply(BigDecimal.valueOf(in.psdMinMonths()));
         BigDecimal psd = revenue.signum() == 0
                 ? BigDecimal.ZERO
                 : base.multiply(rules.psdRate()).max(psdMin);
