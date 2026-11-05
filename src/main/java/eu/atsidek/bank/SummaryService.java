@@ -6,6 +6,7 @@ import eu.atsidek.engine.TaxInput;
 import eu.atsidek.engine.TaxRules;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -43,7 +44,10 @@ public class SummaryService {
         return engine.compare(in).better().total();
     }
 
-    public Summary summary(int year) {
+    public Summary summary(int year) { return summary(year, LocalDate.now()); }
+
+    /** Rodoma „iki šiol“: iki einamojo mėnesio (ar paskutinio mėnesio su pajamomis, jei jis vėlesnis). */
+    public Summary summary(int year, LocalDate today) {
         List<BankStore.MonthSum> sums = store.confirmedMonthlySums(currentUser.id(), year);
         int psdFrom = psdFrom(), psdTo = psdTo();
         List<Month> months = new ArrayList<>();
@@ -64,9 +68,9 @@ public class SummaryService {
             if (row.hasData()) headline = row;
             prevTax = tax;
         }
-        // Po paskutinio mėnesio su pajamomis ateities mėnesių nerodome.
-        int last = 0;
-        for (Month x : months) if (x.business().signum() > 0 || x.salary().signum() > 0) last = x.month();
+        // Rodome „iki šiol“: iki einamojo mėnesio (praėjusiems metams – iki gruodžio), ateities mėnesių nerodome.
+        int last = year < today.getYear() ? 12 : year == today.getYear() ? today.getMonthValue() : 0;
+        for (Month x : months) if (x.business().signum() > 0 || x.salary().signum() > 0) last = Math.max(last, x.month());
         for (int i = last; i < months.size(); i++) {
             Month x = months.get(i);
             months.set(i, new Month(x.month(), x.business(), x.salary(), x.ytdBusiness(), x.ytdSalary(), x.ytdTax(), BigDecimal.ZERO));
