@@ -20,7 +20,8 @@ public class SummaryService {
 
     public record Month(int month, BigDecimal business, BigDecimal salary, BigDecimal ytdBusiness,
                         BigDecimal ytdSalary, BigDecimal ytdTax, BigDecimal setAside) {
-        public boolean hasData() { return business.signum() > 0 || salary.signum() > 0; }
+        /** Mėnuo rodomas, jei buvo pajamų arba reikia atidėti minimalų PSD (net ir be jokių kitų pajamų). */
+        public boolean hasData() { return business.signum() > 0 || salary.signum() > 0 || setAside.signum() > 0; }
     }
 
     public record Summary(int year, List<Month> months, Month headline, BigDecimal ytdIncome,
@@ -53,12 +54,24 @@ public class SummaryService {
             BigDecimal b = sum(sums, mm, Category.BUSINESS_INCOME), s = sum(sums, mm, Category.SALARY);
             ytdB = ytdB.add(b);
             ytdS = ytdS.add(s);
-            BigDecimal tax = estimate(ytdB, ytdS, Math.max(0, Math.min(m, psdTo) - psdFrom + 1));
+            int psdMonths = Math.max(0, Math.min(m, psdTo) - psdFrom + 1);
+            // Kol dar nėra jokių pajamų, variklis PSD nemoka – bet minimalus PSD už pasirinktus mėnesius vis tiek atidedamas.
+            BigDecimal tax = ytdB.signum() == 0 && ytdS.signum() == 0
+                    ? rules.minMonthlyPsd().multiply(BigDecimal.valueOf(psdMonths))
+                    : estimate(ytdB, ytdS, psdMonths);
             Month row = new Month(m, b, s, ytdB, ytdS, tax, tax.subtract(prevTax).setScale(2, RoundingMode.HALF_UP));
             months.add(row);
             if (row.hasData()) headline = row;
             prevTax = tax;
         }
+        // Po paskutinio mėnesio su pajamomis ateities mėnesių nerodome.
+        int last = 0;
+        for (Month x : months) if (x.business().signum() > 0 || x.salary().signum() > 0) last = x.month();
+        for (int i = last; i < months.size(); i++) {
+            Month x = months.get(i);
+            months.set(i, new Month(x.month(), x.business(), x.salary(), x.ytdBusiness(), x.ytdSalary(), x.ytdTax(), BigDecimal.ZERO));
+        }
+        headline = last == 0 ? null : months.get(last - 1);
         BigDecimal vdu = rules.vdu();
         return new Summary(year, months, headline, ytdB.add(ytdS),
                 rules.bracket1Vdu().multiply(vdu), rules.bracket2Vdu().multiply(vdu));
