@@ -1,4 +1,4 @@
-package lt.atsidek.engine;
+package eu.atsidek.engine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

@@ -1,7 +1,7 @@
-package lt.atsidek.web;
+package eu.atsidek.web;
 
-import lt.atsidek.engine.TaxComparison;
-import lt.atsidek.engine.TaxEngine;
+import eu.atsidek.engine.TaxComparison;
+import eu.atsidek.engine.TaxEngine;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -45,7 +45,7 @@ public class CalculatorController {
     private void addComparison(CalculatorForm form, Model model) {
         TaxComparison c = engine.compare(form.toInput());
         model.addAttribute("c", c);
-        boolean actual = form.toInput().method() == lt.atsidek.engine.ExpenseMethod.ACTUAL;
+        boolean actual = form.toInput().method() == eu.atsidek.engine.ExpenseMethod.ACTUAL;
         model.addAttribute("r", actual ? c.actual() : c.flat());
         model.addAttribute("hasActual", form.toInput().actualExpenses().signum() > 0);
         model.addAttribute("saving", c.flat().total().subtract(c.actual().total()));

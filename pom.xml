@@ -8,7 +8,7 @@
         <version>3.4.1</version>
         <relativePath/>
     </parent>
-    <groupId>lt.atsidek</groupId>
+    <groupId>eu.atsidek</groupId>
     <artifactId>atsidek</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>Atsidėk</name>

@@ -1,4 +1,4 @@
-package lt.atsidek.web;
+package eu.atsidek.web;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
