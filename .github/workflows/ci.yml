@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch: # rankinis production diegimas: Actions → Run workflow (šaka main)
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -21,8 +22,8 @@ jobs:
           cache: maven
       - run: mvn -B -ntp test
 
-  # Diegimo darbai vyksta tik po merge į main ir tik namų serveryje (self-hosted runner),
-  # niekada PR kodui.
+  # Diegimo darbai vyksta tik namų serveryje (self-hosted runner), niekada PR kodui.
+  # Staging: automatiškai po merge į main. Production: tik rankiniu paleidimu.
   staging:
     if: github.event_name == 'push'
     needs: test
@@ -35,10 +36,11 @@ jobs:
       - run: ./deploy/deploy.sh staging "${{ github.sha }}"
 
   production:
-    needs: staging
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: test
     runs-on: [self-hosted, atsidek]
     environment:
-      name: production # Settings → Environments → production → Required reviewers
+      name: production
       url: https://atsidek.eu
     steps:
       - uses: actions/checkout@v4
