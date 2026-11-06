@@ -16,7 +16,7 @@ ENV_FILE="/opt/atsidek/${ENV_NAME}.env"
 TAG="${SHA:0:12}"
 PORT="$(grep -E '^APP_PORT=' "$ENV_FILE" | cut -d= -f2)"
 PORT="${PORT:-8080}"
-APORT="$(grep -E '^ASSISTANT_PORT=' "$ENV_FILE" | cut -d= -f2)"
+APORT="$(grep -E '^ASSISTANT_PORT=' "$ENV_FILE" | cut -d= -f2 || true)"
 APORT="${APORT:-8000}"
 export IMAGE_TAG="$TAG"
 
