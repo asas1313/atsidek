@@ -11,29 +11,54 @@ import eu.atsidek.bank.store.BankStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 
 @SpringBootTest
-@AutoConfigureMockMvc
 class BankFlowTest {
 
-    @Autowired MockMvc mvc;
+    MockMvc mvc;
     @Autowired BankStore store;
-    @Autowired CurrentUser user;
+    static final String USER = CurrentUser.PREFIX + "test";
+    @Autowired WebApplicationContext ctx;
     @Autowired ImportService imports;
     @Autowired SummaryService summaries;
     @Autowired ReviewService review;
 
     @BeforeEach
     void clean() {
-        store.deleteAll(user.id());
+        mvc = MockMvcBuilders.webAppContextSetup(ctx).apply(springSecurity())
+                .defaultRequest(get("/").with(oidcLogin().idToken(t -> t.subject("test"))).with(csrf())).build();
+        signIn();
+        store.deleteAll(USER);
+    }
+
+    /** MockMvc po kiekvienos užklausos išvalo saugumo kontekstą, o servisai CurrentUser ima iš jo. */
+    private static void signIn() {
+        OidcIdToken token = OidcIdToken.withTokenValue("t").subject("test").issuedAt(java.time.Instant.now())
+                .expiresAt(java.time.Instant.now().plusSeconds(60)).build();
+        SecurityContextHolder.getContext().setAuthentication(new OAuth2AuthenticationToken(
+                new DefaultOidcUser(List.of(), token), List.of(), "google"));
+    }
+
+    @AfterEach
+    void logout() {
+        SecurityContextHolder.clearContext();
     }
 
     private static byte[] file(String name) throws Exception {
@@ -59,6 +84,7 @@ class BankFlowTest {
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("UAB Pavyzdys")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Reikia jūsų sprendimo")));
 
+        signIn();
         List<ReviewService.Group> groups = review.groups(importId);
         assertThat(groups).hasSize(4);   // UAB Pavyzdys, Jonas, MB Vienas, MB Du (išeinanti nerodoma)
         ReviewService.Group jonas = groups.stream().filter(g -> g.payer().equals("Jonas Jonaitis")).findFirst().orElseThrow();
@@ -73,6 +99,7 @@ class BankFlowTest {
         }
         mvc.perform(req).andExpect(status().is3xxRedirection());
 
+        signIn();
         int year = 2026;
         SummaryService.Summary s = summaries.summary(year, java.time.LocalDate.of(2026, 10, 20));
         // UAB Pavyzdys 1210 + MB Vienas 100 + MB Du 50 = 1360 (Jonas nepatvirtintas)
@@ -94,7 +121,7 @@ class BankFlowTest {
         ImportService.Report second = imports.importFile("a.xml", data, null);
         assertThat(first.duplicatesSkipped()).isZero();
         assertThat(second.duplicatesSkipped()).isEqualTo(5);
-        assertThat(store.imports(user.id()).stream().mapToInt(BankStore.ImportRow::txCount).sum()).isEqualTo(5);
+        assertThat(store.imports(USER).stream().mapToInt(BankStore.ImportRow::txCount).sum()).isEqualTo(5);
     }
 
     @Test
@@ -103,16 +130,16 @@ class BankFlowTest {
         ReviewService.Group jonas = review.groups(r1.importId()).stream()
                 .filter(g -> g.payer().equals("Jonas Jonaitis")).findFirst().orElseThrow();
         review.apply(List.of(new ReviewService.Decision(jonas.ids(), Category.PERSONAL, true, true)));
-        assertThat(store.rules(user.id())).hasSize(1);
+        assertThat(store.rules(USER)).hasSize(1);
 
         // antras importas (kita sąskaita, kiti mokėjimai) – Jonas jau pagal taisyklę
         String csv = "Type,Started Date,Completed Date,Description,Amount,Currency,State\n"
                 + "TRANSFER,2026-11-02,2026-11-02,Payment from Jonas Jonaitis,25.00,EUR,COMPLETED\n";
         ImportService.Report r2 = imports.importFile("rev.csv", csv.getBytes(java.nio.charset.StandardCharsets.UTF_8), null);
-        BankStore.Tx t = store.incomingOfImport(user.id(), r2.importId()).get(0);
+        BankStore.Tx t = store.incomingOfImport(USER, r2.importId()).get(0);
         assertThat(t.category()).isEqualTo(Category.PERSONAL);
         assertThat(t.confidence()).isEqualTo(1.0);
-        assertThat(store.accounts(user.id())).hasSize(2);
+        assertThat(store.accounts(USER)).hasSize(2);
 
         // vidinis pervedimas: mokėtojo IBAN = vartotojo sąskaita
         String own = "LT12 7300 0101 2345 6789";
@@ -120,7 +147,7 @@ class BankFlowTest {
                 .replace("<IBAN>LT12 7300 0101 2345 6789</IBAN>", "<IBAN>LT55 1111 2222 3333 4444</IBAN>")
                 .replace("DE89370400440532013000", own);
         ImportService.Report r3 = imports.importFile("b.xml", camt.getBytes(java.nio.charset.StandardCharsets.UTF_8), null);
-        BankStore.Tx internal = store.incomingOfImport(user.id(), r3.importId()).get(0);
+        BankStore.Tx internal = store.incomingOfImport(USER, r3.importId()).get(0);
         assertThat(internal.category()).isEqualTo(Category.INTERNAL_TRANSFER);
     }
 
@@ -128,16 +155,16 @@ class BankFlowTest {
     void deleteAllLeavesNothingAndUsersAreIsolated() throws Exception {
         imports.importFile("a.xml", file("camt053/sample-02.xml"), null);
         imports.importFile("rev.csv", file("revolut/personal.csv"), null);
-        assertThat(store.imports(user.id())).hasSize(2);
+        assertThat(store.imports(USER)).hasSize(2);
         assertThat(store.imports("kitas-vartotojas")).isEmpty();
         store.deleteAll("kitas-vartotojas");                 // svetimo trynimas nieko neliečia
-        assertThat(store.imports(user.id())).hasSize(2);
+        assertThat(store.imports(USER)).hasSize(2);
 
         mvc.perform(post("/nustatymai/istrinti-viska")).andExpect(status().is3xxRedirection());
-        assertThat(store.imports(user.id())).isEmpty();
-        assertThat(store.accounts(user.id())).isEmpty();
-        assertThat(store.rules(user.id())).isEmpty();
-        assertThat(store.existingDedupKeys(user.id(), List.of("x"))).isEmpty();
+        assertThat(store.imports(USER)).isEmpty();
+        assertThat(store.accounts(USER)).isEmpty();
+        assertThat(store.rules(USER)).isEmpty();
+        assertThat(store.existingDedupKeys(USER, List.of("x"))).isEmpty();
     }
 
     @Test
@@ -151,7 +178,7 @@ class BankFlowTest {
     @Test
     void minimumPsdAccruesOnlyInChosenMonths() throws Exception {
         imports.importFile("a.xml", file("camt053/sample-02.xml"), null);
-        review.apply(review.groups(store.imports(user.id()).get(0).id()).stream()
+        review.apply(review.groups(store.imports(USER).get(0).id()).stream()
                 .map(g -> new ReviewService.Decision(g.ids(), g.category(), true, false)).toList());
         // visi 12 mėn. (numatyta): minimalus PSD pasiskirsto per mėnesius iki pirmų pajamų (sausis–rugsėjis)
         SummaryService.Summary all = summaries.summary(2026, java.time.LocalDate.of(2026, 10, 20));
@@ -160,7 +187,8 @@ class BankFlowTest {
         assertThat(all.months().get(8).setAside()).isEqualByComparingTo("80.48");
         mvc.perform(post("/nustatymai/psd").param("year", "2026").param("psdFrom", "10").param("psdTo", "12"))
                 .andExpect(status().is3xxRedirection());
-        SummaryService.Summary s = summaries.summary(2026, java.time.LocalDate.of(2026, 10, 20));
+        signIn();
+        SummaryService.Summary s =summaries.summary(2026, java.time.LocalDate.of(2026, 10, 20));
         // tik nuo spalio: ankstesni mėnesiai nerodomi, spalį – vienas minimalaus PSD mėnuo
         assertThat(s.months().get(0).hasData()).isFalse();
         assertThat(s.months().get(8).hasData()).isFalse();

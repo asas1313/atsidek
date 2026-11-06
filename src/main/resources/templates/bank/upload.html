@@ -19,7 +19,7 @@
 
     <section class="card">
         <h2>1. Įkelk išrašą</h2>
-        <form method="post" action="/importas" enctype="multipart/form-data">
+        <form method="post" th:action="@{/importas}" enctype="multipart/form-data">
             <label>Pasirink failą arba kelis (iki 10 MB kiekvienas)
                 <input type="file" name="file" multiple required accept=".xml,.csv,.txt">
             </label>

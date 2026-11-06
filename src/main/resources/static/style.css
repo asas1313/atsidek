@@ -36,6 +36,7 @@ footer { text-align:center; color:var(--muted); font-size:.85rem; padding-bottom
 /* Banko išrašų ekranai */
 .bank-nav { max-width:680px; margin:0 auto; padding:0 1rem; display:flex; flex-wrap:wrap; gap:.25rem 1rem; }
 .bank-nav a { color:var(--accent); text-decoration:none; padding:.4rem 0; }
+.bank-nav button.link { color:var(--accent); text-decoration:none; padding:.4rem 0; font:inherit; cursor:pointer; }
 .hugenum { font-size:1.4rem; margin:.25rem 0; }
 .hugenum strong { display:block; font-size:2.4rem; color:var(--accent); }
 .bar { height:14px; border-radius:7px; background:rgba(128,128,128,.25); overflow:hidden; margin:.75rem 0 .25rem; }
