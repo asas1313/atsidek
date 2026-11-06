@@ -22,6 +22,7 @@
     <h1>Atsidėk</h1>
     <p>Atsidėk ir pamiršk balandžio stresą.</p>
 </header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
 
 <main>
     <form id="calc" class="card" method="post" action="/calculate" hx-post="/calculate" hx-trigger="input delay:250ms, change" hx-target="#result" hx-swap="outerHTML">

@@ -20,11 +20,9 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-@SpringBootTest(properties = {"atsidek.bank.enabled=true", "atsidek.bank.password=slaptas"})
+@SpringBootTest
 @AutoConfigureMockMvc
 class BankFlowTest {
-
-    private static final String AUTH = "Basic dXNlcjpzbGFwdGFz"; // user:slaptas
 
     @Autowired MockMvc mvc;
     @Autowired BankStore store;
@@ -43,23 +41,21 @@ class BankFlowTest {
     }
 
     @Test
-    void requiresPasswordWhenConfigured() throws Exception {
-        mvc.perform(get("/importas")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/importas").header("Authorization", "Basic dXNlcjpibG9nYXM=")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/importas").header("Authorization", AUTH)).andExpect(status().isOk())
+    void uploadPageIsOpen() throws Exception {
+        mvc.perform(get("/importas")).andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Įkelk išrašą")));
     }
 
     @Test
     void uploadThenReviewThenConfirmThenSummary() throws Exception {
         MockMultipartFile f = new MockMultipartFile("file", "oct.xml", "text/xml", file("camt053/sample-02.xml"));
-        MvcResult res = mvc.perform(multipart("/importas").file(f).header("Authorization", AUTH))
+        MvcResult res = mvc.perform(multipart("/importas").file(f))
                 .andExpect(status().is3xxRedirection()).andReturn();
         String loc = res.getResponse().getRedirectedUrl();
         assertThat(loc).startsWith("/importai/");
         String importId = loc.substring("/importai/".length());
 
-        mvc.perform(get(loc).header("Authorization", AUTH)).andExpect(status().isOk())
+        mvc.perform(get(loc)).andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("UAB Pavyzdys")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Reikia jūsų sprendimo")));
 
@@ -71,7 +67,7 @@ class BankFlowTest {
         assertThat(groups.get(0).payer()).isEqualTo("Jonas Jonaitis");   // „reikia sprendimo“ viršuje
 
         // „Patvirtinti viską“: UNKNOWN lieka nepatvirtintas
-        var req = post("/importai/" + importId + "/patvirtinti").header("Authorization", AUTH).param("all", "1");
+        var req = post("/importai/" + importId + "/patvirtinti").param("all", "1");
         for (ReviewService.Group g : groups) {
             req.param("ids_" + g.index(), g.idList()).param("cat_" + g.index(), g.category().name());
         }
@@ -87,7 +83,7 @@ class BankFlowTest {
         // mėnesio suma = metinio įverčio skirtumas (be apvalinimo klaidų)
         assertThat(s.months().stream().map(SummaryService.Month::setAside).reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add))
                 .isEqualByComparingTo(oct.ytdTax());
-        mvc.perform(get("/suvestine?year=2026").header("Authorization", AUTH)).andExpect(status().isOk())
+        mvc.perform(get("/suvestine?year=2026")).andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Atsidėk")));
     }
 
@@ -137,7 +133,7 @@ class BankFlowTest {
         store.deleteAll("kitas-vartotojas");                 // svetimo trynimas nieko neliečia
         assertThat(store.imports(user.id())).hasSize(2);
 
-        mvc.perform(post("/nustatymai/istrinti-viska").header("Authorization", AUTH)).andExpect(status().is3xxRedirection());
+        mvc.perform(post("/nustatymai/istrinti-viska")).andExpect(status().is3xxRedirection());
         assertThat(store.imports(user.id())).isEmpty();
         assertThat(store.accounts(user.id())).isEmpty();
         assertThat(store.rules(user.id())).isEmpty();
@@ -147,7 +143,7 @@ class BankFlowTest {
     @Test
     void unsupportedFileShowsMessage() throws Exception {
         MockMultipartFile f = new MockMultipartFile("file", "x.csv", "text/csv", "a;b\n1;2\n".getBytes());
-        mvc.perform(multipart("/importas").file(f).header("Authorization", AUTH))
+        mvc.perform(multipart("/importas").file(f))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("neatpažįstame")));
     }
@@ -162,7 +158,7 @@ class BankFlowTest {
         assertThat(all.months().get(0).hasData()).isTrue();
         assertThat(all.months().get(0).setAside()).isEqualByComparingTo("80.48");
         assertThat(all.months().get(8).setAside()).isEqualByComparingTo("80.48");
-        mvc.perform(post("/nustatymai/psd").header("Authorization", AUTH).param("psdFrom", "10").param("psdTo", "12"))
+        mvc.perform(post("/nustatymai/psd").param("psdFrom", "10").param("psdTo", "12"))
                 .andExpect(status().is3xxRedirection());
         SummaryService.Summary s = summaries.summary(2026, java.time.LocalDate.of(2026, 10, 20));
         // tik nuo spalio: ankstesni mėnesiai nerodomi, spalį – vienas minimalaus PSD mėnuo
