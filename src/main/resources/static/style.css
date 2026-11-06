@@ -49,3 +49,10 @@ button.link { background:none; color:var(--err); padding:0; text-decoration:unde
 button.danger { background:var(--err); }
 main > form { display:grid; gap:1rem; }
 .build { max-width:680px; margin:1rem auto; padding:0 1rem; font-size:.75rem; color:#888; text-align:center; }
+
+/* AI asistentas */
+textarea { display:block; width:100%; margin-top:.25rem; padding:.6rem; font:inherit; border:1px solid var(--muted); border-radius:8px; background:var(--bg); color:var(--fg); resize:vertical; }
+.chips { display:flex; flex-wrap:wrap; gap:.5rem; margin:.5rem 0 1rem; }
+.chip { background:transparent; color:var(--accent); border:1px solid var(--accent); padding:.3rem .7rem; font-size:.85rem; border-radius:999px; text-align:left; }
+.htmx-indicator { opacity:0; margin-left:.75rem; transition:opacity .2s; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { opacity:1; }

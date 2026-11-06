@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 public class CalculatorController {
 
     private final TaxEngine engine = TaxEngine.forYear2026();
-    @GetMapping("/")
+    @GetMapping("/skaiciuokle")
     public String index(@ModelAttribute("form") CalculatorForm form, Model model) {
         addComparison(form, model);
         return "index";

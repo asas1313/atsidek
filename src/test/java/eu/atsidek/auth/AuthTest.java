@@ -24,7 +24,7 @@ class AuthTest {
 
     @Test
     void publicPagesStayOpen() throws Exception {
-        for (String p : new String[] {"/", "/privatumas", "/style.css"}) {
+        for (String p : new String[] {"/", "/skaiciuokle", "/privatumas", "/style.css"}) {
             mvc.perform(get(p)).andExpect(status().isOk());
         }
     }
