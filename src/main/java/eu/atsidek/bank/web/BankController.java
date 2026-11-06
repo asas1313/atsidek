@@ -133,7 +133,18 @@ public class BankController {
     @GetMapping("/taisykles")
     public String rules(Model model) {
         model.addAttribute("rules", store.rules(user.id()));
+        model.addAttribute("categories", Category.values());
         return "bank/rules";
+    }
+
+    @PostMapping("/taisykles")
+    public String addRule(@RequestParam String mode, @RequestParam String text, @RequestParam String category) {
+        try {
+            review.addTextRule("PREFIX".equals(mode), text, Category.valueOf(category));
+        } catch (IllegalArgumentException ignored) {
+            // nežinoma kategorija – taisyklė nekuriama
+        }
+        return "redirect:/taisykles";
     }
 
     @PostMapping("/taisykles/{id}/istrinti")

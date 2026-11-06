@@ -26,6 +26,10 @@ public class Classifier {
 
     public static final String RULE_IBAN = "IBAN_HASH";
     public static final String RULE_NAME = "NAME";
+    /** Paskirties (ar mokėtojo vardo) pradžia, pvz. „Net interest paid to "Instant Access Savings"“. */
+    public static final String RULE_PREFIX = "PREFIX";
+    /** Paskirtyje (ar vardo) esantis fragmentas. */
+    public static final String RULE_CONTAINS = "CONTAINS";
 
     private final ClassifierProperties props;
 
@@ -46,10 +50,7 @@ public class Classifier {
         String both = (name + " " + rem).trim();
 
         for (Rule r : ctx.rules()) {
-            boolean hit = RULE_IBAN.equals(r.matchType())
-                    ? in.counterpartyIbanHash() != null && in.counterpartyIbanHash().equals(r.matchValue())
-                    : !name.isEmpty() && name.equals(r.matchValue());
-            if (hit) return new Result(r.category(), 1.0, "Pagal jūsų taisyklę: " + r.category().label(), r.id());
+            if (matches(r, in)) return new Result(r.category(), 1.0, "Pagal jūsų taisyklę: " + r.category().label(), r.id());
         }
         if (in.counterpartyIbanHash() != null && ctx.ownIbanHashes().contains(in.counterpartyIbanHash())) {
             return new Result(Category.INTERNAL_TRANSFER, 0.95, "Mokėtojas yra jūsų kita sąskaita", null);
@@ -75,6 +76,35 @@ public class Classifier {
             return new Result(Category.BUSINESS_INCOME, 0.75, "Mokėtojas yra juridinis asmuo", null);
         }
         return new Result(Category.UNKNOWN, 0.0, "Nepavyko nustatyti, pasirinkite patys", null);
+    }
+
+    /**
+     * Ar vartotojo taisyklė tinka operacijai. Tekstinės taisyklės (PREFIX, CONTAINS) tikrinamos atskirai su
+     * mokėtojo vardu ir paskirtimi, ignoruojant raidžių dydį, diakritikus ir tarpų skaičių, todėl viena taisyklė
+     * tinka visiems mėnesiams („... for Oct 7, 2026“, „... for Oct 8, 2026“).
+     */
+    public static boolean matches(Rule r, Input in) {
+        String value = r.matchValue();
+        switch (r.matchType()) {
+            case RULE_IBAN:
+                return in.counterpartyIbanHash() != null && in.counterpartyIbanHash().equals(value);
+            case RULE_PREFIX:
+                return textMatches(in, value, true);
+            case RULE_CONTAINS:
+                return textMatches(in, value, false);
+            default:
+                String name = Text.normalize(in.counterpartyName());
+                return !name.isEmpty() && name.equals(value);
+        }
+    }
+
+    private static boolean textMatches(Input in, String value, boolean prefix) {
+        if (value == null || value.isEmpty()) return false;
+        for (String field : new String[]{in.remittance(), in.counterpartyName()}) {
+            String f = Text.normalize(field);
+            if (prefix ? f.startsWith(value) : f.contains(value)) return true;
+        }
+        return false;
     }
 
     /** Raktažodis sutampa žodžio pradžioje; trumpi (iki 3 raidžių) – tik kaip visas žodis. */

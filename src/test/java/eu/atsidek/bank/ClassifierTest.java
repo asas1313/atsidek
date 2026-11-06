@@ -79,4 +79,23 @@ class ClassifierTest {
         assertThat(h.category()).isEqualTo(Category.BUSINESS_INCOME);
         assertThat(h.confidence()).isEqualTo(0.9);
     }
+
+    @Test
+    void textPrefixRuleCoversEveryMonth() {
+        Classifier.Context ctx = new Classifier.Context(List.of(new Classifier.Rule(3, Classifier.RULE_PREFIX,
+                "net interest paid to \"instant access savings\"", Category.PERSONAL)), Set.of(), Set.of());
+        for (String day : List.of("Oct 7, 2026", "Oct 8, 2026", "Nov 1, 2026")) {
+            Classifier.Result r = run("Bank", "Net interest paid to \"Instant Access Savings\" for " + day, null, ctx);
+            assertThat(r.category()).isEqualTo(Category.PERSONAL);
+            assertThat(r.ruleId()).isEqualTo(3L);
+        }
+        assertThat(run("Bank", "Refund: Net interest paid to \"Instant Access Savings\"", null, ctx).ruleId()).isNull();
+    }
+
+    @Test
+    void textContainsRuleMatchesFragment() {
+        Classifier.Context ctx = new Classifier.Context(List.of(new Classifier.Rule(4, Classifier.RULE_CONTAINS,
+                "instant access", Category.PERSONAL)), Set.of(), Set.of());
+        assertThat(run("Bank", "Interest, Instant  Access Savings", null, ctx).ruleId()).isEqualTo(4L);
+    }
 }
