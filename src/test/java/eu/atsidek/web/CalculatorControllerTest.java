@@ -20,7 +20,7 @@ class CalculatorControllerTest {
 
     @Test
     void indexRendersWithResult() throws Exception {
-        mvc.perform(get("/"))
+        mvc.perform(get("/skaiciuokle"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Iš viso mokesčių")));
     }

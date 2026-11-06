@@ -10,7 +10,8 @@
 <body>
 <nav th:fragment="nav" class="bank-nav">
     <a th:unless="${loggedIn}" href="/oauth2/authorization/google">Prisijungti</a>
-    <a href="/">Skaičiuoklė</a>
+    <a href="/">AI asistentas</a>
+    <a href="/skaiciuokle">Skaičiuoklė</a>
     <a th:if="${loggedIn}" href="/importas">Įkelti išrašą</a>
     <a th:if="${loggedIn}" href="/suvestine">Suvestinė</a>
     <a th:if="${loggedIn}" href="/taisykles">Taisyklės</a>
