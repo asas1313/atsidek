@@ -4,7 +4,8 @@
 #
 # Kiekviena aplinka turi savo failą /opt/atsidek/<aplinka>.env (CONTROLLER_NAME,
 # CONTACT_EMAIL, TUNNEL_TOKEN, APP_PORT, CANONICAL_HOST, NOINDEX, DATA_DIR,
-# BANK_ENABLED, BANK_PASSWORD, BANK_IBAN_SALT).
+# BANK_IBAN_SALT, DB_URL, DB_USER, DB_PASSWORD).
+# Pavyzdys: .env.example
 set -euo pipefail
 
 ENV_NAME="${1:?aplinka: staging arba production}"

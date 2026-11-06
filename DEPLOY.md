@@ -133,12 +133,10 @@ sudo chown -R <runner-vartotojas> /opt/atsidek && sudo chmod 600 /opt/atsidek/*.
 
 ## Banko išrašų importas (PAPILDYNYS-01)
 
-Ekranai (`/importas`, `/suvestine`, `/taisykles`, `/nustatymai`) pagal nutylėjimą **išjungti** (404). Staging `staging.env` faile pridėk:
+Ekranai (`/importas`, `/suvestine`, `/taisykles`, `/nustatymai`) yra visiems atviri, be slaptažodžio. Staging `staging.env` faile pridėk:
 
 ```bash
-BANK_ENABLED=true
-BANK_PASSWORD=<ilgas atsitiktinis slaptažodis>   # HTTP Basic (bet koks vartotojo vardas)
 BANK_IBAN_SALT=<atsitiktinė druska, nekeisti>    # mokėtojų IBAN maišoms; pakeitus senos taisyklės nebesutaps
 ```
 
-Duomenys (H2 failas) gyvena `DATA_DIR` kataloge; `deploy.sh` jį sukuria su teisėmis konteinerio vartotojui. Kol nėra paskyrų, yra tik vienas vartotojas – staging naudok tik su nuasmenintais ar savo duomenimis ir palik Cloudflare Access. Production'e `BANK_ENABLED` nejunk.
+Duomenys (H2 failas) gyvena `DATA_DIR` kataloge; `deploy.sh` jį sukuria su teisėmis konteinerio vartotojui. Kol nėra paskyrų, yra tik vienas vartotojas – staging naudok tik su nuasmenintais ar savo duomenimis ir palik Cloudflare Access.

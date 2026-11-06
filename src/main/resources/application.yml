@@ -13,8 +13,6 @@ spring:
 
 atsidek:
   bank:
-    enabled: false          # ATSIDEK_BANK_ENABLED=true įjungia išrašų importą
-    password: ""            # ATSIDEK_BANK_PASSWORD – jei nurodytas, ekranams reikia HTTP Basic prisijungimo
     iban-salt: dev-only-salt # ATSIDEK_BANK_IBAN_SALT – mokėtojų IBAN maišos druska
   classifier:
     user-name: ""
