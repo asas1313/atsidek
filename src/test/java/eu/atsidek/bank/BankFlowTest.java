@@ -158,13 +158,16 @@ class BankFlowTest {
         assertThat(all.months().get(0).hasData()).isTrue();
         assertThat(all.months().get(0).setAside()).isEqualByComparingTo("80.48");
         assertThat(all.months().get(8).setAside()).isEqualByComparingTo("80.48");
-        mvc.perform(post("/nustatymai/psd").param("psdFrom", "10").param("psdTo", "12"))
+        mvc.perform(post("/nustatymai/psd").param("year", "2026").param("psdFrom", "10").param("psdTo", "12"))
                 .andExpect(status().is3xxRedirection());
         SummaryService.Summary s = summaries.summary(2026, java.time.LocalDate.of(2026, 10, 20));
         // tik nuo spalio: ankstesni mėnesiai nerodomi, spalį – vienas minimalaus PSD mėnuo
         assertThat(s.months().get(0).hasData()).isFalse();
         assertThat(s.months().get(8).hasData()).isFalse();
         assertThat(s.months().get(9).setAside()).isEqualByComparingTo(all.months().get(9).setAside());
+        // kiti metai nepaveikti: nustatymas galioja tik 2026 m.
+        assertThat(summaries.psdFrom(2026)).isEqualTo(10);
+        assertThat(summaries.psdFrom(2025)).isEqualTo(1);
         // po paskutinių pajamų: PSD skaičiuojamas iki šiandienos (ne vėliau), laikantis „iki“ ribos
         SummaryService.Summary dec = summaries.summary(2026, java.time.LocalDate.of(2026, 12, 5));
         assertThat(dec.months().get(10).setAside()).isEqualByComparingTo("80.48");

@@ -14,10 +14,16 @@
         <ul><li th:each="a : ${accounts}" th:text="${a.label()}">LT12 7300…</li></ul>
     </section>
     <section class="card">
-        <h2>Kada pats moki PSD?</h2>
+        <h2>Kada pats moki PSD? <span th:text="${year} + ' m.'">2026 m.</span></h2>
+        <p class="small">
+            <a th:href="@{/nustatymai(year=${year - 1})}" th:text="'← ' + ${year - 1}">← 2025</a> ·
+            <a th:href="@{/nustatymai(year=${year + 1})}" th:text="${year + 1} + ' →'">2027 →</a>
+            – nustatymai galioja tik pasirinktiems metams.
+        </p>
         <p>Jei dalį metų dirbi pagal darbo sutartį ir PSD už tave moka darbdavys, minimalios PSD įmokos už tuos mėnesius
            mokėti nereikia. Nurodyk mėnesius, kai vykdai IV veiklą be darbdavio mokamo PSD.</p>
         <form method="post" action="/nustatymai/psd">
+            <input type="hidden" name="year" th:value="${year}">
             <label class="inline">Nuo
                 <select name="psdFrom"><option th:each="m : ${#numbers.sequence(1,12)}" th:value="${m}" th:text="${m} + ' mėn.'" th:selected="${m == psdFrom}"></option></select>
             </label>

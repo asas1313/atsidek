@@ -49,7 +49,7 @@ public class SummaryService {
     /** Rodoma „iki šiol“: iki einamojo mėnesio (ar paskutinio mėnesio su pajamomis, jei jis vėlesnis). */
     public Summary summary(int year, LocalDate today) {
         List<BankStore.MonthSum> sums = store.confirmedMonthlySums(currentUser.id(), year);
-        int psdFrom = psdFrom(), psdTo = psdTo();
+        int psdFrom = psdFrom(year), psdTo = psdTo(year);
         List<Month> months = new ArrayList<>();
         BigDecimal ytdB = BigDecimal.ZERO, ytdS = BigDecimal.ZERO, prevTax = BigDecimal.ZERO;
         Month headline = null;
@@ -81,9 +81,14 @@ public class SummaryService {
                 rules.bracket1Vdu().multiply(vdu), rules.bracket2Vdu().multiply(vdu));
     }
 
-    public int psdFrom() { return store.intSetting(currentUser.id(), "psd_from", 1); }
+    /** PSD mėnesių nustatymai galioja konkretiems metams; nenurodžius – visi 12 mėnesių. */
+    public int psdFrom(int year) {
+        return store.intSetting(currentUser.id(), "psd_from_" + year, 1);
+    }
 
-    public int psdTo() { return store.intSetting(currentUser.id(), "psd_to", 12); }
+    public int psdTo(int year) {
+        return store.intSetting(currentUser.id(), "psd_to_" + year, 12);
+    }
 
     private static BigDecimal sum(List<BankStore.MonthSum> sums, int month, Category c) {
         return sums.stream().filter(x -> x.month() == month && x.category() == c)
