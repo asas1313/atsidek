@@ -13,5 +13,8 @@ RUN mkdir -p /app/data && chown app:app /app/data
 USER app
 VOLUME /app/data
 EXPOSE 8080
+ARG APP_VERSION=1.0.0
+ARG GIT_SHA=local
+ENV ATSIDEK_VERSION=$APP_VERSION ATSIDEK_BUILD=$GIT_SHA
 ENV JAVA_OPTS="-Xmx256m"
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

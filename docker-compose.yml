@@ -1,6 +1,10 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-1.0.0}
+        GIT_SHA: ${IMAGE_TAG:-local}
     image: atsidek:${IMAGE_TAG:-local}
     restart: unless-stopped
     volumes:

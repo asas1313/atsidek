@@ -30,6 +30,13 @@ class AuthTest {
     }
 
     @Test
+    void pagesShowBuildVersion() throws Exception {
+        for (String p : new String[] {"/", "/privatumas", "/straipsniai/30-proc-ar-faktines-islaidos"}) {
+            assertThat(mvc.perform(get(p)).andReturn().getResponse().getContentAsString()).contains("Versija ");
+        }
+    }
+
+    @Test
     void bankPagesRedirectAnonymousToGoogle() throws Exception {
         for (String p : new String[] {"/importas", "/suvestine", "/taisykles", "/nustatymai"}) {
             mvc.perform(get(p)).andExpect(status().is3xxRedirection())
