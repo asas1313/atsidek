@@ -1,0 +1,58 @@
+<section id="result" class="card result" aria-live="polite">
+    {% if not asked %}<p class="small">Čia atsiras rezultatas.</p>{% endif %}
+
+    {% if error %}
+    <div class="err" role="alert">
+        <p><b>{{ error }}</b></p>
+    </div>
+    {% endif %}
+
+    {% if x %}
+    <div>
+        <h2>Ką supratau</h2>
+        <table>
+            <tr><td>Pajamos</td><td>{{ (x.revenue | eur ~ ' €') if x.revenue is not none else 'nenurodyta' }}</td></tr>
+            <tr><td>Išlaidos</td><td>{{ (x.expenses | eur ~ ' €') if x.expenses is not none else 'nenurodyta' }}</td></tr>
+            <tr><td>Išlaidų būdas</td><td>{{ 'faktinės' if x.expense_method == 'faktines' else ('30 % norma' if x.expense_method == '30_proc' else 'neaišku') }}</td></tr>
+            {% if x.other_income is not none %}<tr><td>Kitos pajamos (pvz. darbo užmokestis)</td><td>{{ x.other_income | eur }} €</td></tr>{% endif %}
+            {% if x.pillar2 is not none %}<tr><td>II pakopos pensijų kaupimas</td><td>{{ 'taip' if x.pillar2 else 'ne' }}</td></tr>{% endif %}
+            {% if x.psd_months is not none %}<tr><td>Mėnesiai, kai pats moki PSD</td><td>{{ x.psd_months }}</td></tr>{% endif %}
+            {% if x.period %}<tr><td>Laikotarpis</td><td>{{ x.period }}</td></tr>{% endif %}
+        </table>
+        {% if x.missing %}
+        <div class="limits">
+            <h3>Ko trūksta tikslesniam skaičiavimui</h3>
+            <ul>{% for m in x.missing %}<li>{{ m }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if r %}
+    <div>
+        <h2>Rezultatas</h2>
+        <p class="big">Iš viso mokesčių: <strong>{{ r.total | eur }} €</strong></p>
+        <p class="big2">Atsidėk kas mėnesį: <strong>{{ r.monthlyReserve | eur }} €</strong></p>
+        <table>
+            <tr><td>Apmokestinamosios IV pajamos</td><td>{{ r.taxableIncome | eur }} €</td></tr>
+            <tr><td>GPM</td><td>{{ r.gpm | eur }} €</td></tr>
+            {% if r.extraGpm > 0 %}<tr><td>Papildomas GPM nuo kitų pajamų</td><td>{{ r.extraGpm | eur }} €</td></tr>{% endif %}
+            <tr><td>VSD</td><td>{{ r.vsd | eur }} €</td></tr>
+            <tr><td>PSD</td><td>{{ r.psd | eur }} €</td></tr>
+            {% if r.pensionAccumulation > 0 %}<tr><td>Pensijų kaupimas (II pakopa)</td><td>{{ r.pensionAccumulation | eur }} €</td></tr>{% endif %}
+            <tr><td>Efektyvus tarifas</td><td>{{ r.effectiveRate | pct }} %</td></tr>
+        </table>
+        <p class="small">{{ 'Skaičiuota pagal faktines išlaidas.' if actual_shown else 'Skaičiuota pagal 30 % normą.' }}</p>
+        {% if has_actual %}
+        <p class="explain">
+            Palyginimas: 30 % metodu – <b>{{ c.flat.total | eur }} €</b>,
+            faktinėmis išlaidomis – <b>{{ c.actual.total | eur }} €</b>.
+            Naudingesnis: <b>{{ '30 % metodas' if c.better.method == 'FLAT_30' else 'faktinės išlaidos' }}</b>.
+        </p>
+        {% endif %}
+        <p class="note">Sumos laikomos metinėmis (2026 m. taisyklės). Nenurodyti parametrai: kitos pajamos – 0, PSD – 12 mėn., be II pakopos.
+            Skaičius ištraukė AI, mokesčius skaičiavo ta pati deterministinė skaičiuoklė kaip
+            <a href="/skaiciuokle">skaičiuoklėje</a> – patikrink „Ką supratau“. Orientacinis rezultatas, ne konsultacija.</p>
+    </div>
+    {% endif %}
+</section>

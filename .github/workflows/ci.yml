@@ -22,11 +22,26 @@ jobs:
           cache: maven
       - run: mvn -B -ntp test
 
+  assistant-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: assistant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: assistant/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
   # Diegimo darbai vyksta tik namų serveryje (self-hosted runner), niekada PR kodui.
   # Staging: automatiškai po merge į main. Production: tik rankiniu paleidimu.
   staging:
     if: github.event_name == 'push'
-    needs: test
+    needs: [test, assistant-test]
     runs-on: [self-hosted, atsidek]
     environment:
       name: staging
@@ -37,7 +52,7 @@ jobs:
 
   production:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    needs: test
+    needs: [test, assistant-test]
     runs-on: [self-hosted, atsidek]
     environment:
       name: production

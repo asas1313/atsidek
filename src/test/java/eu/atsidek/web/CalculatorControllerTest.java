@@ -3,6 +3,7 @@ package eu.atsidek.web;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
@@ -51,7 +52,9 @@ class CalculatorControllerTest {
         mvc.perform(get("/robots.txt")).andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Sitemap: https://atsidek.eu/sitemap.xml")));
         mvc.perform(get("/sitemap.xml")).andExpect(status().isOk());
-        mvc.perform(get("/")).andExpect(content().string(org.hamcrest.Matchers.containsString("rel=\"canonical\" href=\"https://atsidek.eu/\"")));
+        mvc.perform(get("/skaiciuokle")).andExpect(content().string(org.hamcrest.Matchers.containsString("rel=\"canonical\" href=\"https://atsidek.eu/skaiciuokle\"")));
+        // Pagrindinį puslapį „/“ aptarnauja AI asistento servisas; Java be tarpinio serverio nukreipia į skaičiuoklę
+        mvc.perform(get("/")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/skaiciuokle"));
     }
 
     @Test
