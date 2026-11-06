@@ -91,6 +91,16 @@ public class BankStore {
         jdbc.update("DELETE FROM user_setting WHERE user_id = ?", user);
     }
 
+    /** Perkelia senus vieno vartotojo duomenis naujam savininkui (idempotentiška: kai „local“ eilučių nebėra, nieko nekeičia). */
+    public void adoptLegacy(String from, String to) {
+        for (String table : List.of("bank_account", "statement_import", "bank_transaction", "classification_rule")) {
+            jdbc.update("UPDATE " + table + " SET user_id = ? WHERE user_id = ?", to, from);
+        }
+        jdbc.update("UPDATE user_setting s SET user_id = ? WHERE user_id = ? AND NOT EXISTS ("
+                + "SELECT 1 FROM user_setting n WHERE n.user_id = ? AND n.setting_key = s.setting_key)", to, from, to);
+        jdbc.update("DELETE FROM user_setting WHERE user_id = ?", from);
+    }
+
     // ---- operacijos
 
     public Set<String> existingDedupKeys(String user, Collection<String> keys) {

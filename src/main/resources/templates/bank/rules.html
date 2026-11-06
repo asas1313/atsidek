@@ -10,7 +10,7 @@
         <p class="small">Tinka visiems mėnesiams: pvz. pradžia <i>Net interest paid to "Instant Access Savings"</i>
            pagaus ir „... for Oct 7, 2026“, ir „... for Oct 8, 2026“. Tikrinama paskirtis ir mokėtojo vardas;
            raidžių dydis ir diakritikai nesvarbūs.</p>
-        <form method="post" action="/taisykles">
+        <form method="post" th:action="@{/taisykles}">
             <label>Kai tekstas
                 <select name="mode">
                     <option value="PREFIX">prasideda</option>

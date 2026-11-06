@@ -9,11 +9,13 @@
 </head>
 <body>
 <nav th:fragment="nav" class="bank-nav">
+    <a th:unless="${loggedIn}" href="/oauth2/authorization/google">Prisijungti</a>
     <a href="/">Skaičiuoklė</a>
-    <a href="/importas">Įkelti išrašą</a>
-    <a href="/suvestine">Suvestinė</a>
-    <a href="/taisykles">Taisyklės</a>
-    <a href="/nustatymai">Nustatymai</a>
+    <a th:if="${loggedIn}" href="/importas">Įkelti išrašą</a>
+    <a th:if="${loggedIn}" href="/suvestine">Suvestinė</a>
+    <a th:if="${loggedIn}" href="/taisykles">Taisyklės</a>
+    <a th:if="${loggedIn}" href="/nustatymai">Nustatymai</a>
+    <form th:if="${loggedIn}" method="post" th:action="@{/logout}" style="display:inline"><button type="submit" class="link">Atsijungti</button></form>
 </nav>
 </body>
 </html>

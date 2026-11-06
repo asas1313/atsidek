@@ -1,8 +1,18 @@
 spring:
+  config:
+    import: optional:file:./.env[.properties]   # lokaliam paleidimui (docker-compose .env skaito pats)
   servlet:
     multipart:
       max-file-size: 10MB
       max-request-size: 30MB
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:not-configured}
+            client-secret: ${GOOGLE_CLIENT_SECRET:not-configured}
+            scope: openid,email,profile
   datasource:
     url: jdbc:h2:file:${atsidek.data-dir:./data}/atsidek;MODE=PostgreSQL;DB_CLOSE_ON_EXIT=FALSE
     username: sa
@@ -12,6 +22,9 @@ spring:
       mode: always
 
 atsidek:
+  auth:
+    owner-email: ""      # ATSIDEK_AUTH_OWNER_EMAIL – pirmą kartą prisijungęs perima senus „local“ duomenis
+    allowed-emails: ""   # ATSIDEK_AUTH_ALLOWED_EMAILS – kableliais; tuščia = visi patvirtinti Google el. paštai
   bank:
     iban-salt: dev-only-salt # ATSIDEK_BANK_IBAN_SALT – mokėtojų IBAN maišos druska
   classifier:

@@ -22,7 +22,7 @@
         </p>
         <p>Jei dalį metų dirbi pagal darbo sutartį ir PSD už tave moka darbdavys, minimalios PSD įmokos už tuos mėnesius
            mokėti nereikia. Nurodyk mėnesius, kai vykdai IV veiklą be darbdavio mokamo PSD.</p>
-        <form method="post" action="/nustatymai/psd">
+        <form method="post" th:action="@{/nustatymai/psd}">
             <input type="hidden" name="year" th:value="${year}">
             <label class="inline">Nuo
                 <select name="psdFrom"><option th:each="m : ${#numbers.sequence(1,12)}" th:value="${m}" th:text="${m} + ' mėn.'" th:selected="${m == psdFrom}"></option></select>
@@ -36,7 +36,7 @@
     <section class="card">
         <h2>Duomenų trynimas</h2>
         <p>Ištrins visas operacijas, importus, taisykles ir sąskaitas. Veiksmo atšaukti negalima.</p>
-        <form method="post" action="/nustatymai/istrinti-viska"
+        <form method="post" th:action="@{/nustatymai/istrinti-viska}"
               onsubmit="return confirm('Ištrinti VISUS banko duomenis? Veiksmo atšaukti negalima.')">
             <button type="submit" class="danger">Ištrinti visus banko duomenis</button>
         </form>
