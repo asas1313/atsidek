@@ -143,18 +143,22 @@ public class BankController {
     }
 
     @GetMapping("/nustatymai")
-    public String settings(Model model) {
+    public String settings(@RequestParam(value = "year", required = false) Integer year, Model model) {
+        int y = year != null ? year : LocalDate.now().getYear();
         model.addAttribute("accounts", store.accounts(user.id()));
-        model.addAttribute("psdFrom", summaries.psdFrom());
-        model.addAttribute("psdTo", summaries.psdTo());
+        model.addAttribute("year", y);
+        model.addAttribute("psdFrom", summaries.psdFrom(y));
+        model.addAttribute("psdTo", summaries.psdTo(y));
         return "bank/settings";
     }
 
     @PostMapping("/nustatymai/psd")
-    public String savePsd(@RequestParam int psdFrom, @RequestParam int psdTo) {
-        store.setSetting(user.id(), "psd_from", String.valueOf(Math.max(1, Math.min(12, psdFrom))));
-        store.setSetting(user.id(), "psd_to", String.valueOf(Math.max(1, Math.min(12, psdTo))));
-        return "redirect:/nustatymai";
+    public String savePsd(@RequestParam(value = "year", required = false) Integer year,
+                          @RequestParam int psdFrom, @RequestParam int psdTo) {
+        int y = year != null ? year : LocalDate.now().getYear();
+        store.setSetting(user.id(), "psd_from_" + y, String.valueOf(Math.max(1, Math.min(12, psdFrom))));
+        store.setSetting(user.id(), "psd_to_" + y, String.valueOf(Math.max(1, Math.min(12, psdTo))));
+        return "redirect:/nustatymai?year=" + y;
     }
 
     @PostMapping("/nustatymai/istrinti-viska")
