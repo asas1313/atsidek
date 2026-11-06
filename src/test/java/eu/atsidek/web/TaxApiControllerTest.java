@@ -11,7 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties = "atsidek.api.key-hashes=62af8704764faf8ea82fc61ce9c4c3908b6cb97d463a634e9e587d7c885db0ef")
 @AutoConfigureMockMvc
 class TaxApiControllerTest {
 
@@ -19,7 +19,23 @@ class TaxApiControllerTest {
     MockMvc mvc;
 
     private org.springframework.test.web.servlet.ResultActions compare(String json) throws Exception {
-        return mvc.perform(post("/api/v1/compare").contentType(MediaType.APPLICATION_JSON).content(json));
+        return mvc.perform(post("/api/v1/compare").header("X-API-Key", "test-key").contentType(MediaType.APPLICATION_JSON).content(json));
+    }
+
+    @Test
+    void rejectsMissingOrWrongKey() throws Exception {
+        String body = "{\"ivRevenue\":30000}";
+        mvc.perform(post("/api/v1/compare").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/compare").header("X-API-Key", "wrong")
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void acceptsBearerKey() throws Exception {
+        mvc.perform(post("/api/v1/compare").header("Authorization", "Bearer test-key")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"ivRevenue\":30000}"))
+                .andExpect(status().isOk());
     }
 
     @Test

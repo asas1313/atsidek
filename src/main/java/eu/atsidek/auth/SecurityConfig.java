@@ -1,6 +1,7 @@
 package eu.atsidek.auth;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,17 +18,23 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 /**
- * Viešos: skaičiuoklė, straipsnis, privatumas, JSON API, statiniai failai. Visa kita (banko ekranai) –
- * tik su Google prisijungimu. Neprisijungęs vartotojas nukreipiamas tiesiai į Google.
+ * Viešos: skaičiuoklė, straipsnis, privatumas, statiniai failai. JSON API ({@code /api/**}) – tik su API raktu.
+ * Visa kita (banko ekranai) – tik su Google prisijungimu. Neprisijungęs vartotojas nukreipiamas tiesiai į Google.
  */
 @Configuration
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http, OAuth2AuthorizationRequestResolver resolver) throws Exception {
+    SecurityFilterChain filterChain(HttpSecurity http, OAuth2AuthorizationRequestResolver resolver,
+                                    @Value("${atsidek.api.key-hashes:}") String apiKeyHashes) throws Exception {
+        List<String> hashes = Arrays.stream(apiKeyHashes.split(","))
+                .map(s -> s.trim().toLowerCase()).filter(s -> !s.isEmpty()).toList();
         http
+                // /api/** apsaugotas API raktu (ne Google): žr. ApiKeyFilter
+                .addFilterBefore(new ApiKeyFilter(hashes), AuthorizationFilter.class)
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/", "/calculate", "/privatumas", "/straipsniai/**", "/api/**",
                                 "/style.css", "/htmx.min.js", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/error").permitAll()
