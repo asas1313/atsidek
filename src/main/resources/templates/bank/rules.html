@@ -6,10 +6,33 @@
 <nav th:replace="~{bank/fragments :: nav}"></nav>
 <main>
     <section class="card">
-        <p th:if="${rules.isEmpty()}">Taisyklių dar nėra. Jas sukursi peržiūros ekrane pažymėjęs „Visada taip žymėti“.</p>
+        <h3>Nauja taisyklė pagal tekstą</h3>
+        <p class="small">Tinka visiems mėnesiams: pvz. pradžia <i>Net interest paid to "Instant Access Savings"</i>
+           pagaus ir „... for Oct 7, 2026“, ir „... for Oct 8, 2026“. Tikrinama paskirtis ir mokėtojo vardas;
+           raidžių dydis ir diakritikai nesvarbūs.</p>
+        <form method="post" action="/taisykles">
+            <label>Kai tekstas
+                <select name="mode">
+                    <option value="PREFIX">prasideda</option>
+                    <option value="CONTAINS">turi fragmentą</option>
+                </select>
+            </label>
+            <label>Tekstas <input type="text" name="text" required maxlength="300"></label>
+            <label>Kategorija
+                <select name="category">
+                    <option th:each="c : ${categories}" th:value="${c.name()}" th:text="${c.label()}">Veiklos pajamos</option>
+                </select>
+            </label>
+            <button type="submit">Pridėti taisyklę</button>
+        </form>
+    </section>
+    <section class="card">
+        <p th:if="${rules.isEmpty()}">Taisyklių dar nėra. Jas sukursi čia arba peržiūros ekrane pažymėjęs „Visada taip žymėti“.</p>
         <table th:if="${!rules.isEmpty()}">
             <tr th:each="r : ${rules}">
-                <td><b th:text="${r.displayName() != null ? r.displayName() : 'Mokėtojas pagal sąskaitą'}">UAB Pavyzdys</b>
+                <td><span class="small" th:if="${r.matchType() == 'PREFIX'}">Prasideda: </span>
+                    <span class="small" th:if="${r.matchType() == 'CONTAINS'}">Turi: </span>
+                    <b th:text="${r.displayName() != null ? r.displayName() : 'Mokėtojas pagal sąskaitą'}">UAB Pavyzdys</b>
                     <span class="small" th:text="'→ ' + ${r.category().label()}"></span></td>
                 <td>
                     <form method="post" th:action="'/taisykles/' + ${r.id()} + '/istrinti'">

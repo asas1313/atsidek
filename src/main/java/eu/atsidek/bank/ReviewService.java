@@ -79,6 +79,26 @@ public class ReviewService {
         return confirmed;
     }
 
+    /**
+     * Tekstinė taisyklė (paskirties pradžia ar fragmentas): viena taisyklė tinka visiems panašiems mokėjimams.
+     * Iškart taikoma dar nepatvirtintoms įeinančioms operacijoms.
+     */
+    @Transactional
+    public boolean addTextRule(boolean prefix, String text, Category category) {
+        String value = Text.normalize(text);
+        if (value.isEmpty() || category == Category.UNKNOWN) return false;
+        String user = currentUser.id();
+        String type = prefix ? Classifier.RULE_PREFIX : Classifier.RULE_CONTAINS;
+        long ruleId = store.saveRule(user, type, value, text.trim(), category);
+        Classifier.Rule rule = new Classifier.Rule(ruleId, type, value, category);
+        for (BankStore.Tx o : store.unconfirmedIncoming(user)) {
+            if (Classifier.matches(rule, new Classifier.Input(o.name(), o.ibanHash(), o.remittance(), null))) {
+                store.applyRule(user, o.id(), ruleId, category);
+            }
+        }
+        return true;
+    }
+
     private void createRule(String user, BankStore.Tx t, Category category) {
         String type = t.ibanHash() != null ? Classifier.RULE_IBAN : Classifier.RULE_NAME;
         String value = t.ibanHash() != null ? t.ibanHash() : Text.normalize(t.name());
