@@ -24,14 +24,14 @@ class AuthTest {
 
     @Test
     void publicPagesStayOpen() throws Exception {
-        for (String p : new String[] {"/", "/skaiciuokle", "/privatumas", "/style.css"}) {
+        for (String p : new String[] {"/skaiciuokle", "/privatumas", "/style.css"}) {
             mvc.perform(get(p)).andExpect(status().isOk());
         }
     }
 
     @Test
     void pagesShowBuildVersion() throws Exception {
-        for (String p : new String[] {"/", "/privatumas", "/straipsniai/30-proc-ar-faktines-islaidos"}) {
+        for (String p : new String[] {"/skaiciuokle", "/privatumas", "/straipsniai/30-proc-ar-faktines-islaidos"}) {
             assertThat(mvc.perform(get(p)).andReturn().getResponse().getContentAsString()).contains("Versija ");
         }
     }
@@ -46,9 +46,9 @@ class AuthTest {
 
     @Test
     void navShowsLoginWhenAnonymousAndLogoutWhenSignedIn() throws Exception {
-        String anon = mvc.perform(get("/")).andReturn().getResponse().getContentAsString();
+        String anon = mvc.perform(get("/skaiciuokle")).andReturn().getResponse().getContentAsString();
         assertThat(anon).contains("Prisijungti").doesNotContain("Atsijungti").doesNotContain("/importas");
-        String in = mvc.perform(get("/").with(oidcLogin())).andReturn().getResponse().getContentAsString();
+        String in = mvc.perform(get("/skaiciuokle").with(oidcLogin())).andReturn().getResponse().getContentAsString();
         assertThat(in).contains("Atsijungti").contains("/importas").doesNotContain(">Prisijungti<");
     }
 

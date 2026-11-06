@@ -27,11 +27,6 @@ atsidek:
     allowed-emails: ""   # ATSIDEK_AUTH_ALLOWED_EMAILS – kableliais; tuščia = visi patvirtinti Google el. paštai
   api:
     key-hashes: ""       # ATSIDEK_API_KEY_HASHES – API raktų SHA-256 (hex), kableliais; tuščia = /api/** uždarytas
-  ai:
-    api-key: ${ANTHROPIC_API_KEY:}   # AI asistentas (/asistentas); tuščia = išjungtas
-    model: claude-haiku-5-5
-    rate-limit-per-hour: 10   # užklausų per valandą vienam IP
-    daily-cap: 300            # bendras užklausų per parą limitas (kainos apsauga)
   bank:
     iban-salt: dev-only-salt # ATSIDEK_BANK_IBAN_SALT – mokėtojų IBAN maišos druska
   classifier:

@@ -6,7 +6,14 @@ atsidek.eu {
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
 	}
-	reverse_proxy app:8080
+	# AI asistentas (atskiras Python servisas) – tik pagrindinis puslapis ir jo formos veiksmas
+	@assistant path / /asistentas
+	handle @assistant {
+		reverse_proxy assistant:8000
+	}
+	handle {
+		reverse_proxy app:8080
+	}
 }
 
 www.atsidek.eu {

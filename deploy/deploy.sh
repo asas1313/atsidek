@@ -4,7 +4,7 @@
 #
 # Kiekviena aplinka turi savo failą /opt/atsidek/<aplinka>.env (CONTROLLER_NAME,
 # CONTACT_EMAIL, TUNNEL_TOKEN, APP_PORT, CANONICAL_HOST, NOINDEX, DATA_DIR,
-# BANK_IBAN_SALT, DB_URL, DB_USER, DB_PASSWORD).
+# BANK_IBAN_SALT, DB_URL, DB_USER, DB_PASSWORD, ASSISTANT_PORT, ATSIDEK_API_KEY, ANTHROPIC_API_KEY).
 # Pavyzdys: .env.example
 set -euo pipefail
 
@@ -16,6 +16,8 @@ ENV_FILE="/opt/atsidek/${ENV_NAME}.env"
 TAG="${SHA:0:12}"
 PORT="$(grep -E '^APP_PORT=' "$ENV_FILE" | cut -d= -f2)"
 PORT="${PORT:-8080}"
+APORT="$(grep -E '^ASSISTANT_PORT=' "$ENV_FILE" | cut -d= -f2)"
+APORT="${APORT:-8000}"
 export IMAGE_TAG="$TAG"
 
 # Versija 1.0.<PR numeris>: paimama iš sujungimo komito (merge arba squash), kitaip 0.
@@ -33,12 +35,16 @@ COMPOSE=(docker compose -p "atsidek-${ENV_NAME}" --env-file "$ENV_FILE" --profil
 if ! docker image inspect "atsidek:${TAG}" >/dev/null 2>&1; then
   "${COMPOSE[@]}" build app
 fi
+if ! docker image inspect "atsidek-assistant:${TAG}" >/dev/null 2>&1; then
+  "${COMPOSE[@]}" build assistant
+fi
 
 "${COMPOSE[@]}" up -d
 
 echo "Laukiama, kol ${ENV_NAME} atsakys (127.0.0.1:${PORT})..."
 for _ in $(seq 1 30); do
   if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/"; then
+    curl -fsS -o /dev/null "http://127.0.0.1:${APORT}/healthz" || { echo "KLAIDA: AI asistentas neatsako" >&2; exit 1; }
     echo "OK: ${ENV_NAME} veikia (atsidek:${TAG})"
     docker image prune -f >/dev/null
     exit 0

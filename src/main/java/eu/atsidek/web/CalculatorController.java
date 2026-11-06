@@ -14,6 +14,16 @@ import org.springframework.web.bind.annotation.RequestHeader;
 public class CalculatorController {
 
     private final TaxEngine engine = TaxEngine.forYear2026();
+
+    /**
+     * Pagrindinį puslapį „/“ aptarnauja atskiras AI asistento servisas (žr. assistant/ ir Caddyfile).
+     * Jei užklausa „/“ pasiekia šią aplikaciją tiesiogiai (be tarpinio serverio), siunčiame į skaičiuoklę.
+     */
+    @GetMapping("/")
+    public String home() {
+        return "redirect:/skaiciuokle";
+    }
+
     @GetMapping("/skaiciuokle")
     public String index(@ModelAttribute("form") CalculatorForm form, Model model) {
         addComparison(form, model);
