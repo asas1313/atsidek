@@ -43,8 +43,8 @@ fi
 
 echo "Laukiama, kol ${ENV_NAME} atsakys (127.0.0.1:${PORT})..."
 for _ in $(seq 1 30); do
-  if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/"; then
-    curl -fsS -o /dev/null "http://127.0.0.1:${APORT}/healthz" || { echo "KLAIDA: AI asistentas neatsako" >&2; exit 1; }
+  if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/" \
+     && curl -fsS -o /dev/null "http://127.0.0.1:${APORT}/healthz"; then
     echo "OK: ${ENV_NAME} veikia (atsidek:${TAG})"
     docker image prune -f >/dev/null
     exit 0
@@ -52,6 +52,6 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 
-echo "KLAIDA: ${ENV_NAME} neatsako" >&2
-"${COMPOSE[@]}" logs --tail 50 app >&2
+echo "KLAIDA: ${ENV_NAME} neatsako (app :${PORT} arba AI asistentas :${APORT})" >&2
+"${COMPOSE[@]}" logs --tail 50 app assistant >&2
 exit 1
