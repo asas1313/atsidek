@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Form, Header, Request
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -18,11 +18,6 @@ from .limiter import Decision, RateLimiter
 
 MAX_LENGTH = 1000
 MAX_AMOUNT = Decimal("100000000")
-
-
-def noindex_enabled() -> bool:
-    """Staging: ATSIDEK_NOINDEX=true. Funkcija (ne konstanta), kad testuose env būtų galima keisti."""
-    return os.getenv("ATSIDEK_NOINDEX", "false").strip().lower() in ("1", "true", "yes")
 
 
 def eur(v) -> str:
@@ -98,30 +93,16 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
     templates.env.filters["eur"] = eur
     templates.env.filters["pct"] = pct
-    templates.env.globals["app_version"] = "Versija " + os.getenv("APP_VERSION", "dev")
-    templates.env.globals["build_sha"] = os.getenv("GIT_SHA", "")
-    templates.env.globals["noindex"] = noindex_enabled
-
-    @app.middleware("http")
-    async def robots_header(request: Request, call_next):
-        response = await call_next(request)
-        if noindex_enabled():
-            response.headers["X-Robots-Tag"] = "noindex, nofollow"
-        return response
 
     def render(request: Request, name: str, ctx: dict) -> HTMLResponse:
         return templates.TemplateResponse(request, name, ctx)
-
-    @app.get("/", response_class=HTMLResponse)
-    def page(request: Request):
-        return render(request, "assistant.html", {"text": "", "asked": False})
 
     @app.get("/healthz")
     def healthz():
         return {"status": "ok"}
 
     @app.post("/asistentas", response_class=HTMLResponse)
-    def ask(request: Request, text: str = Form(""), hx_request: Optional[str] = Header(None)):
+    def ask(request: Request, text: str = Form("")):
         trimmed = (text or "").strip()
         ctx: dict = {"text": trimmed, "asked": True}
         if not trimmed:
@@ -136,8 +117,8 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
                 ctx["error"] = "Per daug užklausų iš tavo adreso. Pabandyk vėliau arba naudok skaičiuoklę."
             else:
                 ctx["error"] = "Šiandien AI asistento limitas išnaudotas. Pabandyk rytoj arba naudok skaičiuoklę."
-        # htmx: tik rezultato fragmentas; be htmx - visas puslapis
-        return render(request, "result.html" if hx_request else "assistant.html", ctx)
+        # Puslapį (meniu, forma) rodo Java; čia visada tik rezultato fragmentas, kurį htmx įdeda į #result
+        return render(request, "result.html", ctx)
 
     return app
 

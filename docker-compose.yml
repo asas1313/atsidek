@@ -31,7 +31,7 @@ services:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
 
   # AI asistentas: atskiras Python servisas. Ištraukia skaičius iš teksto (Claude) ir kviečia app /api/v1/compare;
-  # mokesčių pats neskaičiuoja. Aptarnauja "/" ir "/asistentas" (maršrutas: Caddyfile / Cloudflare tunelis / NPM).
+  # mokesčių pats neskaičiuoja. Aptarnauja tik POST "/asistentas" (rezultato fragmentas; puslapį rodo app) (maršrutas: Caddyfile / Cloudflare tunelis / NPM).
   assistant:
     build:
       context: ./assistant
@@ -44,7 +44,6 @@ services:
       - app
     environment:
       ATSIDEK_API_URL: http://app:8080
-      ATSIDEK_NOINDEX: ${NOINDEX:-false}
       ATSIDEK_API_KEY: ${ATSIDEK_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-claude-haiku-5-5}

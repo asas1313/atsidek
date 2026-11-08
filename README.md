@@ -18,13 +18,13 @@ mvn test
 - `eu.atsidek.web` – Thymeleaf + htmx: `/skaiciuokle` (skaičiuoklė su laukais), `/calculate` (fragmentas).
 - `assistant/` – AI asistentas: atskiras Python (FastAPI) servisas, žr. žemiau. Java pusėje liko tik `/api/v1/compare`, kurį jis kviečia.
 
-## AI asistentas (pagrindinis puslapis `/`, atskiras servisas)
+## AI asistentas (pagrindinis puslapis `/` – Java, rezultatas – atskiras servisas)
 
 ```
 Vartotojas → AI asistentas (assistant/, Python) → /api/v1/compare (Atsidėk, Java)
 ```
 
-Asistentas yra atskiras servisas (`assistant/`, FastAPI + Anthropic SDK). Jis aptarnauja `/` ir `POST /asistentas`, o mokesčių skaičiavimui per HTTP kviečia Java `POST /api/v1/compare` su API raktu (`ATSIDEK_API_KEY`; Java pusėje – jo SHA-256 `API_KEY_HASHES`). Java lieka nepakeista deterministine skaičiuokle. Maršrutas: Caddyfile siunčia `/` ir `/asistentas` į `assistant:8000`, kita – į `app:8080`. Cloudflare tunelyje / Nginx Proxy Manager reikia analogiškos kelio taisyklės (žr. DEPLOY.md). Jei `/` pasiekia Java tiesiogiai, ji nukreipia į `/skaiciuokle`.
+Asistentas yra atskiras servisas (`assistant/`, FastAPI + Anthropic SDK). Puslapį `/` (meniu, forma, SEO) rodo Java (`asistentas.html`), o šis servisas aptarnauja tik `POST /asistentas` ir grąžina HTML fragmentą, kurį htmx įdeda į `#result`; o mokesčių skaičiavimui per HTTP kviečia Java `POST /api/v1/compare` su API raktu (`ATSIDEK_API_KEY`; Java pusėje – jo SHA-256 `API_KEY_HASHES`). Java lieka nepakeista deterministine skaičiuokle. Maršrutas: Caddyfile siunčia tik `/asistentas` į `assistant:8000`, kita – į `app:8080`. Cloudflare tunelyje / Nginx Proxy Manager reikia analogiškos kelio taisyklės (žr. DEPLOY.md).
 
 Lokaliai: `cd assistant && python -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt && python -m pytest`.
 

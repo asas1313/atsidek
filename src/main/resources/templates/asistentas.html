@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="lt">
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Atsidėk – kiek atsidėti mokesčiams individualioje veikloje? AI asistentas</title>
     <meta name="description" content="Aprašyk savo individualios veiklos pajamas savais žodžiais ir iškart sužinok GPM, VSD ir PSD bei kiek atsidėti kas mėnesį. Nemokamai, be registracijos.">
     <link rel="canonical" href="https://atsidek.eu/">
-    <meta name="robots" content="{{ 'noindex,nofollow' if noindex() else 'index,follow' }}">
+    <meta name="robots" content="index,follow">
     <meta property="og:type" content="website">
     <meta property="og:locale" content="lt_LT">
     <meta property="og:site_name" content="Atsidėk">
@@ -22,17 +22,15 @@
     <h1>Atsidėk</h1>
     <p>Parašyk, kiek uždirbai – pasakysiu, kiek atsidėti mokesčiams.</p>
 </header>
-<nav class="bank-nav">
-    <a href="/">AI asistentas</a>
-    <a href="/skaiciuokle">Skaičiuoklė</a>
-</nav>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
 
 <main>
+    <!-- Rezultato fragmentą grąžina atskiras AI asistento servisas (POST /asistentas, žr. assistant/ ir Caddyfile) -->
     <form class="card" method="post" action="/asistentas" hx-post="/asistentas" hx-target="#result" hx-swap="outerHTML" hx-indicator="#spinner">
         <h2>Aprašyk savo situaciją</h2>
         <label for="text">Savais žodžiais: pajamos, išlaidos, o jei reikia – ir kitos pajamos, pensijų kaupimas, PSD mėnesiai.
             <textarea id="text" name="text" rows="4" maxlength="1000" required
-                      placeholder="Pvz.: Per metus gausiu apie 25 000 € iš IV, turiu 4 000 € išlaidų, dar dirbu pagal darbo sutartį ir uždirbu 12 000 €.">{{ text }}</textarea>
+                      placeholder="Pvz.: Per metus gausiu apie 25 000 € iš IV, turiu 4 000 € išlaidų, dar dirbu pagal darbo sutartį ir uždirbu 12 000 €."></textarea>
         </label>
         <div class="chips">
             <button type="button" class="chip" onclick="setText(this)">Gavau 2400 € už projektą, išlaidų turėjau apie 300.</button>
@@ -45,10 +43,12 @@
             <a href="/privatumas">Privatumo politika</a>. Nori įvesti patiems? <a href="/skaiciuokle">Skaičiuoklė su laukais</a>.</p>
     </form>
 
-    {% include "result.html" %}
+    <section id="result" class="card result" aria-live="polite">
+        <p class="small">Čia atsiras rezultatas.</p>
+    </section>
 </main>
 <footer><p>© Atsidėk · <a href="/skaiciuokle">Skaičiuoklė</a> · <a href="/straipsniai/30-proc-ar-faktines-islaidos">30 % ar faktinės išlaidos?</a> · <a href="/privatumas">Privatumo politika</a></p></footer>
-<p class="build" data-build="{{ build_sha }}">{{ app_version }}</p>
+<p th:replace="~{bank/fragments :: build}"></p>
 <script>
     function setText(b) { document.getElementById('text').value = b.textContent; }
 </script>
