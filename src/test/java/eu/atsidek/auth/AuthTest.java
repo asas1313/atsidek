@@ -45,11 +45,12 @@ class AuthTest {
     }
 
     @Test
-    void navShowsLoginWhenAnonymousAndLogoutWhenSignedIn() throws Exception {
+    void navShowsAllItemsAlwaysAndLoginOrLogoutByState() throws Exception {
+        String[] items = {"/importas", "/suvestine", "/taisykles", "/nustatymai"};
         String anon = mvc.perform(get("/skaiciuokle")).andReturn().getResponse().getContentAsString();
-        assertThat(anon).contains("Prisijungti").doesNotContain("Atsijungti").doesNotContain("/importas");
+        assertThat(anon).contains("Prisijungti").doesNotContain("Atsijungti").contains(items);
         String in = mvc.perform(get("/skaiciuokle").with(oidcLogin())).andReturn().getResponse().getContentAsString();
-        assertThat(in).contains("Atsijungti").contains("/importas").doesNotContain(">Prisijungti<");
+        assertThat(in).contains("Atsijungti").contains(items).doesNotContain(">Prisijungti<");
     }
 
     @Test

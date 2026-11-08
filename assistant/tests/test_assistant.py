@@ -52,11 +52,6 @@ def ask(c, text="Gavau 2400 €", htmx=True):
     return c.post("/asistentas", data={"text": text}, headers={"HX-Request": "true"} if htmx else {})
 
 
-def test_page_renders():
-    r = client().get("/")
-    assert r.status_code == 200 and "Aprašyk savo situaciją" in r.text and 'id="result"' in r.text
-
-
 def test_calls_api_with_extracted_values_and_shows_result():
     calc = FakeCalc()
     c = client(Extraction(revenue=Decimal("2400"), expenses=Decimal("300")), calc)
@@ -66,9 +61,9 @@ def test_calls_api_with_extracted_values_and_shows_result():
     assert calc.calls == [(Decimal("2400"), Decimal("300"), Decimal(0), False, 12)]
 
 
-def test_without_htmx_returns_full_page():
+def test_always_returns_fragment_even_without_htmx():
     r = ask(client(Extraction(revenue=Decimal("100"))), htmx=False)
-    assert "<html" in r.text and "Rezultatas" in r.text
+    assert "<html" not in r.text and "Rezultatas" in r.text
 
 
 def test_better_actual_is_shown_when_unspecified():

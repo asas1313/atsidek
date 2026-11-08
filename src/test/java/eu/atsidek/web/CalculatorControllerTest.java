@@ -53,8 +53,10 @@ class CalculatorControllerTest {
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Sitemap: https://atsidek.eu/sitemap.xml")));
         mvc.perform(get("/sitemap.xml")).andExpect(status().isOk());
         mvc.perform(get("/skaiciuokle")).andExpect(content().string(org.hamcrest.Matchers.containsString("rel=\"canonical\" href=\"https://atsidek.eu/skaiciuokle\"")));
-        // Pagrindinį puslapį „/“ aptarnauja AI asistento servisas; Java be tarpinio serverio nukreipia į skaičiuoklę
-        mvc.perform(get("/")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/skaiciuokle"));
+        // Pagrindinį puslapį „/“ rodo Java (meniu), o rezultatą į #result įdeda AI asistento servisas
+        mvc.perform(get("/")).andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("hx-post=\"/asistentas\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("href=\"/suvestine\"")));
     }
 
     @Test

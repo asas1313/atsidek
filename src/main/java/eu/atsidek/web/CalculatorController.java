@@ -16,12 +16,12 @@ public class CalculatorController {
     private final TaxEngine engine = TaxEngine.forYear2026();
 
     /**
-     * Pagrindinį puslapį „/“ aptarnauja atskiras AI asistento servisas (žr. assistant/ ir Caddyfile).
-     * Jei užklausa „/“ pasiekia šią aplikaciją tiesiogiai (be tarpinio serverio), siunčiame į skaičiuoklę.
+     * Pagrindinis puslapis (meniu, SEO, forma). Rezultato fragmentą POST /asistentas grąžina atskiras
+     * AI asistento servisas (žr. assistant/ ir Caddyfile).
      */
     @GetMapping("/")
     public String home() {
-        return "redirect:/skaiciuokle";
+        return "asistentas";
     }
 
     @GetMapping("/skaiciuokle")

@@ -133,11 +133,11 @@ sudo chown -R <runner-vartotojas> /opt/atsidek && sudo chmod 600 /opt/atsidek/*.
 
 ## AI asistentas (atskiras servisas)
 
-Konteineris `assistant` aptarnauja tik `/` ir `/asistentas`; visa kita – `app`. Reikia trijų dalykų:
+Konteineris `assistant` aptarnauja tik `POST /asistentas` (rezultato fragmentas); puslapį `/` su meniu rodo `app`. Reikia trijų dalykų:
 
 1. `python ai/naujas_raktas.py` → raktą įrašyk į aplinkos `.env` kaip `ATSIDEK_API_KEY`, o maišą – kaip `API_KEY_HASHES` (be jos `/api/**` uždarytas ir asistentas gaus 401). Taip pat `ANTHROPIC_API_KEY`.
 2. **Caddy** (variantas A): maršrutas jau yra `Caddyfile`.
-3. **Cloudflare tunelis**: prie to paties hostname pridėk dar vieną Public hostname eilutę su **Path** `^/(asistentas)?$` → `http://assistant:8000` ir pastatyk ją **virš** bendros eilutės (`app:8080`). **Nginx Proxy Manager**: Custom locations → `location = / { proxy_pass http://<IP>:8000; }` ir `location = /asistentas { proxy_pass http://<IP>:8000; }` (Advanced skiltyje).
+3. **Cloudflare tunelis**: prie to paties hostname pridėk dar vieną Public hostname eilutę su **Path** `^/asistentas$` (anksčiau buvo `^/(asistentas)?$` – **pirma pakeisk taisyklę, tik tada diegk šią versiją**, kitaip `/` gaus 404 iš assistant) → `http://assistant:8000` ir pastatyk ją **virš** bendros eilutės (`app:8080`). **Nginx Proxy Manager**: Custom locations → tik `location = /asistentas { proxy_pass http://<IP>:8000; }` (Advanced skiltyje).
 
 Patikra: `curl http://127.0.0.1:8000/healthz` (deploy.sh tai daro pats).
 

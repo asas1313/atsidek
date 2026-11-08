@@ -6,8 +6,8 @@ atsidek.eu {
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
 	}
-	# AI asistentas (atskiras Python servisas) – tik pagrindinis puslapis ir jo formos veiksmas
-	@assistant path / /asistentas
+	# AI asistentas (atskiras Python servisas) – tik formos veiksmas (rezultato fragmentas); puslapį rodo app
+	@assistant path /asistentas
 	handle @assistant {
 		reverse_proxy assistant:8000
 	}
