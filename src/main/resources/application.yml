@@ -14,12 +14,11 @@ spring:
             client-secret: ${GOOGLE_CLIENT_SECRET:not-configured}
             scope: openid,email,profile
   datasource:
-    url: jdbc:h2:file:${atsidek.data-dir:./data}/atsidek;MODE=PostgreSQL;DB_CLOSE_ON_EXIT=FALSE
-    username: sa
-    password: ""
-  sql:
-    init:
-      mode: always
+    # Produkcijoje/staging – tik per env (SPRING_DATASOURCE_URL/USERNAME/PASSWORD).
+    # Numatytoji reikšmė – lokalus dev Postgres iš docker-compose.yml "postgres" serviso.
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/atsidek}
+    username: ${SPRING_DATASOURCE_USERNAME:atsidek}
+    password: ${SPRING_DATASOURCE_PASSWORD:atsidek}
 
 atsidek:
   auth:

@@ -21,14 +21,46 @@ services:
       ATSIDEK_AUTH_ALLOWED_EMAILS: ${AUTH_ALLOWED_EMAILS:-}
       ATSIDEK_API_KEY_HASHES: ${API_KEY_HASHES:-}
       ATSIDEK_BANK_IBAN_SALT: ${BANK_IBAN_SALT:-dev-only-salt}
-      SPRING_DATASOURCE_URL: ${DB_URL:-jdbc:h2:file:/app/data/atsidek;MODE=PostgreSQL;DB_CLOSE_ON_EXIT=FALSE}
-      SPRING_DATASOURCE_USERNAME: ${DB_USER:-sa}
-      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-}
+      # Numatytosios reikšmės taiko TIK šio compose "postgres" servisą (žemiau) – tik lokaliam dev.
+      # Staging/prod SPRING_DATASOURCE_* ateina iš deploy aplinkos (atskiras Postgres LXC 192.168.68.106),
+      # šis compose servisas jų niekada nepaveikia.
+      SPRING_DATASOURCE_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/atsidek}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-atsidek}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-atsidek}
     expose:
       - "8080"
     # Pagal nutylėjimą tik vietinis (127.0.0.1). Su Nginx Proxy Manager .env faile nurodyk APP_BIND=0.0.0.0
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
+
+  # PostgreSQL – TIK lokaliam dev (docker-compose). Staging ir production NIEKADA nenaudoja šio
+  # serviso: ten jau veikia atskiras PostgreSQL atskirame LXC serveryje (192.168.68.106:5432,
+  # duomenų bazės atsidek_staging / atsidek_prod), prisijungimas vyksta per SPRING_DATASOURCE_*
+  # env kintamuosius, ateinančius iš deploy aplinkos (žr. DEPLOY.md). Šis servisas jų neliečia.
+  #
+  # Sąmoningai su atskiru profiliu "local-db" (NE numatytasis/be profilio, NE "caddy"/"tunnel"):
+  # deploy.sh staging/production visada paleidžia su `--profile tunnel`, taigi be profilio
+  # paliktas servisas būtų startavęs ir serveryje. Lokaliam dev paleisti:
+  #   docker compose --profile local-db up -d --build
+  postgres:
+    profiles: ["local-db"]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-atsidek}
+      POSTGRES_USER: ${DB_USER:-atsidek}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-atsidek}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Pagal nutylėjimą neskelbiamas į host'ą – prieinamas tik kitiems compose servisams tinkle.
+    # Jei reikia prisijungti iš host'o (pvz. psql/DBeaver), atkomentuok:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-atsidek} -d ${DB_NAME:-atsidek}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # AI asistentas: atskiras Python servisas. Ištraukia skaičius iš teksto (Claude) ir kviečia app /api/v1/compare;
   # mokesčių pats neskaičiuoja. Aptarnauja tik POST "/asistentas" (rezultato fragmentas; puslapį rodo app) (maršrutas: Caddyfile / Cloudflare tunelis / NPM).
@@ -86,3 +118,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  postgres_data:   # tik lokalaus dev "postgres" serviso duomenys
