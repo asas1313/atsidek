@@ -1,6 +1,8 @@
 package eu.atsidek.goals.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -55,5 +57,26 @@ class GoalsPageControllerTest {
                 .andExpect(content().string(containsString("href=\"/taupymo-tikslai\"")))
                 .andExpect(content().string(containsString("Individualios veiklos mokesčiai")))
                 .andExpect(content().string(containsString("href=\"/skaiciuokle\"")));
+    }
+
+    /**
+     * CSRF meta žymės (PLAN.md §6 task 11/12) egzistuoja NEPRIKLAUSOMAI nuo prisijungimo būsenos -
+     * Spring Security išduoda žetoną kiekvienai sesijai, taip pat anonimiškai.
+     */
+    @Test
+    void renderCsrfMetaTagsForJsCta() throws Exception {
+        String html = mvc.perform(get("/taupymo-tikslai")).andReturn().getResponse().getContentAsString();
+        assertThat(html).contains("<meta name=\"_csrf\"").contains("<meta name=\"_csrf_header\"");
+    }
+
+    /** "Išsaugok ir sek progresą - prisijunk" CTA rodomas tik atsijungusiems. */
+    @Test
+    void saveProgressCtaShownOnlyWhenLoggedOut() throws Exception {
+        String anon = mvc.perform(get("/taupymo-tikslai")).andReturn().getResponse().getContentAsString();
+        assertThat(anon).contains("Išsaugok ir sek progresą – prisijunk");
+
+        String loggedIn = mvc.perform(get("/taupymo-tikslai").with(oidcLogin()))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(loggedIn).doesNotContain("Išsaugok ir sek progresą – prisijunk");
     }
 }

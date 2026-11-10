@@ -14,6 +14,12 @@
     <meta property="og:title" content="Atsidėk – Taupymo tikslų skaičiuoklė">
     <meta property="og:description" content="Kiek reikia atsidėti, kad pasiektumėte taupymo tikslą? Skaičiuoja pagal jūsų šeimos situaciją ir Lietuvos statistiką.">
     <link rel="stylesheet" href="/style.css">
+    <!-- JS (be jokios extra Thymeleaf-Security priklausomybės) skaito CSRF žetoną iš šių meta
+         žymių ir siunčia jį kaip antraštę į POST /goals/tikslai/preliminarus (PLAN.md §6 task 11/12) -
+         Spring Security išduoda CSRF žetoną nepriklausomai nuo prisijungimo būsenos, todėl jis
+         egzistuoja čia net anonimiškam lankytojui. -->
+    <meta name="_csrf" th:content="${_csrf.token}">
+    <meta name="_csrf_header" th:content="${_csrf.headerName}">
 </head>
 <body>
 <header class="hero">
@@ -195,6 +201,15 @@
     </div>
 
     <div class="goals-col-right">
+        <!-- CTA rodomas tik atsijungusiems - prisijungusiam ROLE_USER savo tikslą jau matosi
+             /mano-tikslas nuorodoje (nav), šis blokas jam nebereikalingas (PLAN.md §5/§6 task 11/12). -->
+        <section class="card" id="save-progress-cta" th:unless="${loggedIn}">
+            <h2>Išsaugok ir sek progresą</h2>
+            <p>Prisijunk su Google ir sek, kaip sekasi pasiekti šį tikslą – rankiniu būdu pažymėsi
+                mėnesio įmokas, o mes parodysime, ar sekasi pagal planą.</p>
+            <button type="button" id="save-progress-btn">Išsaugok ir sek progresą – prisijunk</button>
+            <p class="small err" id="save-progress-error" hidden>Nepavyko išsaugoti skaičiavimo. Bandykite vėliau.</p>
+        </section>
         <section class="card goals-result-main">
             <p class="goals-result-label" id="result-label">Kas mėnesį reikia atsidėti</p>
             <p class="goals-result-number" id="result-number" aria-live="polite">— €</p>
@@ -603,6 +618,39 @@
         });
     }
 
+    // ---- "Išsaugok ir sek progresą - prisijunk" CTA (PLAN.md §5/§6 task 11/12) ----
+    // Dviejų žingsnių eiga: (1) POST /goals/tikslai/preliminarus su CSRF antrašte iš meta žymių -
+    // saugo šį skaičiavimą HttpSession'e; (2) PILNAS puslapio navigavimas (ne fetch) į /mano-tikslas,
+    // kuris (neprisijungus) nukreipia per Google OAuth ir grąžina atgal su nepaliesta sesija.
+
+    function csrfHeaders() {
+        var tokenMeta = document.querySelector('meta[name="_csrf"]');
+        var headerMeta = document.querySelector('meta[name="_csrf_header"]');
+        var headers = { "Content-Type": "application/json" };
+        if (tokenMeta && headerMeta && headerMeta.content) {
+            headers[headerMeta.content] = tokenMeta.content;
+        }
+        return headers;
+    }
+
+    function wireSaveProgressCta() {
+        var btn = $("save-progress-btn");
+        if (!btn) { return; }
+        btn.addEventListener("click", function () {
+            $("save-progress-error").hidden = true;
+            fetch("/goals/tikslai/preliminarus", {
+                method: "POST",
+                headers: csrfHeaders(),
+                body: JSON.stringify(buildRequestBody())
+            }).then(function (res) {
+                if (!res.ok) { throw new Error("bad status " + res.status); }
+                window.location.href = "/mano-tikslas";
+            }).catch(function () {
+                $("save-progress-error").hidden = false;
+            });
+        });
+    }
+
     // ---- įvykiai ----
 
     function wireRangeAndNumberFields() {
@@ -670,6 +718,7 @@
         wireRangeAndNumberFields();
         wireGoalTypeAndMode();
         wireSteppers();
+        wireSaveProgressCta();
 
         refreshStatsThenCalculate();
     });

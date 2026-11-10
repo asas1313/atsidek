@@ -55,13 +55,33 @@ class AuthTest {
         }
     }
 
+    /**
+     * Anonimiškam lankytojui ir ROLE_ADMIN banko modulio nav grupė rodoma kaip ir anksčiau; paprastam
+     * prisijungusiam (vien ROLE_USER, ne admin'as) ji paslepiama - banko apsauga pati (403) nepakitusi,
+     * tik meniu nuoroda (PLAN.md §6 task 12). Visiems prisijungusiems rodomos "Mano tikslas"/"Mano
+     * paskyra" nuorodos.
+     */
     @Test
     void navShowsAllItemsAlwaysAndLoginOrLogoutByState() throws Exception {
         String[] items = {"/importas", "/suvestine", "/taisykles", "/nustatymai"};
         String anon = mvc.perform(get("/skaiciuokle")).andReturn().getResponse().getContentAsString();
         assertThat(anon).contains("Prisijungti").doesNotContain("Atsijungti").contains(items);
-        String in = mvc.perform(get("/skaiciuokle").with(oidcLogin())).andReturn().getResponse().getContentAsString();
-        assertThat(in).contains("Atsijungti").contains(items).doesNotContain(">Prisijungti<");
+        assertThat(anon).doesNotContain("Mano tikslas").doesNotContain("Mano paskyra");
+
+        String admin = mvc.perform(get("/skaiciuokle")
+                        .with(oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"),
+                                new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(admin).contains("Atsijungti").contains(items).doesNotContain(">Prisijungti<");
+        assertThat(admin).contains("Mano tikslas").contains("Mano paskyra");
+
+        String plainUser = mvc.perform(get("/skaiciuokle")
+                        .with(oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"))))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(plainUser).contains("Atsijungti").doesNotContain(">Prisijungti<");
+        assertThat(plainUser).doesNotContain("/importas").doesNotContain("/suvestine")
+                .doesNotContain("/taisykles").doesNotContain("/nustatymai");
+        assertThat(plainUser).contains("Mano tikslas").contains("Mano paskyra");
     }
 
     @Test
