@@ -211,6 +211,89 @@ class SavingsGoalControllerTest {
                 .andExpect(status().isNotFound());
     }
 
+    /**
+     * PLAN.md §6 task 1: taikinio suma validuojama programos lygmeniu (draugiškas 400), ne vien DB
+     * {@code CHECK}. Tikrinama per TIKRĄ HTTP užklausą į valdiklį, ne vien per
+     * {@code SavingsGoalServiceTest}'o mockintą store'ą - užtikrina, kad validacija realiai suveikia
+     * prieš pasiekiant {@code SavingsGoalStore}, ne tik teoriškai servise.
+     */
+    @Test
+    void recordingNegativeContributionAmountIsRejectedEndToEnd() throws Exception {
+        AppOidcUser user = userWithAccess("neg-contribution");
+        MockHttpSession session = sessionWithPendingInput(sampleInput());
+        mvc.perform(post("/goals/tikslai").with(loginAs(user)).with(csrf()).session(session))
+                .andExpect(status().isOk());
+        UUID goalId = jdbc.queryForObject(
+                "SELECT g.id FROM savings_goal g JOIN app_user u ON u.id = g.user_id WHERE u.provider_subject = ?",
+                UUID.class, user.getName());
+
+        mvc.perform(post(("/goals/tikslai/" + goalId + "/irasai")).with(loginAs(user)).with(csrf())
+                        .param("month", "2026-01").param("amount", "-5"))
+                .andExpect(status().isBadRequest());
+
+        Integer contributionCount = jdbc.queryForObject(
+                "SELECT count(*) FROM savings_contribution WHERE goal_id = ?", Integer.class, goalId);
+        assertThat(contributionCount).isEqualTo(0);
+    }
+
+    @Test
+    void recordingOversizedContributionAmountIsRejectedEndToEnd() throws Exception {
+        AppOidcUser user = userWithAccess("oversized-contribution");
+        MockHttpSession session = sessionWithPendingInput(sampleInput());
+        mvc.perform(post("/goals/tikslai").with(loginAs(user)).with(csrf()).session(session))
+                .andExpect(status().isOk());
+        UUID goalId = jdbc.queryForObject(
+                "SELECT g.id FROM savings_goal g JOIN app_user u ON u.id = g.user_id WHERE u.provider_subject = ?",
+                UUID.class, user.getName());
+
+        mvc.perform(post(("/goals/tikslai/" + goalId + "/irasai")).with(loginAs(user)).with(csrf())
+                        .param("month", "2026-01").param("amount", "100000001"))
+                .andExpect(status().isBadRequest());
+
+        Integer contributionCount = jdbc.queryForObject(
+                "SELECT count(*) FROM savings_contribution WHERE goal_id = ?", Integer.class, goalId);
+        assertThat(contributionCount).isEqualTo(0);
+    }
+
+    /**
+     * Neigiama/per didelė TIKSLO (ne įmokos) suma turi būti atmesta su {@code 400} dar prieš
+     * pasiekiant {@code SavingsGoalStore} - {@code GoalsService.calculate} validacija (task 1)
+     * veikia ir šiam, naujam, sesijos-perkėlimo keliui, ne vien senam {@code /goals/calculate}.
+     */
+    @Test
+    void savingGoalWithNegativeAmountIsRejectedEndToEnd() throws Exception {
+        AppOidcUser user = userWithAccess("neg-goal-amount");
+        GoalInput negative = new GoalInput(GoalType.CAR, GoalMode.YEARS, new BigDecimal("-100"), 1, null, null, null,
+                null, null, new Household(null, null, null, null, null),
+                new Assumptions(new BigDecimal("0"), new BigDecimal("0")), null);
+        MockHttpSession session = sessionWithPendingInput(negative);
+
+        mvc.perform(post("/goals/tikslai").with(loginAs(user)).with(csrf()).session(session))
+                .andExpect(status().isBadRequest());
+
+        Integer rowCount = jdbc.queryForObject(
+                "SELECT count(*) FROM savings_goal g JOIN app_user u ON u.id = g.user_id WHERE u.provider_subject = ?",
+                Integer.class, user.getName());
+        assertThat(rowCount).isEqualTo(0);
+    }
+
+    @Test
+    void savingGoalWithOversizedAmountIsRejectedEndToEnd() throws Exception {
+        AppOidcUser user = userWithAccess("oversized-goal-amount");
+        GoalInput oversized = new GoalInput(GoalType.CAR, GoalMode.YEARS, new BigDecimal("100000001"), 1, null, null,
+                null, null, null, new Household(null, null, null, null, null),
+                new Assumptions(new BigDecimal("0"), new BigDecimal("0")), null);
+        MockHttpSession session = sessionWithPendingInput(oversized);
+
+        mvc.perform(post("/goals/tikslai").with(loginAs(user)).with(csrf()).session(session))
+                .andExpect(status().isBadRequest());
+
+        Integer rowCount = jdbc.queryForObject(
+                "SELECT count(*) FROM savings_goal g JOIN app_user u ON u.id = g.user_id WHERE u.provider_subject = ?",
+                Integer.class, user.getName());
+        assertThat(rowCount).isEqualTo(0);
+    }
+
     @Test
     void viewingAnotherUsersGoalIsNotFoundNotForbidden() throws Exception {
         AppOidcUser owner = userWithAccess("idor-owner");
@@ -229,5 +312,32 @@ class SavingsGoalControllerTest {
         // Pats savininkas tebematytą savo tikslą - skirtumas yra TIK dėl savininkystės, ne dėl id neteisingumo.
         mvc.perform(get("/goals/tikslai/" + ownerGoalId).with(loginAs(owner)))
                 .andExpect(status().isOk());
+    }
+
+    /**
+     * IDOR patikra taikoma TIEK {@code GET /goals/tikslai/{id}} (žiūrėjimas), TIEK
+     * {@code POST /goals/tikslai/{id}/irasai} (įmokos žymėjimas) - abu naudoja tą pačią
+     * savininkystei apribotą {@code findOwnGoal} užklausą, bet tai atskiras valdiklio metodas,
+     * todėl tikrinama atskirai, kad nebūtų tylos "pamiršta šitam keliui" regresija.
+     */
+    @Test
+    void recordingContributionOnAnotherUsersGoalIsNotFoundAndWritesNothing() throws Exception {
+        AppOidcUser owner = userWithAccess("idor-irasai-owner");
+        AppOidcUser intruder = userWithAccess("idor-irasai-intruder");
+
+        MockHttpSession session = sessionWithPendingInput(sampleInput());
+        mvc.perform(post("/goals/tikslai").with(loginAs(owner)).with(csrf()).session(session))
+                .andExpect(status().isOk());
+        UUID ownerGoalId = jdbc.queryForObject(
+                "SELECT g.id FROM savings_goal g JOIN app_user u ON u.id = g.user_id WHERE u.provider_subject = ?",
+                UUID.class, owner.getName());
+
+        mvc.perform(post(("/goals/tikslai/" + ownerGoalId + "/irasai")).with(loginAs(intruder)).with(csrf())
+                        .param("month", "2026-01").param("amount", "500"))
+                .andExpect(status().isNotFound());
+
+        Integer contributionCount = jdbc.queryForObject(
+                "SELECT count(*) FROM savings_contribution WHERE goal_id = ?", Integer.class, ownerGoalId);
+        assertThat(contributionCount).isEqualTo(0);
     }
 }
