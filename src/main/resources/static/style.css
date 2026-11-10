@@ -38,7 +38,7 @@ footer { text-align:center; color:var(--muted); font-size:.85rem; padding-bottom
 .bank-nav a { color:var(--accent); text-decoration:none; padding:.4rem 0; display:inline-flex; align-items:center; min-height:44px; }
 .bank-nav button.link { color:var(--accent); text-decoration:none; padding:.4rem 0; font:inherit; cursor:pointer; display:inline-flex; align-items:center; min-height:44px; }
 
-/* F3: "IV mokesčiai" meniu grupė – <details>/<summary>, dropdown desktop'e, accordion mobiliame, be JS */
+/* F3: "Individualios veiklos mokesčiai" meniu grupė – <details>/<summary>, dropdown desktop'e, accordion mobiliame, be JS */
 .nav-group { position:relative; }
 .nav-group > summary { cursor:pointer; color:var(--accent); list-style:none; display:inline-flex; align-items:center; min-height:44px; user-select:none; }
 .nav-group > summary::-webkit-details-marker { display:none; }
