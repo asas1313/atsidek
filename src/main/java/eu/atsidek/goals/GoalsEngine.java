@@ -146,8 +146,13 @@ public final class GoalsEngine {
         return amount.multiply(BigDecimal.valueOf(growth));
     }
 
-    /** Sukaupta suma po k mėnesių mokant P per mėnesį su mėnesine grąža rm; rm=0 → tiesiog P×k. */
-    static BigDecimal balance(BigDecimal monthly, BigDecimal rm, int k) {
+    /**
+     * Sukaupta suma po k mėnesių mokant P per mėnesį su mėnesine grąža rm; rm=0 → tiesiog P×k.
+     * Viešas (ne package-private), kad {@code eu.atsidek.goals.tracking.SavingsGoalService} galėtų
+     * pakartotinai naudoti tą pačią formulę numatytai (planinei) sukauptai sumai skaičiuoti
+     * (PLAN.md taupymo-tikslai-atskyrimas, §6 task 9) – nauja skaičiavimo logika nekuriama iš naujo.
+     */
+    public static BigDecimal balance(BigDecimal monthly, BigDecimal rm, int k) {
         if (rm.signum() == 0) {
             return monthly.multiply(BigDecimal.valueOf(k));
         }
