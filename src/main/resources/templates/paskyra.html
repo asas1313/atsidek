@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{bank/fragments :: head('Mano paskyra')}"></head>
+<body>
+<header class="hero"><h1>Atsidėk</h1><p>Mano paskyra</p></header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
+<main>
+    <section class="card">
+        <h2>Paskyra</h2>
+        <p>El. paštas: <span th:text="${email}">vartotojas@example.com</span></p>
+    </section>
+    <section class="card">
+        <h2>Paskyros trynimas</h2>
+        <p>Ištrins tavo paskyrą, teises (entitlements) ir visus išsaugotus taupymo tikslus su
+            įmokomis. Veiksmo atšaukti negalima.</p>
+        <form method="post" th:action="@{/paskyra/istrinti}"
+              onsubmit="return confirm('Ištrinti paskyrą ir visus su ja susijusius duomenis? Veiksmo atšaukti negalima.')">
+            <button type="submit" class="danger">Ištrinti paskyrą</button>
+        </form>
+    </section>
+</main>
+<p th:replace="~{bank/fragments :: build}"></p>
+</body>
+</html>

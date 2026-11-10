@@ -28,6 +28,21 @@ public class AppUserStore {
                 AppUserStore::map, authProvider, providerSubject).stream().findFirst();
     }
 
+    /** Naudojama {@code MissingAppUserFilter} (task 15) ir {@code AccountController} (task 13). */
+    public Optional<AppUser> findById(UUID id) {
+        return jdbc.query("SELECT id, auth_provider, provider_subject, email, created_at FROM app_user WHERE id = ?",
+                AppUserStore::map, id).stream().findFirst();
+    }
+
+    /**
+     * Ištrina {@code app_user} eilutę - {@code entitlement}/{@code savings_goal} (ir per juos
+     * {@code savings_contribution}) ištrinami automatiškai ({@code ON DELETE CASCADE}, V7/V8/V9
+     * migracijos, ADR-0002). Naudojama {@code AccountController}'io (task 13).
+     */
+    public void deleteById(UUID id) {
+        jdbc.update("DELETE FROM app_user WHERE id = ?", id);
+    }
+
     /**
      * Idempotentis upsert: jei {@code (authProvider, providerSubject)} eilutė jau egzistuoja, atnaujinamas
      * tik {@code email}, {@code id} nekeičiamas (perduotas {@code id} tada ignoruojamas - naudojamas

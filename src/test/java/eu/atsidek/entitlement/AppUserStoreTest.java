@@ -88,4 +88,31 @@ class AppUserStoreTest {
     void findByProviderSubjectReturnsEmptyForUnknownSubject() {
         assertThat(store.findByProviderSubject("google", "unknown-" + UUID.randomUUID())).isEmpty();
     }
+
+    @Test
+    void findByIdReturnsRowOrEmpty() {
+        AppUser created = store.upsert(UUID.randomUUID(), "google", "subject-" + UUID.randomUUID(), "by-id@example.com");
+
+        assertThat(store.findById(created.id())).contains(created);
+        assertThat(store.findById(UUID.randomUUID())).isEmpty();
+    }
+
+    /**
+     * {@code deleteById} - naudojama {@code AccountController}'io (PLAN.md §6 task 13); kaskadas
+     * (ON DELETE CASCADE) per {@code entitlement}/{@code savings_goal}/{@code savings_contribution}
+     * jau turi savo DB-lygio testą ({@code FlywayMigrationTest}) - čia tik pats store metodas.
+     */
+    @Test
+    void deleteByIdRemovesTheRow() {
+        AppUser created = store.upsert(UUID.randomUUID(), "google", "subject-" + UUID.randomUUID(), "delete-me@example.com");
+
+        store.deleteById(created.id());
+
+        assertThat(store.findById(created.id())).isEmpty();
+    }
+
+    @Test
+    void deleteByIdOnUnknownIdIsANoOp() {
+        store.deleteById(UUID.randomUUID()); // neturi sumesti išimties
+    }
 }

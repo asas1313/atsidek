@@ -85,10 +85,11 @@ class SecurityRouteWhitelistTest {
 
             // Sesijos perkėlimo valdiklis (ROLE_USER dalis) - ManoTikslasController, task 11.
             Map.entry("GET /mano-tikslas", Access.USER),
-            Map.entry("POST /goals/tikslai/laukiantis/atmesti", Access.USER)
+            Map.entry("POST /goals/tikslai/laukiantis/atmesti", Access.USER),
 
-            // /paskyra/** šiame sąraše dar nėra - valdiklis (task 13) dar neegzistuoja, tad
-            // RequestMappingHandlerMapping jo ir nepateikia; pridėti, kai bus registruotas.
+            // Savitarnos paskyra (ROLE_USER) - AccountController, task 13.
+            Map.entry("GET /paskyra", Access.USER),
+            Map.entry("POST /paskyra/istrinti", Access.USER)
 
             // /api/v1/** TYČIA NEIŠVARDINTAS - žr. SKIP_PREFIXES komentarą žemiau.
     );
