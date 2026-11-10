@@ -37,12 +37,13 @@ public class SecurityConfig {
                 .addFilterBefore(new ApiKeyFilter(hashes), AuthorizationFilter.class)
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/", "/skaiciuokle", "/calculate", "/privatumas", "/straipsniai/**", "/api/**",
+                                "/goals/**",
                                 "/style.css", "/htmx.min.js", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/error").permitAll()
                         .anyRequest().authenticated())
                 .oauth2Login(o -> o.authorizationEndpoint(a -> a.authorizationRequestResolver(resolver)))
                 .logout(l -> l.logoutSuccessUrl("/").invalidateHttpSession(true).deleteCookies("JSESSIONID"))
                 // Viešiems POST be sesijos (htmx skaičiuoklė, JSON API) CSRF žetono nėra
-                .csrf(c -> c.ignoringRequestMatchers("/calculate", "/api/**"));
+                .csrf(c -> c.ignoringRequestMatchers("/calculate", "/api/**", "/goals/**"));
         return http.build();
     }
 
