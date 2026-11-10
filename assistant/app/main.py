@@ -8,16 +8,30 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from .calculator import AtsidekApi, Calculator, CalculatorError
 from .extractor import ClaudeExtractor, ExtractionError, Extractor
+from .goals_extractor import (
+    ClaudeGoalsExtractor,
+    GoalsExtractionError,
+    GoalsExtractor,
+    build_clarifying_question,
+)
+from .goals_limiter import Decision as GoalsDecision
+from .goals_limiter import GoalsAiLimiter
 from .limiter import Decision, RateLimiter
 
 MAX_LENGTH = 1000
 MAX_AMOUNT = Decimal("100000000")
+GOALS_MAX_LENGTH = 1000
+
+
+class GoalsParseRequest(BaseModel):
+    text: str = ""
 
 
 def eur(v) -> str:
@@ -81,13 +95,17 @@ def analyse(text: str, extractor: Extractor, calculator: Calculator) -> dict:
 
 
 def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calculator] = None,
-               limiter: Optional[RateLimiter] = None) -> FastAPI:
+               limiter: Optional[RateLimiter] = None, goals_extractor: Optional[GoalsExtractor] = None,
+               goals_limiter: Optional[GoalsAiLimiter] = None) -> FastAPI:
     extractor = extractor or ClaudeExtractor(os.getenv("ANTHROPIC_API_KEY", ""),
                                              os.getenv("AI_MODEL", "claude-haiku-5-5"))
     calculator = calculator or AtsidekApi(os.getenv("ATSIDEK_API_URL", "http://app:8080"),
                                           os.getenv("ATSIDEK_API_KEY", ""))
     limiter = limiter or RateLimiter(int(os.getenv("AI_RATE_LIMIT_PER_HOUR", "10")),
                                      int(os.getenv("AI_DAILY_CAP", "300")))
+    goals_extractor = goals_extractor or ClaudeGoalsExtractor(os.getenv("ANTHROPIC_API_KEY", ""),
+                                                               os.getenv("AI_MODEL", "claude-haiku-5-5"))
+    goals_limiter = goals_limiter or GoalsAiLimiter(int(os.getenv("GOALS_AI_DAILY_LIMIT", "500")))
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -119,6 +137,41 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
                 ctx["error"] = "Šiandien AI asistento limitas išnaudotas. Pabandyk rytoj arba naudok skaičiuoklę."
         # Puslapį (meniu, forma) rodo Java; čia visada tik rezultato fragmentas, kurį htmx įdeda į #result
         return render(request, "result.html", ctx)
+
+    @app.post("/api/v1/goals/parse")
+    def goals_parse(body: GoalsParseRequest):
+        # Viešas endpoint'as (žr. PLAN.md K2) - be API rakto, saugomas tik globaliu dienos limitu.
+        # Laisvas tekstas į atsakymą/logus nerašomas - tik ištraukta struktūra žemiau.
+        text = (body.text or "").strip()
+        if not text:
+            raise HTTPException(400, "Parašykite, koks jūsų taupymo tikslas.")
+        if len(text) > GOALS_MAX_LENGTH:
+            raise HTTPException(400, f"Tekstas per ilgas (daugiausia {GOALS_MAX_LENGTH} simbolių).")
+        if goals_limiter.try_acquire() is not GoalsDecision.ALLOWED:
+            raise HTTPException(
+                503, "AI laikinai neprieinamas (pasiektas dienos limitas). Formą galima užpildyti ranka.")
+        try:
+            x = goals_extractor.extract(text)
+        except GoalsExtractionError as e:
+            raise HTTPException(503, str(e)) from e
+        return {
+            "goalType": x.goal_type,
+            "mode": x.mode,
+            "amount": float(x.amount) if x.amount is not None else None,
+            "years": x.years,
+            "targetYear": x.target_year,
+            "targetMonth": x.target_month,
+            "childCurrentAge": x.child_current_age,
+            "childTargetAge": x.child_target_age,
+            "monthlyContribution": float(x.monthly_contribution) if x.monthly_contribution is not None else None,
+            "members": x.members,
+            "workers": x.workers,
+            "income": float(x.income) if x.income is not None else None,
+            "expenses": float(x.expenses) if x.expenses is not None else None,
+            "confidence": x.confidence,
+            "missingCritical": x.missing,
+            "clarifyingQuestion": build_clarifying_question(x.missing, x.mode),
+        }
 
     return app
 
