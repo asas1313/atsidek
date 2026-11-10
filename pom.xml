@@ -5,7 +5,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.1</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
     <groupId>eu.atsidek</groupId>
@@ -13,13 +13,7 @@
     <version>0.1.0-SNAPSHOT</version>
     <name>Atsidėk</name>
     <properties>
-        <java.version>21</java.version>
-        <!-- Override virš spring-boot-starter-parent BOM (1.20.4): ta versija CI (ubuntu-latest)
-             nepavyksta prisijungti prie Docker daemon'o ("client version 1.32 is too old. Minimum
-             supported API version is 1.40") - žinoma senesnių docker-java klientų problema su
-             naujesniu Docker Engine. Naujausia 1.x linija (ne 2.x - vengiama galimo breaking
-             pakeitimo su spring-boot-testcontainers 3.4.1 @ServiceConnection integracija). -->
-        <testcontainers.version>1.21.4</testcontainers.version>
+        <java.version>25</java.version>
     </properties>
     <dependencies>
         <dependency>
