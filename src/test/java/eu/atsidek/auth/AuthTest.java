@@ -118,9 +118,17 @@ class AuthTest {
         mvc.perform(post("/goals/tikslai/preliminarus")).andExpect(status().isForbidden());
     }
 
+    /**
+     * Tarpinė būsena po task 10: CSRF filtras praleidžia (žetonas teisingas), bet
+     * {@code /goals/tikslai/preliminarus} kol kas atsitiktinai sutampa su jau egzistuojančiu
+     * {@code GET /goals/tikslai/{id}} kelio šablonu ("preliminarus" interpretuojamas kaip {id}),
+     * todėl Spring MVC grąžina 405 (metodas neleistinas tam KELIUI), ne 404 - tikras {@code POST
+     * /goals/tikslai/preliminarus} valdiklis (task 11) suteiks tikslesnį (literalų) atitikmenį, kuris
+     * šią koliziją pašalins; tada šis testas bus atnaujintas tikrinti sėkmę, ne 405.
+     */
     @Test
     void postGoalsTikslaiPreliminarusWithCsrfTokenPassesCsrfCheck() throws Exception {
-        mvc.perform(post("/goals/tikslai/preliminarus").with(csrf())).andExpect(status().isNotFound());
+        mvc.perform(post("/goals/tikslai/preliminarus").with(csrf())).andExpect(status().isMethodNotAllowed());
     }
 
     @Test

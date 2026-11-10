@@ -75,11 +75,16 @@ class SecurityRouteWhitelistTest {
             Map.entry("POST /taisykles/{id}/istrinti", Access.ADMIN),
             Map.entry("GET /nustatymai", Access.ADMIN),
             Map.entry("POST /nustatymai/psd", Access.ADMIN),
-            Map.entry("POST /nustatymai/istrinti-viska", Access.ADMIN)
+            Map.entry("POST /nustatymai/istrinti-viska", Access.ADMIN),
 
-            // ROLE_USER maršrutų (/mano-tikslas, /goals/tikslai/**, /paskyra/**) šiame sąraše dar
-            // nėra - jų valdikliai (task 9-13) dar neegzistuoja, tad RequestMappingHandlerMapping
-            // jų ir nepateikia; pridėti, kai bus registruoti.
+            // Taupymo tikslo sekimas (ROLE_USER) - SavingsGoalController, task 10.
+            Map.entry("POST /goals/tikslai", Access.USER),
+            Map.entry("GET /goals/tikslai/{id}", Access.USER),
+            Map.entry("POST /goals/tikslai/{id}/irasai", Access.USER)
+
+            // /mano-tikslas, /goals/tikslai/preliminarus, /goals/tikslai/laukiantis/atmesti,
+            // /paskyra/** šiame sąraše dar nėra - jų valdikliai (task 11/13) dar neegzistuoja, tad
+            // RequestMappingHandlerMapping jų ir nepateikia; pridėti, kai bus registruoti.
 
             // /api/v1/** TYČIA NEIŠVARDINTAS - žr. SKIP_PREFIXES komentarą žemiau.
     );
