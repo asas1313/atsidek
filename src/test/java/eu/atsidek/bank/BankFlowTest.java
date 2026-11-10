@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
@@ -46,7 +47,10 @@ class BankFlowTest {
     @BeforeEach
     void clean() {
         mvc = MockMvcBuilders.webAppContextSetup(ctx).apply(springSecurity())
-                .defaultRequest(get("/").with(oidcLogin().idToken(t -> t.subject("test"))).with(csrf())).build();
+                .defaultRequest(get("/").with(oidcLogin().idToken(t -> t.subject("test"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_USER"), new SimpleGrantedAuthority("ROLE_ADMIN")))
+                        .with(csrf()))
+                .build();
         signIn();
         store.deleteAll(USER);
     }
@@ -55,8 +59,10 @@ class BankFlowTest {
     private static void signIn() {
         OidcIdToken token = OidcIdToken.withTokenValue("t").subject("test").issuedAt(java.time.Instant.now())
                 .expiresAt(java.time.Instant.now().plusSeconds(60)).build();
+        List<SimpleGrantedAuthority> authorities =
+                List.of(new SimpleGrantedAuthority("ROLE_USER"), new SimpleGrantedAuthority("ROLE_ADMIN"));
         SecurityContextHolder.getContext().setAuthentication(new OAuth2AuthenticationToken(
-                new DefaultOidcUser(List.of(), token), List.of(), "google"));
+                new DefaultOidcUser(authorities, token), authorities, "google"));
     }
 
     @AfterEach

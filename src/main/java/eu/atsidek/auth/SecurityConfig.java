@@ -18,8 +18,11 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 /**
- * Viešos: skaičiuoklė, straipsnis, privatumas, statiniai failai. JSON API ({@code /api/**}) – tik su API raktu.
- * Visa kita (banko ekranai) – tik su Google prisijungimu. Neprisijungęs vartotojas nukreipiamas tiesiai į Google.
+ * Default-deny (žr. ADR-0001, plano §6 task 6): {@code anyRequest().hasRole("ADMIN")} yra galutinis
+ * atsarginis variantas - naujas, sąmoningai neklasifikuotas kelias yra admin-only, ne tyliai viešas.
+ * Viešos: skaičiuoklė, taupymo tikslų nemokama dalis, straipsniai, statiniai failai. JSON API
+ * ({@code /api/**}) – tik su API raktu (ApiKeyFilter). ROLE_USER – taupymo tikslo sekimas, paskyra.
+ * ROLE_ADMIN (leidžiamų/savininko el. paštai) – banko modulis, nepakitusi apimtis.
  */
 @Configuration
 public class SecurityConfig {
@@ -33,14 +36,35 @@ public class SecurityConfig {
                 // /api/** apsaugotas API raktu (ne Google): žr. ApiKeyFilter
                 .addFilterBefore(new ApiKeyFilter(hashes), AuthorizationFilter.class)
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/", "/skaiciuokle", "/calculate", "/privatumas", "/straipsniai/**", "/api/**",
-                                "/goals/**", "/taupymo-tikslai",
-                                "/style.css", "/htmx.min.js", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/error").permitAll()
-                        .anyRequest().authenticated())
+                        // Viešos: skaičiuoklė, taupymo tikslų nemokama dalis, statiniai failai.
+                        .requestMatchers("/", "/skaiciuokle", "/calculate", "/privatumas",
+                                "/style.css", "/htmx.min.js", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/error",
+                                "/taupymo-tikslai", "/goals/calculate", "/goals/stats/defaults",
+                                "/goals/tikslai/preliminarus").permitAll()
+                        // Dvi siauros, atskirai pagrįstos šablonu apsaugotos išimtys:
+                        // /api/** – jau apsaugota API raktu (ApiKeyFilter, veikia PRIEŠ AuthorizationFilter),
+                        //           permitAll() čia reiškia tik "Spring Security pati nebeprideda rolės reikalavimo";
+                        // /straipsniai/** – atviri statiniai straipsniai, be jautrių duomenų.
+                        .requestMatchers("/api/**", "/straipsniai/**").permitAll()
+                        // Prisijungęs (ROLE_USER) – taupymo tikslo sekimas, paskyra.
+                        .requestMatchers("/mano-tikslas", "/goals/tikslai", "/goals/tikslai/*",
+                                "/goals/tikslai/*/irasai", "/paskyra", "/paskyra/istrinti").hasRole("USER")
+                        // Banko modulis – tik ROLE_ADMIN (leidžiamų/savininko el. paštų sąrašas).
+                        // Išvardinta explicitiškai, kad task 7 route-table whitelist testas turėtų
+                        // ką konkretaus patikrinti ir šiam moduliui (nors anyRequest() fallback tą pačią
+                        // taisyklę ir taip taikytų).
+                        .requestMatchers("/importas", "/suvestine", "/taisykles", "/nustatymai").hasRole("ADMIN")
+                        // Default-deny: kiekvienas naujas, sąmoningai nepriskirtas kelias yra admin-only
+                        // (fail closed), ne tyliai viešas ir ne tyliai sugadintas visiems.
+                        .anyRequest().hasRole("ADMIN"))
                 .oauth2Login(o -> o.authorizationEndpoint(a -> a.authorizationRequestResolver(resolver)))
                 .logout(l -> l.logoutSuccessUrl("/").invalidateHttpSession(true).deleteCookies("JSESSIONID"))
-                // Viešiems POST be sesijos (htmx skaičiuoklė, JSON API) CSRF žetono nėra
-                .csrf(c -> c.ignoringRequestMatchers("/calculate", "/api/**", "/goals/**"));
+                // Tik genuinai viešiems POST be sesijos (htmx skaičiuoklė, JSON API) CSRF žetono nereikia.
+                // /goals/tikslai/preliminarus SĄMONINGAI NĖRA šiame sąraše: jis permitAll() autorizacijai
+                // (gali kviesti bet kas), bet vis tiek reikalauja CSRF žetono kaip ir kiekvienas kitas
+                // būseną keičiantis POST – kitaip svetima svetainė galėtų nutaikytai siųsti suklastotą
+                // skaičiavimą į aukos sesiją (žr. ADR-0001).
+                .csrf(c -> c.ignoringRequestMatchers("/calculate", "/api/**", "/goals/calculate"));
         return http.build();
     }
 
