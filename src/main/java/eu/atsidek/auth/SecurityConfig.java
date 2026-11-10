@@ -29,12 +29,16 @@ public class SecurityConfig {
 
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http, OAuth2AuthorizationRequestResolver resolver,
+                                    AppUserStore appUserStore,
                                     @Value("${atsidek.api.key-hashes:}") String apiKeyHashes) throws Exception {
         List<String> hashes = Arrays.stream(apiKeyHashes.split(","))
                 .map(s -> s.trim().toLowerCase()).filter(s -> !s.isEmpty()).toList();
         http
                 // /api/** apsaugotas API raktu (ne Google): žr. ApiKeyFilter
                 .addFilterBefore(new ApiKeyFilter(hashes), AuthorizationFilter.class)
+                // Sesijos atsparumas, kai app_user eilutė dingsta sesijos metu (task 15) - PO
+                // autentifikacijos/autorizacijos sprendimo, PRIEŠ užklausai pasiekiant valdiklį.
+                .addFilterAfter(new MissingAppUserFilter(appUserStore), AuthorizationFilter.class)
                 .authorizeHttpRequests(a -> a
                         // Viešos: skaičiuoklė, taupymo tikslų nemokama dalis, statiniai failai.
                         .requestMatchers("/", "/skaiciuokle", "/calculate", "/privatumas",
