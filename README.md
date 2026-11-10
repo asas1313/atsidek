@@ -4,7 +4,7 @@ IV mokesčių planavimo įrankis (žr. [SPEC.md](SPEC.md)). Dabartinė būsena: 
 
 ## Paleidimas
 
-Reikia JDK 21 ir Maven.
+Reikia JDK 25 ir Maven.
 
 ```bash
 mvn spring-boot:run   # http://localhost:8080
