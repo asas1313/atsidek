@@ -66,6 +66,12 @@ public class SavingsGoalService {
 
     @Transactional
     public SaveResult save(UUID userId, GoalInput input, boolean confirmed) {
+        // GoalsService.calculate() leidžia amount=0 (tinkama laisvai skaičiuoklei), bet
+        // savings_goal.amount DB CHECK reikalauja STRIKTIŠKAI > 0 (ADR-0002) - be šios patikros DB
+        // CHECK būtų VIENINTELĖ apsauga ir sudužtų su neapgaubta DataIntegrityViolationException
+        // (500), ne draugišku 400 (plano §1 principas: DB CHECK yra atsarginis variantas, ne pirminė
+        // validacija).
+        checkAmount("amount", input.amount(), false);
         GoalResult result = goalsService.calculate(input); // validacija + skaičiavimas (400, jei netinka)
         Optional<SavingsGoal> existing = store.findByUserId(userId);
 
@@ -98,7 +104,8 @@ public class SavingsGoalService {
     }
 
     public void recordContribution(SavingsGoal goal, YearMonth month, BigDecimal amount) {
-        checkAmount("amount", amount);
+        // Įmoka (kitaip nei tikslo suma) gali būti 0 - mėnuo be įmokos yra teisėta būsena.
+        checkAmount("amount", amount, true);
         store.upsertContribution(goal.id(), month.atDay(1), amount);
     }
 
@@ -124,12 +131,18 @@ public class SavingsGoalService {
         return new Progress(expected, actual, elapsedMonths, totalMonths, onTrack);
     }
 
-    private static void checkAmount(String name, BigDecimal v) {
+    /**
+     * @param allowZero {@code true} įmokai (mėnuo be įmokos - teisėta), {@code false} tikslo sumai
+     *                  (DB {@code CHECK (amount > 0)}, ADR-0002 - 0 neturi prasmės kaip taupymo tikslas).
+     */
+    private static void checkAmount(String name, BigDecimal v, boolean allowZero) {
         if (v == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, name + " privalomas");
         }
-        if (v.signum() < 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, name + " negali būti neigiamas");
+        boolean belowMinimum = allowZero ? v.signum() < 0 : v.signum() <= 0;
+        if (belowMinimum) {
+            String reason = allowZero ? " negali būti neigiamas" : " turi būti didesnis už nulį";
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, name + reason);
         }
         if (v.compareTo(MAX_AMOUNT) > 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, name + " per didelis");

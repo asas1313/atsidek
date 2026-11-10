@@ -277,6 +277,32 @@ class SavingsGoalControllerTest {
         assertThat(rowCount).isEqualTo(0);
     }
 
+    /**
+     * Regresijos testas: {@code amount = 0} anksčiau praeidavo pro {@code GoalsService.calculate}
+     * validaciją (ji leidžia nulį - tinkama laisvai skaičiuoklei, bet NE išsaugotam tikslui) ir
+     * sudužo su neapgaubta {@code DataIntegrityViolationException} ({@code savings_goal_amount_check},
+     * {@code amount > 0}) - DB {@code CHECK} tapo VIENINTELE apsauga, ir tai HTTP {@code 500}, ne
+     * draugišku {@code 400} (žr. ADR-0002/plano §1 principą - DB CHECK yra atsarginis variantas, ne
+     * pirminė validacija). Tikrinama per TIKRĄ HTTP užklausą, kad patvirtintų realų elgesį, ne vien
+     * mockintą servisą.
+     */
+    @Test
+    void savingGoalWithZeroAmountIsRejectedEndToEnd() throws Exception {
+        AppOidcUser user = userWithAccess("zero-goal-amount");
+        GoalInput zero = new GoalInput(GoalType.CAR, GoalMode.YEARS, BigDecimal.ZERO, 1, null, null, null,
+                null, null, new Household(null, null, null, null, null),
+                new Assumptions(new BigDecimal("0"), new BigDecimal("0")), null);
+        MockHttpSession session = sessionWithPendingInput(zero);
+
+        mvc.perform(post("/goals/tikslai").with(loginAs(user)).with(csrf()).session(session))
+                .andExpect(status().isBadRequest());
+
+        Integer rowCount = jdbc.queryForObject(
+                "SELECT count(*) FROM savings_goal g JOIN app_user u ON u.id = g.user_id WHERE u.provider_subject = ?",
+                Integer.class, user.getName());
+        assertThat(rowCount).isEqualTo(0);
+    }
+
     @Test
     void savingGoalWithOversizedAmountIsRejectedEndToEnd() throws Exception {
         AppOidcUser user = userWithAccess("oversized-goal-amount");
