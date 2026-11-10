@@ -223,9 +223,11 @@ public class BankStore {
     // ---- suvestinė
 
     public List<MonthSum> confirmedMonthlySums(String user, int year) {
-        return jdbc.query("SELECT MONTH(booking_date), category, SUM(amount) FROM bank_transaction"
-                        + " WHERE user_id = ? AND confirmed = TRUE AND direction = 'IN' AND YEAR(booking_date) = ?"
-                        + " AND category IN ('BUSINESS_INCOME','SALARY') GROUP BY MONTH(booking_date), category",
+        // EXTRACT(... FROM ...) yra standartinis SQL (ANSI), veikia ir H2, ir PostgreSQL;
+        // H2-specifinis MONTH()/YEAR() PostgreSQL neturi.
+        return jdbc.query("SELECT EXTRACT(MONTH FROM booking_date)::int, category, SUM(amount) FROM bank_transaction"
+                        + " WHERE user_id = ? AND confirmed = TRUE AND direction = 'IN' AND EXTRACT(YEAR FROM booking_date)::int = ?"
+                        + " AND category IN ('BUSINESS_INCOME','SALARY') GROUP BY EXTRACT(MONTH FROM booking_date)::int, category",
                 (rs, n) -> new MonthSum(rs.getInt(1), Category.valueOf(rs.getString(2)), rs.getBigDecimal(3)), user, year);
     }
 }
