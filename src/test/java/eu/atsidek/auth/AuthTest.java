@@ -10,12 +10,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import eu.atsidek.TestcontainersConfiguration;
 import eu.atsidek.bank.store.BankStore;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
@@ -77,18 +84,27 @@ class AuthTest {
     /**
      * Plano §6 task 6: ne-leidžiamo (ne allow-list) bet patvirtinto el. pašto prisijungimas vis tiek
      * pasiekia {@code /mano-tikslas} (ROLE_USER) - saugumo sluoksnis nebeatmeta tokio prisijungimo
-     * kaip "access_denied". {@code /mano-tikslas} valdiklis dar neegzistuoja (prideda task 11), tad
-     * atsakymas bus 404 - svarbu čia tik tai, kad apsauga NEBLOKUOJA (ne 401/403, ne nukreipimas į
-     * Google) paprasto ROLE_USER naudotojo.
+     * kaip "access_denied". Nuo task 11 {@code /mano-tikslas} valdiklis tikrai egzistuoja ir skaito
+     * {@code appUserId} nuo principal'o ({@code CurrentAppUser}), todėl čia naudojamas tikras
+     * {@link AppOidcUser} (ne numatytasis {@code oidcLogin()} principal'as) - kitaip valdiklis
+     * sumestų {@code IllegalStateException} (500), ne autorizacijos atsisakymą; svarbu tik tai, kad
+     * apsauga NEBLOKUOJA (ne 401/403, ne nukreipimas į Google) paprasto ROLE_USER naudotojo.
      */
     @Test
     void nonAllowListedVerifiedLoginReachesManoTikslas() throws Exception {
-        var result = mvc.perform(get("/mano-tikslas")
-                        .with(oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"))))
-                .andReturn();
+        var result = mvc.perform(get("/mano-tikslas").with(oidcLoginAsAppUser())).andReturn();
         assertThat(result.getResponse().getStatus()).isNotIn(401, 403);
         assertThat(result.getResponse().getRedirectedUrl())
                 .isNotEqualTo("http://localhost/oauth2/authorization/google");
+    }
+
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor oidcLoginAsAppUser() {
+        String subject = "subject-" + UUID.randomUUID();
+        OidcIdToken idToken = new OidcIdToken("token", Instant.now(), Instant.now().plusSeconds(3600),
+                Map.of("sub", subject, "email", subject + "@example.com", "email_verified", true));
+        DefaultOidcUser delegate = new DefaultOidcUser(List.of(new SimpleGrantedAuthority("SCOPE_openid")), idToken);
+        AppOidcUser appOidcUser = new AppOidcUser(delegate, UUID.randomUUID(), false);
+        return oidcLogin().oidcUser(appOidcUser);
     }
 
     /** Toks pat ROLE_USER (bet ne ROLE_ADMIN) prisijungimas gauna 403 banko ekranuose. */
@@ -119,16 +135,17 @@ class AuthTest {
     }
 
     /**
-     * Tarpinė būsena po task 10: CSRF filtras praleidžia (žetonas teisingas), bet
-     * {@code /goals/tikslai/preliminarus} kol kas atsitiktinai sutampa su jau egzistuojančiu
-     * {@code GET /goals/tikslai/{id}} kelio šablonu ("preliminarus" interpretuojamas kaip {id}),
-     * todėl Spring MVC grąžina 405 (metodas neleistinas tam KELIUI), ne 404 - tikras {@code POST
-     * /goals/tikslai/preliminarus} valdiklis (task 11) suteiks tikslesnį (literalų) atitikmenį, kuris
-     * šią koliziją pašalins; tada šis testas bus atnaujintas tikrinti sėkmę, ne 405.
+     * Nuo task 11: su CSRF žetonu ir validžiu {@code GoalInput} kūnu CSRF filtras praleidžia IR
+     * valdiklis egzistuoja - sėkmė (200), ne 404/405. Literalus {@code /goals/tikslai/preliminarus}
+     * atitikmuo yra specifiškesnis už {@code GET /goals/tikslai/{id}} kelio kintamąjį, todėl Spring
+     * MVC jį renkasi be dviprasmybės.
      */
     @Test
     void postGoalsTikslaiPreliminarusWithCsrfTokenPassesCsrfCheck() throws Exception {
-        mvc.perform(post("/goals/tikslai/preliminarus").with(csrf())).andExpect(status().isMethodNotAllowed());
+        String body = "{\"goalType\":\"CAR\",\"mode\":\"YEARS\",\"amount\":1200,\"years\":1}";
+        mvc.perform(post("/goals/tikslai/preliminarus").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
     }
 
     @Test

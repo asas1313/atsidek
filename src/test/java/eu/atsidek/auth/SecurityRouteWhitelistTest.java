@@ -62,6 +62,7 @@ class SecurityRouteWhitelistTest {
             Map.entry("GET /error", Access.PUBLIC),
             Map.entry("POST /goals/calculate", Access.PUBLIC),
             Map.entry("GET /goals/stats/defaults", Access.PUBLIC),
+            Map.entry("POST /goals/tikslai/preliminarus", Access.PUBLIC),
 
             // Banko modulis - tik ROLE_ADMIN (nepakitusi apimtis, žr. ADR-0001).
             Map.entry("GET /importas", Access.ADMIN),
@@ -80,11 +81,14 @@ class SecurityRouteWhitelistTest {
             // Taupymo tikslo sekimas (ROLE_USER) - SavingsGoalController, task 10.
             Map.entry("POST /goals/tikslai", Access.USER),
             Map.entry("GET /goals/tikslai/{id}", Access.USER),
-            Map.entry("POST /goals/tikslai/{id}/irasai", Access.USER)
+            Map.entry("POST /goals/tikslai/{id}/irasai", Access.USER),
 
-            // /mano-tikslas, /goals/tikslai/preliminarus, /goals/tikslai/laukiantis/atmesti,
-            // /paskyra/** šiame sąraše dar nėra - jų valdikliai (task 11/13) dar neegzistuoja, tad
-            // RequestMappingHandlerMapping jų ir nepateikia; pridėti, kai bus registruoti.
+            // Sesijos perkėlimo valdiklis (ROLE_USER dalis) - ManoTikslasController, task 11.
+            Map.entry("GET /mano-tikslas", Access.USER),
+            Map.entry("POST /goals/tikslai/laukiantis/atmesti", Access.USER)
+
+            // /paskyra/** šiame sąraše dar nėra - valdiklis (task 13) dar neegzistuoja, tad
+            // RequestMappingHandlerMapping jo ir nepateikia; pridėti, kai bus registruotas.
 
             // /api/v1/** TYČIA NEIŠVARDINTAS - žr. SKIP_PREFIXES komentarą žemiau.
     );

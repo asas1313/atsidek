@@ -47,8 +47,14 @@ public class SecurityConfig {
                         // /straipsniai/** – atviri statiniai straipsniai, be jautrių duomenų.
                         .requestMatchers("/api/**", "/straipsniai/**").permitAll()
                         // Prisijungęs (ROLE_USER) – taupymo tikslo sekimas, paskyra.
+                        // /goals/tikslai/laukiantis/atmesti pridėtas task 11 metu (plano §6 task 6
+                        // tekste dar nebuvo šio konkretaus kelio, nes jo pavadinimas buvo nustatytas
+                        // vėliau, task 11) - whitelist testas (task 7) tiksliai tam ir sukurtas, kad
+                        // pagautų tokį pamirštą kelią; čia jis priskiriamas ROLE_USER, kaip ir kiti
+                        // /goals/tikslai/** keliai, ne default-deny ROLE_ADMIN atsarginiam variantui.
                         .requestMatchers("/mano-tikslas", "/goals/tikslai", "/goals/tikslai/*",
-                                "/goals/tikslai/*/irasai", "/paskyra", "/paskyra/istrinti").hasRole("USER")
+                                "/goals/tikslai/*/irasai", "/goals/tikslai/laukiantis/atmesti",
+                                "/paskyra", "/paskyra/istrinti").hasRole("USER")
                         // Banko modulis – tik ROLE_ADMIN (leidžiamų/savininko el. paštų sąrašas).
                         // Išvardinta explicitiškai, kad task 7 route-table whitelist testas turėtų
                         // ką konkretaus patikrinti ir šiam moduliui (nors anyRequest() fallback tą pačią
