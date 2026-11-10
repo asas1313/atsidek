@@ -25,7 +25,7 @@ SUBJECT="$(git log -1 --format=%s "$SHA" 2>/dev/null || true)"
 PR="$(printf '%s' "$SUBJECT" | sed -nE 's/^Merge pull request #([0-9]+).*/\1/p; s/.*\(#([0-9]+)\)$/\1/p' | head -1)"
 export APP_VERSION="1.0.${PR:-0}"
 
-# Duomenų katalogas (H2 failas) turi būti įrašomas konteinerio vartotojui (uid 10001)
+# Duomenų katalogas (nuo F0 – DB yra PostgreSQL, ne čia; katalogas paliktas kitiems failams) turi būti įrašomas konteinerio vartotojui (uid 10001)
 DATA_DIR="$(grep -E '^DATA_DIR=' "$ENV_FILE" | cut -d= -f2)"
 if [ -n "$DATA_DIR" ]; then mkdir -p "$DATA_DIR" && chmod 0777 "$DATA_DIR"; fi
 
