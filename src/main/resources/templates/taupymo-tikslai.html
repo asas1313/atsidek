@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Atsidėk – Taupymo tikslų skaičiuoklė</title>
+    <meta name="description" content="Kiek kas mėnesį atsidėti tikslui – vaikui, automobiliui, būsto įnašui ar kitam planui? Nemokama skaičiuoklė su Lietuvos statistikos numatymais, be registracijos.">
+    <link rel="canonical" href="https://atsidek.eu/taupymo-tikslai">
+    <meta name="robots" content="index,follow">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="lt_LT">
+    <meta property="og:site_name" content="Atsidėk">
+    <meta property="og:url" content="https://atsidek.eu/taupymo-tikslai">
+    <meta property="og:title" content="Atsidėk – Taupymo tikslų skaičiuoklė">
+    <meta property="og:description" content="Kiek reikia atsidėti, kad pasiektumėte taupymo tikslą? Skaičiuoja pagal jūsų šeimos situaciją ir Lietuvos statistiką.">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="hero">
+    <h1>Kiek reikia atsidėti?</h1>
+    <p>Užpildykite laukus. Ko nenurodysite – užpildysime pagal Lietuvos statistiką ir aiškiai pažymėsime.</p>
+</header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
+
+<noscript>
+    <p class="card small" style="max-width:1040px;margin:1rem auto;">
+        Šiam puslapiui veikti reikalingas JavaScript (skaičiuoja gyvai, kviesdamas serverį). Statinę IV mokesčių
+        skaičiuoklę be JS rasite <a href="/skaiciuokle">čia</a>.
+    </p>
+</noscript>
+
+<main class="goals-main">
+<div class="goals-grid">
+
+    <div class="goals-col-left">
+        <section class="card">
+            <h2>1. Tikslas</h2>
+            <div class="goal-type-cards">
+                <label class="goal-type-card" id="goalType-child-card">
+                    <input type="radio" name="goalType" value="CHILD" id="goalType-child" checked>
+                    <span class="goal-type-title">Vaikui</span>
+                    <span class="goal-type-sub">Studijos, startas</span>
+                </label>
+                <label class="goal-type-card" id="goalType-car-card">
+                    <input type="radio" name="goalType" value="CAR" id="goalType-car">
+                    <span class="goal-type-title">Automobiliui</span>
+                    <span class="goal-type-sub">Be lizingo</span>
+                </label>
+                <label class="goal-type-card" id="goalType-home-card">
+                    <input type="radio" name="goalType" value="HOME_DOWN_PAYMENT" id="goalType-home">
+                    <span class="goal-type-title">Būsto įnašui</span>
+                    <span class="goal-type-sub">Pradinė įmoka</span>
+                </label>
+                <label class="goal-type-card" id="goalType-other-card">
+                    <input type="radio" name="goalType" value="OTHER" id="goalType-other">
+                    <span class="goal-type-title">Kitam tikslui</span>
+                    <span class="goal-type-sub">Kelionė, remontas…</span>
+                </label>
+            </div>
+
+            <div class="field">
+                <div class="field-head">
+                    <label for="amount">Reikalinga suma (šiandienos kainomis)</label>
+                    <span class="origin-badge" id="amount-badge" data-origin="STATISTICS">Statistika</span>
+                </div>
+                <input type="range" id="amount" min="1000" max="100000" step="500" value="20000">
+                <output class="range-output" id="amount-output" for="amount">20 000 €</output>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>2. Terminas</h2>
+            <div class="segmented">
+                <label class="segment" id="mode-years-seg"><input type="radio" name="mode" value="YEARS" id="mode-years"><span>Per X metų</span></label>
+                <label class="segment" id="mode-date-seg"><input type="radio" name="mode" value="DATE" id="mode-date"><span>Iki datos</span></label>
+                <label class="segment" id="mode-childage-seg"><input type="radio" name="mode" value="CHILD_AGE" id="mode-childage" checked><span>Kol vaikui sukaks</span></label>
+                <label class="segment" id="mode-when-seg"><input type="radio" name="mode" value="WHEN" id="mode-when"><span>Kada sukaupsiu?</span></label>
+            </div>
+
+            <div class="mode-fields" data-mode="YEARS" hidden>
+                <div class="field">
+                    <label for="years">Metų skaičius</label>
+                    <input type="range" id="years" min="1" max="40" step="1" value="10">
+                    <output class="range-output" id="years-output" for="years">10 m.</output>
+                </div>
+            </div>
+
+            <div class="mode-fields" data-mode="DATE" hidden>
+                <div class="field two-col">
+                    <div>
+                        <label for="targetYear">Tikslo metai</label>
+                        <input type="number" class="field-number" id="targetYear" inputmode="numeric" min="2026" max="2100" value="2031">
+                    </div>
+                    <div>
+                        <label for="targetMonth">Mėnuo</label>
+                        <select id="targetMonth">
+                            <option value="1">Sausis</option>
+                            <option value="2">Vasaris</option>
+                            <option value="3">Kovas</option>
+                            <option value="4">Balandis</option>
+                            <option value="5">Gegužė</option>
+                            <option value="6">Birželis</option>
+                            <option value="7">Liepa</option>
+                            <option value="8">Rugpjūtis</option>
+                            <option value="9">Rugsėjis</option>
+                            <option value="10">Spalis</option>
+                            <option value="11">Lapkritis</option>
+                            <option value="12" selected>Gruodis</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mode-fields" data-mode="CHILD_AGE">
+                <div class="field">
+                    <label for="childCurrentAge">Vaikui dabar</label>
+                    <input type="range" id="childCurrentAge" min="0" max="17" step="1" value="4">
+                    <output class="range-output" id="childCurrentAge-output" for="childCurrentAge">4 m.</output>
+                </div>
+                <div class="field">
+                    <label for="childTargetAge">Kai sukaks</label>
+                    <input type="range" id="childTargetAge" min="1" max="30" step="1" value="18">
+                    <output class="range-output" id="childTargetAge-output" for="childTargetAge">18 m.</output>
+                </div>
+            </div>
+
+            <div class="mode-fields" data-mode="WHEN" hidden>
+                <div class="field">
+                    <label for="monthlyContribution">Mėnesio įmoka</label>
+                    <input type="range" id="monthlyContribution" min="10" max="5000" step="10" value="200">
+                    <output class="range-output" id="monthlyContribution-output" for="monthlyContribution">200 €</output>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>3. Namų ūkis</h2>
+            <div class="steppers">
+                <div class="stepper">
+                    <label for="members">Gyvena</label>
+                    <div class="stepper-control">
+                        <button type="button" class="stepper-btn" data-target="members" data-delta="-1" aria-label="Sumažinti gyvenančiųjų skaičių">−</button>
+                        <input type="number" class="stepper-value" id="members" min="1" max="10" value="4" readonly inputmode="numeric" aria-live="polite">
+                        <button type="button" class="stepper-btn" data-target="members" data-delta="1" aria-label="Padidinti gyvenančiųjų skaičių">+</button>
+                    </div>
+                </div>
+                <div class="stepper">
+                    <label for="workers">Dirba</label>
+                    <div class="stepper-control">
+                        <button type="button" class="stepper-btn" data-target="workers" data-delta="-1" aria-label="Sumažinti dirbančiųjų skaičių">−</button>
+                        <input type="number" class="stepper-value" id="workers" min="0" max="4" value="2" readonly inputmode="numeric" aria-live="polite">
+                        <button type="button" class="stepper-btn" data-target="workers" data-delta="1" aria-label="Padidinti dirbančiųjų skaičių">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="field">
+                <div class="field-head">
+                    <label for="income">Namų ūkio pajamos „į rankas“ / mėn.</label>
+                    <span class="origin-badge" id="income-badge" data-origin="STATISTICS">Statistika</span>
+                </div>
+                <input type="range" id="income" min="0" max="10000" step="50" value="3200">
+                <output class="range-output" id="income-output" for="income">3 200 €</output>
+            </div>
+
+            <div class="field">
+                <div class="field-head">
+                    <label for="expenses">Išlaidos / mėn.</label>
+                    <span class="origin-badge" id="expenses-badge" data-origin="STATISTICS">Statistika</span>
+                </div>
+                <input type="range" id="expenses" min="0" max="10000" step="50" value="1900">
+                <output class="range-output" id="expenses-output" for="expenses">1 900 €</output>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>4. Prielaidos</h2>
+            <div class="field">
+                <div class="field-head">
+                    <label for="annualReturn">Grąža per metus</label>
+                    <span class="origin-badge" id="annualReturn-badge" data-origin="ASSUMPTION">Prielaida</span>
+                </div>
+                <input type="range" id="annualReturn" min="0" max="8" step="0.1" value="3">
+                <output class="range-output" id="annualReturn-output" for="annualReturn">3 %</output>
+            </div>
+            <div class="field">
+                <div class="field-head">
+                    <label for="annualInflation">Infliacija per metus</label>
+                    <span class="origin-badge" id="annualInflation-badge" data-origin="ASSUMPTION">Prielaida</span>
+                </div>
+                <input type="range" id="annualInflation" min="0" max="6" step="0.1" value="2.5">
+                <output class="range-output" id="annualInflation-output" for="annualInflation">2,5 %</output>
+            </div>
+        </section>
+    </div>
+
+    <div class="goals-col-right">
+        <section class="card goals-result-main">
+            <p class="goals-result-label" id="result-label">Kas mėnesį reikia atsidėti</p>
+            <p class="goals-result-number" id="result-number" aria-live="polite">— €</p>
+            <p class="goals-result-sub" id="result-sub">Skaičiuojama…</p>
+        </section>
+
+        <div class="goals-mini-grid">
+            <div class="card mini"><span class="mini-label">Tikslas su infliacija</span><span class="mini-value" id="mini-futureTarget">—</span></div>
+            <div class="card mini"><span class="mini-label">Iš viso įnešite</span><span class="mini-value" id="mini-paid">—</span></div>
+            <div class="card mini"><span class="mini-label">Uždirbs grąža</span><span class="mini-value" id="mini-gain">—</span></div>
+            <div class="card mini"><span class="mini-label">Laisvi pinigai / mėn.</span><span class="mini-value" id="mini-free">—</span></div>
+        </div>
+
+        <section class="card" id="verdict-card">
+            <p class="verdict-title" id="verdict-title">—</p>
+            <div class="bar" role="img" aria-label="Mėnesio įmokos dalis nuo laisvų pinigų">
+                <div class="fill" id="verdict-bar" style="width:0%"></div>
+            </div>
+            <p class="small" id="verdict-note"></p>
+        </section>
+
+        <section class="card">
+            <h2>Kaupimo kreivė</h2>
+            <div class="chart-legend">
+                <span><span class="dot balance"></span>Sukaupta</span>
+                <span><span class="dot target"></span>Tikslas</span>
+            </div>
+            <div class="chart-wrap" id="chart-wrap"></div>
+        </section>
+
+        <section class="card">
+            <h2>Prielaidos ir šaltiniai</h2>
+            <ul class="sources-list" id="sources-list"></ul>
+        </section>
+
+        <p class="small err" id="calc-error" hidden>Nepavyko apskaičiuoti. Patikrinkite įvestus laukus arba bandykite vėliau.</p>
+        <p class="small disclaimer">Tai orientacinis įvertis planavimui, ne finansinė konsultacija. Statistinės reikšmės
+            gali būti iliustracinės (žr. ženkliuką prie kiekvienos reikšmės).</p>
+    </div>
+
+</div>
+</main>
+<footer><p>© Atsidėk · planavimo įrankis, ne finansų konsultantas. · <a href="/skaiciuokle">IV mokesčių skaičiuoklė</a> · <a href="/privatumas">Privatumo politika</a></p></footer>
+<p th:replace="~{bank/fragments :: build}"></p>
+
+<script>
+(function () {
+    "use strict";
+
+    // Laukai, kurių kilmę sekame (žr. eu.atsidek.goals.Origin): USER / STATISTICS / ASSUMPTION.
+    // Terminų laukai (years, targetYear, ...) ženkliuko neturi (makete jo irgi nėra) – jų kilmė serveryje
+    // visada USER pagal numatytąjį GoalsEngine elgesį, todėl čia nesekama.
+    var origins = { amount: "STATISTICS", income: "STATISTICS", expenses: "STATISTICS",
+        annualReturn: "ASSUMPTION", annualInflation: "ASSUMPTION" };
+    var ORIGIN_LABELS = { USER: "Jūsų", AI: "AI", STATISTICS: "Statistika", ASSUMPTION: "Prielaida" };
+    var GOAL_TYPE_LABELS = { CHILD: "Vaikui", CAR: "Automobiliui", HOME_DOWN_PAYMENT: "Būsto įnašui", OTHER: "Kitam tikslui" };
+    var VERDICT_LABELS = { COMFORTABLE: "Komfortiška", TIGHT: "Įtempta", UNREALISTIC: "Nerealu", NO_FREE_CASH: "Nėra laisvų pinigų" };
+    var VERDICT_NOTES = {
+        COMFORTABLE: "Lieka rezervas netikėtoms išlaidoms. Galite svarstyti trumpesnį terminą arba didesnį tikslą.",
+        TIGHT: "Įmoka užima nemažą laisvų pinigų dalį. Apsvarstykite ilgesnį terminą arba mažesnę sumą.",
+        UNREALISTIC: "Įmoka viršija pusę laisvų pinigų – su esamais duomenimis tikslas sunkiai pasiekiamas. Pailginkite terminą arba sumažinkite tikslą.",
+        NO_FREE_CASH: "Pagal nurodytas pajamas ir išlaidas laisvų pinigų nelieka. Padidinkite pajamas arba sumažinkite išlaidas."
+    };
+    var MONTHS_LT = ["sausio", "vasario", "kovo", "balandžio", "gegužės", "birželio", "liepos", "rugpjūčio",
+        "rugsėjo", "spalio", "lapkričio", "gruodžio"];
+
+    var statsMeta = null; // paskutinio GET /goals/stats/defaults atsakymo kešas (šaltinių sąrašui)
+    var debounceTimer = null;
+
+    function $(id) { return document.getElementById(id); }
+
+    function formatEurWhole(value) {
+        if (value === null || value === undefined || value === "") { return "—"; }
+        var n = Math.round(Number(value));
+        return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €";
+    }
+
+    function formatPct(value) {
+        if (value === null || value === undefined || value === "") { return "—"; }
+        var rounded = Math.round(Number(value) * 10) / 10;
+        return String(rounded).replace(".", ",") + " %";
+    }
+
+    function formatDate(iso) {
+        if (!iso) { return "—"; }
+        var parts = iso.split("-");
+        var y = parts[0], m = parseInt(parts[1], 10), d = parseInt(parts[2], 10);
+        return d + " " + MONTHS_LT[m - 1] + " " + y + " m.";
+    }
+
+    function getFieldNumber(id) {
+        var el = $(id);
+        if (!el || el.value === "") { return null; }
+        return Number(el.value);
+    }
+
+    function getMode() {
+        return document.querySelector('input[name="mode"]:checked').value;
+    }
+
+    function getGoalType() {
+        return document.querySelector('input[name="goalType"]:checked').value;
+    }
+
+    function updateOutput(id) {
+        var el = $(id), out = $(id + "-output");
+        if (!el || !out) { return; }
+        if (id === "amount" || id === "income" || id === "expenses" || id === "monthlyContribution") {
+            out.textContent = formatEurWhole(el.value);
+        } else if (id === "annualReturn" || id === "annualInflation") {
+            out.textContent = formatPct(el.value);
+        } else if (id === "years" || id === "childCurrentAge" || id === "childTargetAge") {
+            out.textContent = el.value + " m.";
+        }
+    }
+
+    function setFieldValue(id, value) {
+        var el = $(id);
+        if (!el) { return; }
+        el.value = value;
+        updateOutput(id);
+    }
+
+    function setOrigin(field, origin) {
+        origins[field] = origin;
+        var badge = $(field + "-badge");
+        if (badge) {
+            badge.textContent = ORIGIN_LABELS[origin];
+            badge.dataset.origin = origin;
+        }
+    }
+
+    function roundTo(value, step) {
+        return Math.round(value / step) * step;
+    }
+
+    function updateSelectedClasses() {
+        document.querySelectorAll(".goal-type-card").forEach(function (card) {
+            var input = card.querySelector("input");
+            card.classList.toggle("selected", input.checked);
+        });
+        document.querySelectorAll(".segment").forEach(function (seg) {
+            var input = seg.querySelector("input");
+            seg.classList.toggle("selected", input.checked);
+        });
+    }
+
+    function updateModeFieldsVisibility() {
+        var mode = getMode();
+        document.querySelectorAll(".mode-fields").forEach(function (el) {
+            el.hidden = el.dataset.mode !== mode;
+        });
+    }
+
+    // ---- statistika (GET /goals/stats/defaults) – pildo trūkstamus laukus pirmą kartą arba kai keičiasi
+    // namų ūkio dydis / tikslo tipas, bet TIK tiems laukams, kurių vartotojas pats dar nepakeitė (origin=USER). ----
+
+    function applyStatsDefaults(stats) {
+        statsMeta = stats;
+        if (origins.amount !== "USER" && stats.typicalAmount) {
+            setFieldValue("amount", roundTo(Number(stats.typicalAmount.value), 500));
+            setOrigin("amount", "STATISTICS");
+        }
+        if (origins.income !== "USER" && stats.income) {
+            setFieldValue("income", roundTo(Number(stats.income.value), 50));
+            setOrigin("income", "STATISTICS");
+        }
+        if (origins.expenses !== "USER" && stats.expenses) {
+            setFieldValue("expenses", roundTo(Number(stats.expenses.value), 50));
+            setOrigin("expenses", "STATISTICS");
+        }
+    }
+
+    function refreshStatsThenCalculate() {
+        var members = getFieldNumber("members");
+        var workers = getFieldNumber("workers");
+        var params = new URLSearchParams({ members: members, workers: workers, goalType: getGoalType() });
+        fetch("/goals/stats/defaults?" + params.toString())
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .then(function (stats) {
+                if (stats) { applyStatsDefaults(stats); }
+            })
+            .catch(function () {
+                // Statistika laikinai nepasiekiama – forma veikia toliau su esamomis reikšmėmis (be AI/statistikos).
+            })
+            .then(calculate);
+    }
+
+    // ---- /goals/calculate ----
+
+    function buildRequestBody() {
+        var mode = getMode();
+        var body = {
+            goalType: getGoalType(),
+            mode: mode,
+            amount: getFieldNumber("amount"),
+            years: mode === "YEARS" ? getFieldNumber("years") : null,
+            targetYear: mode === "DATE" ? getFieldNumber("targetYear") : null,
+            targetMonth: mode === "DATE" ? getFieldNumber("targetMonth") : null,
+            childCurrentAge: mode === "CHILD_AGE" ? getFieldNumber("childCurrentAge") : null,
+            childTargetAge: mode === "CHILD_AGE" ? getFieldNumber("childTargetAge") : null,
+            monthlyContribution: mode === "WHEN" ? getFieldNumber("monthlyContribution") : null,
+            household: {
+                members: getFieldNumber("members"),
+                workers: getFieldNumber("workers"),
+                income: getFieldNumber("income"),
+                expenses: getFieldNumber("expenses"),
+                region: null
+            },
+            assumptions: {
+                // Kol vartotojas slankiklio nepajudino, siunčiame null – serveris pats užpildo ASSUMPTION
+                // numatytąja reikšme IR teisingu šaltinio paaiškinimu (žr. GoalsEngine.resolveAssumption).
+                annualReturn: origins.annualReturn === "USER" ? getFieldNumber("annualReturn") : null,
+                annualInflation: origins.annualInflation === "USER" ? getFieldNumber("annualInflation") : null
+            },
+            origins: {
+                amount: origins.amount,
+                income: origins.income,
+                expenses: origins.expenses
+            }
+        };
+        if (origins.annualReturn === "USER") { body.origins.annualReturn = "USER"; }
+        if (origins.annualInflation === "USER") { body.origins.annualInflation = "USER"; }
+        return body;
+    }
+
+    function scheduleCalculate() {
+        window.clearTimeout(debounceTimer);
+        debounceTimer = window.setTimeout(calculate, 300);
+    }
+
+    function calculate() {
+        var body = buildRequestBody();
+        fetch("/goals/calculate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        }).then(function (res) {
+            if (!res.ok) { throw new Error("bad status " + res.status); }
+            return res.json();
+        }).then(function (result) {
+            $("calc-error").hidden = true;
+            renderResult(result);
+        }).catch(function () {
+            $("calc-error").hidden = false;
+        });
+    }
+
+    // ---- rezultato atvaizdavimas ----
+
+    function goalSummaryText(result) {
+        var label = GOAL_TYPE_LABELS[getGoalType()];
+        var amount = formatEurWhole(getFieldNumber("amount"));
+        if (getMode() === "WHEN") {
+            return label + " · " + amount + " · " + formatEurWhole(getFieldNumber("monthlyContribution")) + " / mėn.";
+        }
+        if (result.months) {
+            var years = Math.round(result.months / 12);
+            return label + " · " + amount + " · per " + years + " m.";
+        }
+        return label + " · " + amount;
+    }
+
+    function renderResult(result) {
+        var label = $("result-label"), number = $("result-number"), sub = $("result-sub");
+        if (getMode() === "WHEN") {
+            label.textContent = "Kada sukaupsite";
+            number.textContent = result.reachable ? formatDate(result.reachDate) : "Nepasiekiama per 50 m.";
+        } else {
+            label.textContent = "Kas mėnesį reikia atsidėti";
+            number.textContent = formatEurWhole(result.monthly);
+        }
+        sub.textContent = goalSummaryText(result);
+
+        $("mini-futureTarget").textContent = formatEurWhole(result.futureTarget);
+        $("mini-paid").textContent = formatEurWhole(result.paid);
+        $("mini-gain").textContent = formatEurWhole(result.gain);
+        $("mini-free").textContent = formatEurWhole(result.freeCash);
+
+        renderVerdict(result);
+        renderChart(result.series);
+        renderSources(result);
+    }
+
+    function renderVerdict(result) {
+        var title = $("verdict-title"), bar = $("verdict-bar"), note = $("verdict-note");
+        var pct = Math.max(0, Math.min(100, Math.round(Number(result.share) * 100)));
+        var verdictClass = result.verdict.toLowerCase();
+        title.textContent = VERDICT_LABELS[result.verdict] + " · " + pct + " % laisvų pinigų";
+        title.className = "verdict-title verdict-" + verdictClass;
+        bar.style.width = pct + "%";
+        bar.className = "fill verdict-fill-" + verdictClass;
+        note.textContent = VERDICT_NOTES[result.verdict] || "";
+    }
+
+    function renderChart(series) {
+        var wrap = $("chart-wrap");
+        wrap.innerHTML = "";
+        if (!series || series.length === 0) {
+            var p = document.createElement("p");
+            p.className = "small";
+            p.textContent = "Grafikas nerodomas – su nurodyta įmoka tikslas nepasiekiamas per 50 metų.";
+            wrap.appendChild(p);
+            return;
+        }
+        var svgNS = "http://www.w3.org/2000/svg";
+        var width = 600, height = 220, padTop = 10, padBottom = 22, padX = 8;
+        var maxVal = 1;
+        series.forEach(function (pt) { maxVal = Math.max(maxVal, Number(pt.balance), Number(pt.target)); });
+        var n = series.length;
+        var barSlot = (width - padX * 2) / n;
+        var barWidth = Math.max(4, barSlot * 0.55);
+        var scaleY = (height - padTop - padBottom) / maxVal;
+
+        var svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+        svg.setAttribute("class", "chart-svg");
+        svg.setAttribute("role", "img");
+        svg.setAttribute("aria-label", "Kaupimo kreivė: sukaupta suma kiekvienais metais lyginant su infliacijos koreguotu tikslu");
+
+        series.forEach(function (pt, i) {
+            var x = padX + i * barSlot + (barSlot - barWidth) / 2;
+            var barH = Math.max(0, Number(pt.balance) * scaleY);
+            var y = height - padBottom - barH;
+            var rect = document.createElementNS(svgNS, "rect");
+            rect.setAttribute("x", x);
+            rect.setAttribute("y", y);
+            rect.setAttribute("width", barWidth);
+            rect.setAttribute("height", barH);
+            rect.setAttribute("rx", "2");
+            rect.setAttribute("class", "chart-bar");
+            svg.appendChild(rect);
+
+            if (i === 0 || i === n - 1 || i === Math.floor(n / 2)) {
+                var text = document.createElementNS(svgNS, "text");
+                text.setAttribute("x", x + barWidth / 2);
+                text.setAttribute("y", height - 6);
+                text.setAttribute("text-anchor", "middle");
+                text.setAttribute("class", "chart-axis-label");
+                text.textContent = pt.year;
+                svg.appendChild(text);
+            }
+        });
+
+        var points = series.map(function (pt, i) {
+            var x = padX + i * barSlot + barSlot / 2;
+            var y = height - padBottom - Number(pt.target) * scaleY;
+            return x + "," + y;
+        }).join(" ");
+        var line = document.createElementNS(svgNS, "polyline");
+        line.setAttribute("points", points);
+        line.setAttribute("class", "chart-target-line");
+        svg.appendChild(line);
+
+        wrap.appendChild(svg);
+    }
+
+    function resolveSourceMeta(key, result) {
+        if (key === "annualReturn" || key === "annualInflation") {
+            var rv = result.resolvedInputs && result.resolvedInputs[key];
+            return rv ? { source: rv.source, sourceUrl: null, illustrative: false } : null;
+        }
+        if (!statsMeta) { return null; }
+        var statKey = key === "amount" ? "typicalAmount" : key;
+        return statsMeta[statKey] || null;
+    }
+
+    function renderSources(result) {
+        var ul = $("sources-list");
+        ul.innerHTML = "";
+        var items = [
+            { key: "amount", label: "Tikslo suma", display: formatEurWhole(getFieldNumber("amount")) },
+            { key: "income", label: "Pajamos", display: formatEurWhole(getFieldNumber("income")) },
+            { key: "expenses", label: "Išlaidos", display: formatEurWhole(getFieldNumber("expenses")) },
+            { key: "annualReturn", label: "Grąža", display: formatPct(getFieldNumber("annualReturn")) + "/m." },
+            { key: "annualInflation", label: "Infliacija", display: formatPct(getFieldNumber("annualInflation")) + "/m." }
+        ];
+        items.forEach(function (item) {
+            var origin = origins[item.key];
+            if (origin === "USER") { return; } // ranka pakeistos reikšmės šaltinių sąraše nerodomos (kaip makete)
+            var meta = resolveSourceMeta(item.key, result);
+            if (!meta) { return; }
+            var li = document.createElement("li");
+
+            var badge = document.createElement("span");
+            badge.className = "origin-badge";
+            badge.dataset.origin = origin;
+            badge.textContent = ORIGIN_LABELS[origin];
+            li.appendChild(badge);
+
+            var text = document.createElement("span");
+            var sentence = item.label + ": " + item.display + (meta.source ? " – " + meta.source : "");
+            if (meta.illustrative) { sentence += " (iliustracinė)"; }
+            text.textContent = sentence;
+            li.appendChild(text);
+
+            if (meta.sourceUrl) {
+                var a = document.createElement("a");
+                a.href = meta.sourceUrl;
+                a.target = "_blank";
+                a.rel = "noopener";
+                a.textContent = " šaltinis";
+                li.appendChild(a);
+            }
+            ul.appendChild(li);
+        });
+    }
+
+    // ---- įvykiai ----
+
+    function wireRangeAndNumberFields() {
+        ["amount", "income", "expenses", "annualReturn", "annualInflation", "years",
+            "childCurrentAge", "childTargetAge", "monthlyContribution"].forEach(function (id) {
+            var el = $(id);
+            if (!el) { return; }
+            el.addEventListener("input", function () {
+                setOrigin(id, "USER");
+                updateOutput(id);
+                scheduleCalculate();
+            });
+        });
+        $("targetYear").addEventListener("input", scheduleCalculate);
+        $("targetMonth").addEventListener("change", scheduleCalculate);
+    }
+
+    function wireGoalTypeAndMode() {
+        document.querySelectorAll('input[name="goalType"]').forEach(function (radio) {
+            radio.addEventListener("change", function () {
+                updateSelectedClasses();
+                refreshStatsThenCalculate();
+            });
+        });
+        document.querySelectorAll('input[name="mode"]').forEach(function (radio) {
+            radio.addEventListener("change", function () {
+                updateSelectedClasses();
+                updateModeFieldsVisibility();
+                calculate();
+            });
+        });
+    }
+
+    function wireSteppers() {
+        document.querySelectorAll(".stepper-btn").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                var targetId = btn.dataset.target;
+                var delta = parseInt(btn.dataset.delta, 10);
+                var input = $(targetId);
+                var workersEl = $("workers");
+                var value = parseInt(input.value, 10) + delta;
+                var min = parseInt(input.min, 10), max = parseInt(input.max, 10);
+                value = Math.max(min, Math.min(max, value));
+                input.value = value;
+                if (targetId === "members") {
+                    workersEl.max = value; // dirba <= gyvena
+                    if (parseInt(workersEl.value, 10) > value) { workersEl.value = value; }
+                }
+                refreshStatsThenCalculate();
+            });
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        var currentYear = new Date().getFullYear();
+        var targetYearEl = $("targetYear");
+        targetYearEl.min = currentYear;
+        targetYearEl.value = currentYear + 5;
+
+        updateSelectedClasses();
+        updateModeFieldsVisibility();
+        ["amount", "income", "expenses", "annualReturn", "annualInflation", "years",
+            "childCurrentAge", "childTargetAge", "monthlyContribution"].forEach(updateOutput);
+
+        wireRangeAndNumberFields();
+        wireGoalTypeAndMode();
+        wireSteppers();
+
+        refreshStatsThenCalculate();
+    });
+})();
+</script>
+</body>
+</html>
