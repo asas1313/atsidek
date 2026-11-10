@@ -18,17 +18,23 @@ papildomo `spring.flyway.*` konfiguravimo nereikėjo).
 
 ### Prisijungimo duomenys (env, NIEKADA repo)
 
-`SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` – privalomi
-staging/production aplinkų `.env` failuose (`/opt/atsidek/<aplinka>.env`, žr. žemiau). Staging ir
-production PostgreSQL jau veikia **atskirame LXC serveryje** `192.168.68.106:5432` (duomenų bazės
-`atsidek_staging` / `atsidek_prod`, atskiri vartotojai, prieiga leidžiama tik iš konteinerių
-išeinančio IP `192.168.68.104`). Pavyzdys `/opt/atsidek/staging.env` papildymui:
+`docker-compose.yml` `app` servisas konteinerio viduje nustato `SPRING_DATASOURCE_URL`/`USERNAME`/`PASSWORD`
+iš host'o env kintamųjų `DB_URL`/`DB_USER`/`DB_PASSWORD` (tas pats raštas, kaip jau naudojamas
+`DATA_DIR`, `APP_PORT` ir kt. – žr. `deploy/deploy.sh` komentarą viršuje ir `.env.example`). **Taigi
+`/opt/atsidek/<aplinka>.env` faile reikia būtent `DB_URL`/`DB_USER`/`DB_PASSWORD`, NE
+`SPRING_DATASOURCE_*` – pastarieji compose'e nebūtų atpažinti ir servisas tyliai grįžtų prie
+lokalaus dev numatytojo adreso.** Staging ir production PostgreSQL jau veikia **atskirame LXC
+serveryje** `192.168.68.106:5432` (duomenų bazės `atsidek_staging` / `atsidek_prod`, atskiri
+vartotojai, prieiga leidžiama tik iš konteinerių išeinančio IP `192.168.68.104`). Pavyzdys
+`/opt/atsidek/staging.env` papildymui:
 
 ```bash
-SPRING_DATASOURCE_URL=jdbc:postgresql://192.168.68.106:5432/atsidek_staging
-SPRING_DATASOURCE_USERNAME=atsidek_staging
-SPRING_DATASOURCE_PASSWORD=<slaptažodis iš slaptažodžių tvarkyklės>
+DB_URL=jdbc:postgresql://192.168.68.106:5432/atsidek_staging
+DB_USER=atsidek_staging
+DB_PASSWORD=<slaptažodis iš slaptažodžių tvarkyklės>
 ```
+
+(`production.env` analogiškai, su `atsidek_prod`.)
 
 ### Lokalus dev su Docker Compose
 
