@@ -37,7 +37,7 @@ public class SecurityConfig {
                 .addFilterBefore(new ApiKeyFilter(hashes), AuthorizationFilter.class)
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/", "/skaiciuokle", "/calculate", "/privatumas", "/straipsniai/**", "/api/**",
-                                "/goals/**",
+                                "/goals/**", "/taupymo-tikslai",
                                 "/style.css", "/htmx.min.js", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/error").permitAll()
                         .anyRequest().authenticated())
                 .oauth2Login(o -> o.authorizationEndpoint(a -> a.authorizationRequestResolver(resolver)))
