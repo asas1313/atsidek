@@ -9,13 +9,14 @@
 </head>
 <body>
 <nav th:fragment="nav" class="bank-nav">
-    <!-- PATVIRTINTAS meniu pergrupavimas (F3): 5 IV mokesčių/banko punktai + Nustatymai sugrupuoti po
-         "IV mokesčiai" – vanilla <details>/<summary>, veikia kaip dropdown desktop'e ir accordion mobiliame,
-         be JS. "Taupymo tikslai" - atskira plokščia nuoroda šalia grupės (F3 naujas puslapis). -->
+    <!-- PATVIRTINTAS meniu pergrupavimas (F3): "AI asistentas" pagrindiniame meniu (bendras įėjimo taškas,
+         vėliau papildysimas ir taupymo tikslais), likę 4 IV/banko punktai + Nustatymai sugrupuoti po
+         "Individualios veiklos mokesčiai" – vanilla <details>/<summary>, veikia kaip dropdown desktop'e
+         ir accordion mobiliame, be JS. "Taupymo tikslai" - atskira plokščia nuoroda šalia grupės. -->
+    <a href="/">AI asistentas</a>
     <details class="nav-group">
-        <summary>IV mokesčiai</summary>
+        <summary>Individualios veiklos mokesčiai</summary>
         <div class="nav-group-menu">
-            <a href="/">AI asistentas</a>
             <a href="/skaiciuokle">Skaičiuoklė</a>
             <a href="/importas">Įkelti išrašą</a>
             <a href="/suvestine">Suvestinė</a>

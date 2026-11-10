@@ -53,7 +53,7 @@ class GoalsPageControllerTest {
         mvc.perform(get("/skaiciuokle"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("href=\"/taupymo-tikslai\"")))
-                .andExpect(content().string(containsString("IV mokesčiai")))
+                .andExpect(content().string(containsString("Individualios veiklos mokesčiai")))
                 .andExpect(content().string(containsString("href=\"/skaiciuokle\"")));
     }
 }
