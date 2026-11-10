@@ -1,9 +1,8 @@
 package eu.atsidek.auth;
 
+import eu.atsidek.entitlement.AppUserStore;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,8 +13,6 @@ import org.springframework.security.oauth2.client.web.DefaultOAuth2Authorization
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
-import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
-import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
@@ -56,23 +53,18 @@ public class SecurityConfig {
         return resolver;
     }
 
-    /** Priima tik patvirtintą el. paštą ir (jei sąrašas nurodytas) tik leidžiamus adresus. */
+    /**
+     * Priima kiekvieną patvirtintą (email_verified) Google prisijungimą, provisionuoja {@code app_user}
+     * eilutę ir priskiria ROLE_USER visiems, papildomai ROLE_ADMIN leidžiamų/savininko el. paštams
+     * (žr. ADR-0001, AppOidcUserService). Bank modulio apsauga nuo šiol priklauso nuo ROLE_ADMIN, ne nuo
+     * atmesto prisijungimo - žr. plano §6 task 6 (default-deny SecurityConfig), kuris pakeičia
+     * authorizeHttpRequests taisykles, kad šis bean'o pakeitimas nepaliktų banko ekranų atvirų.
+     */
     @Bean
     OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService(
+            AppUserStore appUserStore,
             @Value("${atsidek.auth.allowed-emails:}") String allowed,
             @Value("${atsidek.auth.owner-email:}") String owner) {
-        Set<String> list = Arrays.stream((allowed + "," + owner).split(","))
-                .map(s -> s.trim().toLowerCase()).filter(s -> !s.isEmpty()).collect(Collectors.toSet());
-        boolean restricted = !allowed.isBlank();
-        OidcUserService delegate = new OidcUserService();
-        return request -> {
-            OidcUser user = delegate.loadUser(request);
-            String email = user.getEmail() == null ? "" : user.getEmail().toLowerCase();
-            boolean verified = Boolean.TRUE.equals(user.getEmailVerified());
-            if (!verified || (restricted && !list.contains(email))) {
-                throw new OAuth2AuthenticationException(new OAuth2Error("access_denied"), "El. paštas neleidžiamas");
-            }
-            return user;
-        };
+        return new AppOidcUserService(new OidcUserService(), appUserStore, allowed, owner);
     }
 }
