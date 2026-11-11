@@ -12,9 +12,12 @@
     <!-- PATVIRTINTAS meniu pergrupavimas (F3): "AI asistentas" pagrindiniame meniu (bendras įėjimo taškas,
          vėliau papildysimas ir taupymo tikslais), likę 4 IV/banko punktai + Nustatymai sugrupuoti po
          "Individualios veiklos mokesčiai" – vanilla <details>/<summary>, veikia kaip dropdown desktop'e
-         ir accordion mobiliame, be JS. "Taupymo tikslai" - atskira plokščia nuoroda šalia grupės. -->
+         ir accordion mobiliame, be JS. "Taupymo tikslai" - atskira plokščia nuoroda šalia grupės.
+         Banko modulio grupė rodoma, kai NEprisijungęs (paspaudus - nukreipimas į Google, kaip ir
+         anksčiau) ARBA kai ROLE_ADMIN; paprastam prisijungusiam (ROLE_USER-only) vartotojui ji
+         paslepiama (PLAN.md §6 task 12) - apsauga pati (SecurityConfig, 403) nepasikeičia, tik nav. -->
     <a href="/">AI asistentas</a>
-    <details class="nav-group">
+    <details class="nav-group" th:if="${!loggedIn or isAdmin}">
         <summary>Individualios veiklos mokesčiai</summary>
         <div class="nav-group-menu">
             <a href="/skaiciuokle">Skaičiuoklė</a>
@@ -25,6 +28,8 @@
         </div>
     </details>
     <a href="/taupymo-tikslai">Taupymo tikslai</a>
+    <a th:if="${loggedIn}" href="/mano-tikslas">Mano tikslas</a>
+    <a th:if="${loggedIn}" href="/paskyra">Mano paskyra</a>
     <div class="nav-auth">
         <a th:unless="${loggedIn}" href="/oauth2/authorization/google">Prisijungti</a>
         <form th:if="${loggedIn}" method="post" th:action="@{/logout}" style="display:inline"><button type="submit" class="link">Atsijungti</button></form>

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{bank/fragments :: head('Mano tikslas')}"></head>
+<body>
+<header class="hero"><h1>Atsidėk</h1><p>Mano taupymo tikslas</p></header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
+<main>
+    <!-- Minimalus fragmentas tik tiek, kiek reikia MockMvc testams (task 10/11 šakoms) - pilnas
+         nav/CTA poliravimas yra task 12, ne čia (PLAN.md §6). -->
+    <section class="card" th:if="${needsConfirmation}">
+        <p>Turi esamą tikslą su <span th:text="${existingContributionCount}">0</span> įmokų – pakeitus jos bus ištrintos.</p>
+        <form method="post" th:action="@{/goals/tikslai}">
+            <input type="hidden" name="confirm" value="true">
+            <button type="submit">Pakeisti</button>
+        </form>
+    </section>
+    <section class="card" th:if="${goal != null}">
+        <p class="ok">Tikslas išsaugotas.</p>
+        <p>Tikslo id: <span th:text="${goal.id()}">id</span></p>
+        <p th:if="${progress != null}">
+            Numatyta sukaupti: <span th:text="${progress.expectedAccumulated()}">0</span> €.
+            Faktiškai sukaupta: <span th:text="${progress.actualAccumulated()}">0</span> €.
+            <span th:text="${progress.onTrack()} ? 'Sekasi gerai.' : 'Atsilieka nuo plano.'">-</span>
+        </p>
+        <form method="post" th:action="@{'/goals/tikslai/' + ${goal.id()} + '/irasai'}">
+            <label class="inline">Mėnuo <input type="month" name="month"></label>
+            <label class="inline">Suma <input type="number" step="0.01" name="amount"></label>
+            <button type="submit">Pažymėti įmoką</button>
+        </form>
+    </section>
+</main>
+</body>
+</html>

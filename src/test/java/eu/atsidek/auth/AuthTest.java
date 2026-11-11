@@ -10,11 +10,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import eu.atsidek.TestcontainersConfiguration;
 import eu.atsidek.bank.store.BankStore;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
@@ -47,13 +55,33 @@ class AuthTest {
         }
     }
 
+    /**
+     * Anonimiškam lankytojui ir ROLE_ADMIN banko modulio nav grupė rodoma kaip ir anksčiau; paprastam
+     * prisijungusiam (vien ROLE_USER, ne admin'as) ji paslepiama - banko apsauga pati (403) nepakitusi,
+     * tik meniu nuoroda (PLAN.md §6 task 12). Visiems prisijungusiems rodomos "Mano tikslas"/"Mano
+     * paskyra" nuorodos.
+     */
     @Test
     void navShowsAllItemsAlwaysAndLoginOrLogoutByState() throws Exception {
         String[] items = {"/importas", "/suvestine", "/taisykles", "/nustatymai"};
         String anon = mvc.perform(get("/skaiciuokle")).andReturn().getResponse().getContentAsString();
         assertThat(anon).contains("Prisijungti").doesNotContain("Atsijungti").contains(items);
-        String in = mvc.perform(get("/skaiciuokle").with(oidcLogin())).andReturn().getResponse().getContentAsString();
-        assertThat(in).contains("Atsijungti").contains(items).doesNotContain(">Prisijungti<");
+        assertThat(anon).doesNotContain("Mano tikslas").doesNotContain("Mano paskyra");
+
+        String admin = mvc.perform(get("/skaiciuokle")
+                        .with(oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"),
+                                new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(admin).contains("Atsijungti").contains(items).doesNotContain(">Prisijungti<");
+        assertThat(admin).contains("Mano tikslas").contains("Mano paskyra");
+
+        String plainUser = mvc.perform(get("/skaiciuokle")
+                        .with(oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"))))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(plainUser).contains("Atsijungti").doesNotContain(">Prisijungti<");
+        assertThat(plainUser).doesNotContain("/importas").doesNotContain("/suvestine")
+                .doesNotContain("/taisykles").doesNotContain("/nustatymai");
+        assertThat(plainUser).contains("Mano tikslas").contains("Mano paskyra");
     }
 
     @Test
@@ -71,6 +99,73 @@ class AuthTest {
     @Test
     void anonymousPostIsNotAllowed() throws Exception {
         mvc.perform(post("/nustatymai/istrinti-viska")).andExpect(status().is4xxClientError());
+    }
+
+    /**
+     * Plano §6 task 6: ne-leidžiamo (ne allow-list) bet patvirtinto el. pašto prisijungimas vis tiek
+     * pasiekia {@code /mano-tikslas} (ROLE_USER) - saugumo sluoksnis nebeatmeta tokio prisijungimo
+     * kaip "access_denied". Nuo task 11 {@code /mano-tikslas} valdiklis tikrai egzistuoja ir skaito
+     * {@code appUserId} nuo principal'o ({@code CurrentAppUser}), todėl čia naudojamas tikras
+     * {@link AppOidcUser} (ne numatytasis {@code oidcLogin()} principal'as) - kitaip valdiklis
+     * sumestų {@code IllegalStateException} (500), ne autorizacijos atsisakymą; svarbu tik tai, kad
+     * apsauga NEBLOKUOJA (ne 401/403, ne nukreipimas į Google) paprasto ROLE_USER naudotojo.
+     */
+    @Test
+    void nonAllowListedVerifiedLoginReachesManoTikslas() throws Exception {
+        var result = mvc.perform(get("/mano-tikslas").with(oidcLoginAsAppUser())).andReturn();
+        assertThat(result.getResponse().getStatus()).isNotIn(401, 403);
+        assertThat(result.getResponse().getRedirectedUrl())
+                .isNotEqualTo("http://localhost/oauth2/authorization/google");
+    }
+
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor oidcLoginAsAppUser() {
+        String subject = "subject-" + UUID.randomUUID();
+        OidcIdToken idToken = new OidcIdToken("token", Instant.now(), Instant.now().plusSeconds(3600),
+                Map.of("sub", subject, "email", subject + "@example.com", "email_verified", true));
+        DefaultOidcUser delegate = new DefaultOidcUser(List.of(new SimpleGrantedAuthority("SCOPE_openid")), idToken);
+        AppOidcUser appOidcUser = new AppOidcUser(delegate, UUID.randomUUID(), false);
+        return oidcLogin().oidcUser(appOidcUser);
+    }
+
+    /** Toks pat ROLE_USER (bet ne ROLE_ADMIN) prisijungimas gauna 403 banko ekranuose. */
+    @Test
+    void nonAllowListedVerifiedLoginGetsForbiddenOnBankPages() throws Exception {
+        for (String p : new String[] {"/importas", "/suvestine", "/taisykles", "/nustatymai"}) {
+            mvc.perform(get(p).with(oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"))))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    /** Autentifikuotas ROLE_USER POST be CSRF žetono į naują apsaugotą /goals/tikslai yra atmestas. */
+    @Test
+    void postGoalsTikslaiWithoutCsrfTokenIsRejected() throws Exception {
+        mvc.perform(post("/goals/tikslai")
+                        .with(oidcLogin().authorities(new SimpleGrantedAuthority("ROLE_USER"))))
+                .andExpect(status().isForbidden());
+    }
+
+    /**
+     * /goals/tikslai/preliminarus yra permitAll() autorizacijai, bet CSRF apsaugotas (blokuojantis
+     * pataisymas, žr. plano §6/§7) - be CSRF žetono atmetamas, su žetonu CSRF filtras praleidžia
+     * (valdiklis dar neegzistuoja, bus pridėtas task 11, tad atsakymas čia - 404, ne sėkmė).
+     */
+    @Test
+    void postGoalsTikslaiPreliminarusWithoutCsrfTokenIsRejected() throws Exception {
+        mvc.perform(post("/goals/tikslai/preliminarus")).andExpect(status().isForbidden());
+    }
+
+    /**
+     * Nuo task 11: su CSRF žetonu ir validžiu {@code GoalInput} kūnu CSRF filtras praleidžia IR
+     * valdiklis egzistuoja - sėkmė (200), ne 404/405. Literalus {@code /goals/tikslai/preliminarus}
+     * atitikmuo yra specifiškesnis už {@code GET /goals/tikslai/{id}} kelio kintamąjį, todėl Spring
+     * MVC jį renkasi be dviprasmybės.
+     */
+    @Test
+    void postGoalsTikslaiPreliminarusWithCsrfTokenPassesCsrfCheck() throws Exception {
+        String body = "{\"goalType\":\"CAR\",\"mode\":\"YEARS\",\"amount\":1200,\"years\":1}";
+        mvc.perform(post("/goals/tikslai/preliminarus").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
     }
 
     @Test

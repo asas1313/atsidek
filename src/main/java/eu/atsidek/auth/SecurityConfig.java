@@ -1,9 +1,8 @@
 package eu.atsidek.auth;
 
+import eu.atsidek.entitlement.AppUserStore;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,36 +13,68 @@ import org.springframework.security.oauth2.client.web.DefaultOAuth2Authorization
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
-import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
-import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 /**
- * Viešos: skaičiuoklė, straipsnis, privatumas, statiniai failai. JSON API ({@code /api/**}) – tik su API raktu.
- * Visa kita (banko ekranai) – tik su Google prisijungimu. Neprisijungęs vartotojas nukreipiamas tiesiai į Google.
+ * Default-deny (žr. ADR-0001, plano §6 task 6): {@code anyRequest().hasRole("ADMIN")} yra galutinis
+ * atsarginis variantas - naujas, sąmoningai neklasifikuotas kelias yra admin-only, ne tyliai viešas.
+ * Viešos: skaičiuoklė, taupymo tikslų nemokama dalis, straipsniai, statiniai failai. JSON API
+ * ({@code /api/**}) – tik su API raktu (ApiKeyFilter). ROLE_USER – taupymo tikslo sekimas, paskyra.
+ * ROLE_ADMIN (leidžiamų/savininko el. paštai) – banko modulis, nepakitusi apimtis.
  */
 @Configuration
 public class SecurityConfig {
 
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http, OAuth2AuthorizationRequestResolver resolver,
+                                    AppUserStore appUserStore,
                                     @Value("${atsidek.api.key-hashes:}") String apiKeyHashes) throws Exception {
         List<String> hashes = Arrays.stream(apiKeyHashes.split(","))
                 .map(s -> s.trim().toLowerCase()).filter(s -> !s.isEmpty()).toList();
         http
                 // /api/** apsaugotas API raktu (ne Google): žr. ApiKeyFilter
                 .addFilterBefore(new ApiKeyFilter(hashes), AuthorizationFilter.class)
+                // Sesijos atsparumas, kai app_user eilutė dingsta sesijos metu (task 15) - PO
+                // autentifikacijos/autorizacijos sprendimo, PRIEŠ užklausai pasiekiant valdiklį.
+                .addFilterAfter(new MissingAppUserFilter(appUserStore), AuthorizationFilter.class)
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/", "/skaiciuokle", "/calculate", "/privatumas", "/straipsniai/**", "/api/**",
-                                "/goals/**", "/taupymo-tikslai",
-                                "/style.css", "/htmx.min.js", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/error").permitAll()
-                        .anyRequest().authenticated())
+                        // Viešos: skaičiuoklė, taupymo tikslų nemokama dalis, statiniai failai.
+                        .requestMatchers("/", "/skaiciuokle", "/calculate", "/privatumas",
+                                "/style.css", "/htmx.min.js", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/error",
+                                "/taupymo-tikslai", "/goals/calculate", "/goals/stats/defaults",
+                                "/goals/tikslai/preliminarus").permitAll()
+                        // Dvi siauros, atskirai pagrįstos šablonu apsaugotos išimtys:
+                        // /api/** – jau apsaugota API raktu (ApiKeyFilter, veikia PRIEŠ AuthorizationFilter),
+                        //           permitAll() čia reiškia tik "Spring Security pati nebeprideda rolės reikalavimo";
+                        // /straipsniai/** – atviri statiniai straipsniai, be jautrių duomenų.
+                        .requestMatchers("/api/**", "/straipsniai/**").permitAll()
+                        // Prisijungęs (ROLE_USER) – taupymo tikslo sekimas, paskyra.
+                        // /goals/tikslai/laukiantis/atmesti pridėtas task 11 metu (plano §6 task 6
+                        // tekste dar nebuvo šio konkretaus kelio, nes jo pavadinimas buvo nustatytas
+                        // vėliau, task 11) - whitelist testas (task 7) tiksliai tam ir sukurtas, kad
+                        // pagautų tokį pamirštą kelią; čia jis priskiriamas ROLE_USER, kaip ir kiti
+                        // /goals/tikslai/** keliai, ne default-deny ROLE_ADMIN atsarginiam variantui.
+                        .requestMatchers("/mano-tikslas", "/goals/tikslai", "/goals/tikslai/*",
+                                "/goals/tikslai/*/irasai", "/goals/tikslai/laukiantis/atmesti",
+                                "/paskyra", "/paskyra/istrinti").hasRole("USER")
+                        // Banko modulis – tik ROLE_ADMIN (leidžiamų/savininko el. paštų sąrašas).
+                        // Išvardinta explicitiškai, kad task 7 route-table whitelist testas turėtų
+                        // ką konkretaus patikrinti ir šiam moduliui (nors anyRequest() fallback tą pačią
+                        // taisyklę ir taip taikytų).
+                        .requestMatchers("/importas", "/suvestine", "/taisykles", "/nustatymai").hasRole("ADMIN")
+                        // Default-deny: kiekvienas naujas, sąmoningai nepriskirtas kelias yra admin-only
+                        // (fail closed), ne tyliai viešas ir ne tyliai sugadintas visiems.
+                        .anyRequest().hasRole("ADMIN"))
                 .oauth2Login(o -> o.authorizationEndpoint(a -> a.authorizationRequestResolver(resolver)))
                 .logout(l -> l.logoutSuccessUrl("/").invalidateHttpSession(true).deleteCookies("JSESSIONID"))
-                // Viešiems POST be sesijos (htmx skaičiuoklė, JSON API) CSRF žetono nėra
-                .csrf(c -> c.ignoringRequestMatchers("/calculate", "/api/**", "/goals/**"));
+                // Tik genuinai viešiems POST be sesijos (htmx skaičiuoklė, JSON API) CSRF žetono nereikia.
+                // /goals/tikslai/preliminarus SĄMONINGAI NĖRA šiame sąraše: jis permitAll() autorizacijai
+                // (gali kviesti bet kas), bet vis tiek reikalauja CSRF žetono kaip ir kiekvienas kitas
+                // būseną keičiantis POST – kitaip svetima svetainė galėtų nutaikytai siųsti suklastotą
+                // skaičiavimą į aukos sesiją (žr. ADR-0001).
+                .csrf(c -> c.ignoringRequestMatchers("/calculate", "/api/**", "/goals/calculate"));
         return http.build();
     }
 
@@ -56,23 +87,18 @@ public class SecurityConfig {
         return resolver;
     }
 
-    /** Priima tik patvirtintą el. paštą ir (jei sąrašas nurodytas) tik leidžiamus adresus. */
+    /**
+     * Priima kiekvieną patvirtintą (email_verified) Google prisijungimą, provisionuoja {@code app_user}
+     * eilutę ir priskiria ROLE_USER visiems, papildomai ROLE_ADMIN leidžiamų/savininko el. paštams
+     * (žr. ADR-0001, AppOidcUserService). Bank modulio apsauga nuo šiol priklauso nuo ROLE_ADMIN, ne nuo
+     * atmesto prisijungimo - žr. plano §6 task 6 (default-deny SecurityConfig), kuris pakeičia
+     * authorizeHttpRequests taisykles, kad šis bean'o pakeitimas nepaliktų banko ekranų atvirų.
+     */
     @Bean
     OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService(
+            AppUserStore appUserStore,
             @Value("${atsidek.auth.allowed-emails:}") String allowed,
             @Value("${atsidek.auth.owner-email:}") String owner) {
-        Set<String> list = Arrays.stream((allowed + "," + owner).split(","))
-                .map(s -> s.trim().toLowerCase()).filter(s -> !s.isEmpty()).collect(Collectors.toSet());
-        boolean restricted = !allowed.isBlank();
-        OidcUserService delegate = new OidcUserService();
-        return request -> {
-            OidcUser user = delegate.loadUser(request);
-            String email = user.getEmail() == null ? "" : user.getEmail().toLowerCase();
-            boolean verified = Boolean.TRUE.equals(user.getEmailVerified());
-            if (!verified || (restricted && !list.contains(email))) {
-                throw new OAuth2AuthenticationException(new OAuth2Error("access_denied"), "El. paštas neleidžiamas");
-            }
-            return user;
-        };
+        return new AppOidcUserService(new OidcUserService(), appUserStore, allowed, owner);
     }
 }

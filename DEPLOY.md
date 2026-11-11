@@ -247,6 +247,60 @@ Konteineris `assistant` aptarnauja tik `POST /asistentas` (rezultato fragmentas)
 
 Patikra: `curl http://127.0.0.1:8000/healthz` (deploy.sh tai daro pats).
 
+## Taupymo tikslo sekimas (beta, `SAVINGS_TRACKING`)
+
+Google OAuth prisijungimas (ROLE_USER, visiems atviras) + teisių (entitlements) sluoksnis +
+pirma mokama funkcija (vieno taupymo tikslo sekimas). Nenaudoja naujo paslapties env
+kintamojo — pakartotinai naudoja tuos pačius `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`
+(žr. „Programa" skyrių žemiau ir `.env.example`).
+
+### Beta vėliavos įjungimas (rankinė SQL)
+
+Kol nėra administravimo ekrano, `goals_beta_mode_enabled` įjungiamas/išjungiamas tiesia SQL
+komanda prieš `app_setting` lentelę. Po diegimo reikšmė NEBŪNA įrašyta (nebuvimas = OFF) —
+staging'e, kad kiekvienas prisijungęs ROLE_USER matytų `SAVINGS_TRACKING` funkciją, paleisk:
+
+```bash
+psql "postgresql://atsidek_staging:<slaptažodis>@192.168.68.106:5432/atsidek_staging" -c \
+  "INSERT INTO app_setting (setting_key, setting_value) VALUES ('goals_beta_mode_enabled', 'true')
+   ON CONFLICT (setting_key) DO UPDATE SET setting_value = 'true';"
+```
+
+Išjungimui pakartok su `'false'` arba ištrink eilutę (`DELETE FROM app_setting WHERE
+setting_key = 'goals_beta_mode_enabled'`) — abu veikia vienodai (OFF), nes nebuvimas = OFF.
+**Production**'e šios SQL NEVYKDYTI, kol žemiau aprašyta sąlyga neįvykdyta.
+
+### Google OAuth sutikimo ekranas (consent screen)
+
+- **Staging**: palikti **Testing** režime Google Cloud Console (OAuth consent screen).
+  Testing režime prisijungti gali TIK Google paskyros, aiškiai pridėtos į „Test users"
+  sąrašą tame pačiame ekrane — tai žmogaus (ne šio plano) operacinis žingsnis, nes šis
+  planas negali savavališkai pridėti svetimų žmonių el. pašto adresų. Kiekvienai naujai
+  testuotojo paskyrai reikia atskiro pridėjimo Google Cloud Console pusėje.
+- **Production**: perkelti į **In production** režimą TIK po to, kai atskira privatumo
+  politikos PR (§4.6 plano dokumente) yra sulieta (merged). Prieš tai production OAuth
+  klientas lieka Testing režime arba visai neaktyvuotas šiai funkcijai — žr. gatę žemiau.
+- Redirect URI reikšmės (Spring Security numatytasis šablonas
+  `{baseUrl}/login/oauth2/code/{registrationId}`, `registrationId=google`), įrašyti į
+  Google Cloud Console → Credentials → OAuth 2.0 Client ID → Authorized redirect URIs:
+  - Staging: `https://staging.atsidek.eu/login/oauth2/code/google`
+  - Production: `https://atsidek.eu/login/oauth2/code/google`
+- **Rekomendacija: atskiras OAuth kliento ID kiekvienai aplinkai** — NEnaudoti to pačio
+  `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` staging'ui ir production'ui. Sukurti du
+  atskirus OAuth 2.0 Client ID įrašus Google Cloud Console, kiekvienam su savo redirect
+  URI iš sąrašo aukščiau, ir įrašyti juos atitinkamai į `/opt/atsidek/staging.env` ir
+  `/opt/atsidek/production.env` (žr. „Aplinkų failai serveryje" skyrių aukščiau).
+
+### Production gatė (privatumo politika)
+
+**Šis funkcionalumas (Google OAuth visiems, entitlements, `SAVINGS_TRACKING`) neturi
+pasiekti production'o, kol nesulieta atskira privatumo politikos PR** (plano §4.6 —
+`privatumas.html` perrašymas, kurį rašo pats žmogus, ne šis planas). Staging'ui šis
+apribojimas NETAIKOMAS — staging gali turėti šią funkciją diegiamą ir testuojamą
+nepriklausomai nuo privatumo politikos PR būsenos. Prieš rankinį „Run workflow" paleidimą
+production'ui (žr. „Automatinis diegimas iš GitHub" skyrių aukščiau), patikrinti, ar ta PR
+jau sulieta į `main`.
+
 ## Banko išrašų importas (PAPILDYNYS-01)
 
 Ekranai (`/importas`, `/suvestine`, `/taisykles`, `/nustatymai`) yra visiems atviri, be slaptažodžio. Staging `staging.env` faile pridėk:

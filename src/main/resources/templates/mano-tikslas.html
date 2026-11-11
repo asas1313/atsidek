@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="lt" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{bank/fragments :: head('Mano tikslas')}"></head>
+<body>
+<header class="hero"><h1>Atsidėk</h1><p>Mano taupymo tikslas</p></header>
+<nav th:replace="~{bank/fragments :: nav}"></nav>
+<main>
+    <!-- Minimalus fragmentas tik tiek, kiek reikia MockMvc testams (task 11 trijų šakų logikai) -
+         pilnas nav/CTA poliravimas yra task 12, ne čia (PLAN.md §6). -->
+    <section class="card" th:if="${noAccess}">
+        <p>Ši funkcija šiuo metu prieinama tik beta vartotojams.</p>
+    </section>
+    <section class="card" th:if="${empty}">
+        <p>Dar neturi išsaugoto taupymo tikslo. Apskaičiuok jį <a href="/taupymo-tikslai">skaičiuoklėje</a>.</p>
+    </section>
+    <section class="card" th:if="${choice}">
+        <p>Turi naują skaičiavimą, bet jau turi išsaugotą tikslą su
+            <span th:text="${existingContributionCount}">0</span> įmokų – pasirink:</p>
+        <form method="post" th:action="@{/goals/tikslai}">
+            <input type="hidden" name="confirm" value="true">
+            <button type="submit">Pakeisti (senos įmokos bus ištrintos)</button>
+        </form>
+        <form method="post" th:action="@{/goals/tikslai/laukiantis/atmesti}">
+            <button type="submit">Palikti esamą</button>
+        </form>
+    </section>
+    <section class="card" th:if="${goal != null}">
+        <p class="ok">Tikslas išsaugotas.</p>
+        <p>Tikslo id: <span th:text="${goal.id()}">id</span></p>
+        <p th:if="${progress != null}">
+            Numatyta sukaupti: <span th:text="${progress.expectedAccumulated()}">0</span> €.
+            Faktiškai sukaupta: <span th:text="${progress.actualAccumulated()}">0</span> €.
+            <span th:text="${progress.onTrack()} ? 'Sekasi gerai.' : 'Atsilieka nuo plano.'">-</span>
+        </p>
+    </section>
+</main>
+</body>
+</html>
