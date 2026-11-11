@@ -166,6 +166,44 @@ class SavingsPlanApiControllerTest {
     }
 
     @Test
+    void nonJsonContentTypeIsRejectedWith415() throws Exception {
+        mvc.perform(post("/api/v1/savings/plan").header("X-API-Key", API_KEY)
+                        .contentType(MediaType.TEXT_PLAIN).content(YEARS_REQUEST))
+                .andExpect(status().isUnsupportedMediaType());
+    }
+
+    @Test
+    void missingContentTypeIsRejectedWith415() throws Exception {
+        mvc.perform(post("/api/v1/savings/plan").header("X-API-Key", API_KEY).content(YEARS_REQUEST))
+                .andExpect(status().isUnsupportedMediaType());
+    }
+
+    @Test
+    void trailingGarbageAfterValidJsonIsRejectedWith400() throws Exception {
+        mvc.perform(post("/api/v1/savings/plan").header("X-API-Key", API_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"goal":{"type":"CAR","amount":1200,"mode":"YEARS","years":5},
+                                 "net_monthly_income":3100} garbage
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void negativeDerivedIncomeIsRejectedNamingRealRequestFields() throws Exception {
+        plan("""
+                {"goal":{"type":"CAR","amount":1200,"mode":"YEARS","years":5},
+                 "net_monthly_income":500,"monthly_tax_setaside":900,"monthly_expenses":100}
+                """)
+                .andExpect(status().isBadRequest())
+                .andExpect(status().reason(org.hamcrest.Matchers.allOf(
+                        org.hamcrest.Matchers.containsString("net_monthly_income"),
+                        org.hamcrest.Matchers.containsString("monthly_tax_setaside"),
+                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(
+                                "income negali būti neigiamas")))));
+    }
+
+    @Test
     void monthlyExpensesOmittedIsResolvedFromStatisticsAndMarkedWithSource() throws Exception {
         plan("""
                 {"goal":{"type":"HOME_DOWN_PAYMENT","amount":15000,"mode":"YEARS","years":5},

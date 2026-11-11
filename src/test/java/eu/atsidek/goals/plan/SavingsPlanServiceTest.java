@@ -197,6 +197,22 @@ class SavingsPlanServiceTest {
     }
 
     @Test
+    void negativeDerivedIncomeIsRejectedNamingRealRequestFieldsNotInternalIncome() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        // net_monthly_income (500) - monthly_tax_setaside (900) = -400: vidinis "income" laukas taptų
+        // neigiamas, bet klientas niekada nerašė lauko pavadinimu "income" - klaida turi įvardinti
+        // tikruosius SavingsPlanRequest laukus, ne GoalInput.household().income().
+        SavingsPlanRequest req = request(yearsGoal("15000", 5), "500", "900", "1350");
+
+        assertThatThrownBy(() -> service.plan(req, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("net_monthly_income")
+                .hasMessageContaining("monthly_tax_setaside")
+                .hasMessageNotContaining("income negali būti neigiamas");
+    }
+
+    @Test
     void comfortableShareFitsWithLowTip() {
         SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
                 statsResolvingExpensesTo(BigDecimal.ZERO, false));

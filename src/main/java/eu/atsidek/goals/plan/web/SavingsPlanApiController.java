@@ -1,6 +1,7 @@
 package eu.atsidek.goals.plan.web;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import eu.atsidek.auth.CurrentAppUser;
@@ -8,6 +9,7 @@ import eu.atsidek.goals.plan.SavingsPlanRequest;
 import eu.atsidek.goals.plan.SavingsPlanResponse;
 import eu.atsidek.goals.plan.SavingsPlanService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,14 +32,23 @@ import org.springframework.web.server.ResponseStatusException;
  * SavingsPlanRequestJsonTest}), kad Spring Boot automatiškai sukonfigūruotas Jackson
  * {@code ObjectMapper} bean'as IŠJUNGIA {@code FAIL_ON_UNKNOWN_PROPERTIES}, o PLAN-taupymas-agentas.md
  * A3 reikalauja, kad nežinomi laukai → 400 (kaip {@code /api/v1/compare} *turėtų* elgtis - tas
- * endpoint'as čia NEKEIČIAMAS, žr. agento ataskaitą).
+ * endpoint'as čia NEKEIČIAMAS, žr. agento ataskaitą). Kadangi kūnas skaitomas kaip {@code String}
+ * (priima {@code StringHttpMessageConverter}, kuris pats savaime leidžia bet kokį/jokį
+ * {@code Content-Type}), {@code consumes = APPLICATION_JSON_VALUE} čia PRIVALOMAS, kitaip šis
+ * endpoint'as (kitaip nei {@code /api/v1/compare}, kuris naudoja tipuotą {@code @RequestBody}) nebe
+ * grąžintų 415 netinkamam {@code Content-Type} (rastas review metu).
  */
 @RestController
 @RequestMapping("/api/v1")
 public class SavingsPlanApiController {
 
-    /** Grynas Jackson {@code ObjectMapper} - jo numatytasis {@code FAIL_ON_UNKNOWN_PROPERTIES} = true, be papildomo konfigūravimo. */
-    private static final ObjectMapper STRICT_MAPPER = new ObjectMapper();
+    /**
+     * Grynas Jackson {@code ObjectMapper} - jo numatytasis {@code FAIL_ON_UNKNOWN_PROPERTIES} = true, be
+     * papildomo konfigūravimo. {@code FAIL_ON_TRAILING_TOKENS} papildomai įjungtas RANKA - be jo galiojantis
+     * JSON su šiukšlėmis po jo (pvz. {@code {"goal":{...}} garbage}) būtų tyliai priimtas.
+     */
+    private static final ObjectMapper STRICT_MAPPER = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     private final SavingsPlanService service;
     private final CurrentAppUser currentAppUser;
@@ -47,7 +58,7 @@ public class SavingsPlanApiController {
         this.currentAppUser = currentAppUser;
     }
 
-    @PostMapping("/savings/plan")
+    @PostMapping(path = "/savings/plan", consumes = MediaType.APPLICATION_JSON_VALUE)
     public SavingsPlanResponse plan(@RequestBody String rawBody) {
         SavingsPlanRequest request = parse(rawBody);
         return service.plan(request, currentAppUser.optionalId().orElse(null));

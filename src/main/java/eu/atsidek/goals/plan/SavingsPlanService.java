@@ -104,6 +104,17 @@ public class SavingsPlanService {
         checkAmount("net_monthly_income", request.netMonthlyIncome(), errors);
         checkAmount("monthly_tax_setaside", request.monthlyTaxSetaside(), errors);
         checkAmount("monthly_expenses", request.monthlyExpenses(), errors);
+        // Patikrinta PRIEŠ delegavimą į GoalsService.calculate() (review rastas bug'as): income =
+        // net_monthly_income - monthly_tax_setaside yra VIDINIS laukas, kurio GoalsService.validate()
+        // nežino nieko apie SavingsPlanRequest schemą - jei šis skirtumas neigiamas, GoalsService
+        // grąžintų "income negali būti neigiamas", o "income" NĖRA viešos užklausos lauko vardas
+        // (tikrieji laukai - net_monthly_income/monthly_tax_setaside), todėl klientas negalėtų
+        // suprasti, kurį iš jų taisyti. Tikrinama ČIA, PRIEŠ skaičiavimą, kad klaida įvardintų
+        // tikruosius laukus.
+        if (request.netMonthlyIncome() != null && request.monthlyTaxSetaside() != null
+                && nz(request.netMonthlyIncome()).subtract(nz(request.monthlyTaxSetaside())).signum() < 0) {
+            errors.add("net_monthly_income turi būti bent lygus monthly_tax_setaside");
+        }
     }
 
     private static void checkAmount(String name, BigDecimal v, List<String> errors) {
