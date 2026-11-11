@@ -26,8 +26,9 @@ public class StatDefaultsService {
      * Kadangi F1 (eu.atsidek.goals paketas) šios šakos {@code main} bazėje dar nesujungtas, reikšmės čia
      * DUBLIUOJAMOS (negalima importuoti {@code GoalsEngine.DEFAULT_*}), kad šis PR kompiliuotųsi
      * savarankiškai. Po F1 merge abu turėtų naudoti vieną šaltinį – žr. PR aprašo pastabą apie laidą.
+     * A0 sprendimas #2 (PLAN-taupymas-agentas.md): suderinta su {@code GoalsEngine.DEFAULT_ANNUAL_RETURN} - 0 %.
      */
-    public static final BigDecimal DEFAULT_ANNUAL_RETURN = new BigDecimal("3");
+    public static final BigDecimal DEFAULT_ANNUAL_RETURN = new BigDecimal("0");
     public static final BigDecimal DEFAULT_ANNUAL_INFLATION = new BigDecimal("2.5");
     private static final String ASSUMPTION_ORIGIN = "ASSUMPTION";
     private static final String ASSUMPTION_SOURCE = "Ilgalaikė modelio prielaida, ne statistinė prognozė";

@@ -15,8 +15,12 @@ import java.util.Map;
  */
 public final class GoalsEngine {
 
-    /** PLAN.md K5: ilgalaikės modelio prielaidos, ne LB ketvirtinė prognozė, todėl kodo konstantos, ne stat_defaults įrašas. */
-    public static final BigDecimal DEFAULT_ANNUAL_RETURN = new BigDecimal("3");
+    /**
+     * PLAN.md K5: ilgalaikės modelio prielaidos, ne LB ketvirtinė prognozė, todėl kodo konstantos, ne
+     * stat_defaults įrašas. A0 sprendimas #2 (PLAN-taupymas-agentas.md): numatytoji grąža 0 % - jokių
+     * investavimo patarimų, grąža tik vartotojo įvesta prielaida.
+     */
+    public static final BigDecimal DEFAULT_ANNUAL_RETURN = new BigDecimal("0");
     public static final BigDecimal DEFAULT_ANNUAL_INFLATION = new BigDecimal("2.5");
 
     private static final String ASSUMPTION_SOURCE = "Ilgalaikė modelio prielaida, ne statistinė prognozė";

@@ -3,6 +3,7 @@ package eu.atsidek.goals.stats;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import eu.atsidek.goals.GoalsEngine;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -106,7 +107,17 @@ class StatDefaultsServiceTest {
         assertThat(r.annualInflation().illustrative()).isFalse();
 
         assertThat(r.annualReturn().value()).isEqualByComparingTo(StatDefaultsService.DEFAULT_ANNUAL_RETURN);
+        // A0 sprendimas #2: numatytoji grąža konkrečiai 0 %, ne tik "kas tuo metu yra konstantoje" –
+        // literalus assertas, kad grąžinimas prie 3 % (konstantos pakeitimas) šį testą sulaužytų.
+        assertThat(r.annualReturn().value()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(r.annualReturn().origin()).isEqualTo("ASSUMPTION");
+    }
+
+    @Test
+    void defaultAnnualReturnMatchesGoalsEngineConstant() {
+        // Konstantos dubliuojamos (žr. StatDefaultsService.DEFAULT_ANNUAL_RETURN javadoc) tol, kol F1 nėra
+        // sujungtas; šis testas apsaugo nuo vienpusio nuokrypio - pakeitus vieną konstantą, bet ne kitą.
+        assertThat(StatDefaultsService.DEFAULT_ANNUAL_RETURN).isEqualByComparingTo(GoalsEngine.DEFAULT_ANNUAL_RETURN);
     }
 
     @Test

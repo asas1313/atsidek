@@ -99,10 +99,16 @@ class GoalsEngineTest {
     void childAgeMode_targetAgeMustExceedCurrentAge_producesNegativeMonths() {
         // Variklis pats neturvalidavo (tai GoalsService darbas); čia tik patikrinama formulė n=(target-current)*12,
         // apsaugota minimumu 12, kad net klaidingai praėjęs reiktas neužstrigtų neigiamu/nuliniu terminu.
+        // Kartu patikrinama P = FV(n)/n formulė rm=0 šakoje: amount=1000, i=0 -> futureTarget=1000.00,
+        // n=12 -> monthly=1000/12=83.33, paid≈1000.00 (apvalinus), gain=0.00 (be grąžos augimo).
         GoalInput in = new GoalInput(GoalType.CHILD, GoalMode.CHILD_AGE, d("1000"), null, null, null, 10, 5, null,
                 household("1000", "500"), new Assumptions(d("0"), d("0")), Map.of());
         GoalResult r = engine.calculate(in, TODAY);
         assertEquals(12, r.months()); // (5-10)*12 = -60 -> apsaugota minimumu 12
+        assertEquals(d("1000.00"), r.futureTarget());
+        assertEquals(d("83.33"), r.monthly());
+        assertEquals(d("1000.00"), r.paid());
+        assertEquals(d("0.00"), r.gain());
     }
 
     @Test
@@ -139,6 +145,50 @@ class GoalsEngineTest {
         assertTrue(r.series().isEmpty());
         // freeCash/share/verdict nepriklauso nuo pasiekiamumo
         assertEquals(d("2000.00"), r.freeCash());
+        assertEquals(Verdict.COMFORTABLE, r.verdict());
+    }
+
+    @Test
+    void whenMode_zeroReturnContributionDoesNotOutpaceInflationIsUnreachable() {
+        // A1/spec.md 3 sk. reikalaujamas atvejis "WHEN su įmoka, kuri neviršija infliacijos": annualReturn
+        // NEnurodytas -> numatytasis 0 % (rm=0, žr. GoalsEngine.DEFAULT_ANNUAL_RETURN). Be grąžos sukaupta
+        // suma auga tiesiogiai (monthly*k), bet tikslas su 2.5% infliacija auga eksponentiškai - net jei
+        // be infliacijos tiksliai pasiektų per 600 mėn. (20*600=12000=amount), su infliacija niekada
+        // nepasiveja per 50 m. (600 mėn.) ribą.
+        GoalInput in = new GoalInput(GoalType.OTHER, GoalMode.WHEN, d("12000"), null, null, null, null, null,
+                d("20"), household("2000", "1500"), new Assumptions(null, d("2.5")), Map.of());
+        GoalResult r = engine.calculate(in, TODAY);
+
+        assertFalse(r.reachable());
+        assertNull(r.months());
+        assertNull(r.reachDate());
+        assertNull(r.futureTarget());
+        assertNull(r.paid());
+        assertNull(r.gain());
+        assertTrue(r.series().isEmpty());
+        assertEquals(d("500.00"), r.freeCash());
+        assertEquals(d("0.0400"), r.share());
+        assertEquals(Verdict.COMFORTABLE, r.verdict());
+    }
+
+    @Test
+    void whenMode_zeroReturnContributionOutpacesNonInflatingTargetIsReachable() {
+        // Antra WHEN+rm=0 šaka: annualReturn="0" (explicit, ne numatytasis) IR annualInflation="0"
+        // (nekintantis tikslas) - įmoka viršija tikslą per kelis mėnesius: 100 €/mėn. prieš 1000 € tikslą,
+        // k=10 (100*10=1000=target, be jokio infliacijos ar grąžos augimo).
+        GoalInput in = new GoalInput(GoalType.OTHER, GoalMode.WHEN, d("1000"), null, null, null, null, null,
+                d("100"), household("2000", "1000"), new Assumptions(d("0"), d("0")), Map.of());
+        GoalResult r = engine.calculate(in, TODAY);
+
+        assertTrue(r.reachable());
+        assertEquals(10, r.months());
+        assertEquals(TODAY.plusMonths(10), r.reachDate());
+        assertEquals(d("100.00"), r.monthly());
+        assertEquals(d("1000.00"), r.futureTarget());
+        assertEquals(d("1000.00"), r.paid());
+        assertEquals(d("0.00"), r.gain());
+        assertEquals(d("1000.00"), r.freeCash());
+        assertEquals(d("0.1000"), r.share());
         assertEquals(Verdict.COMFORTABLE, r.verdict());
     }
 
@@ -186,13 +236,29 @@ class GoalsEngineTest {
         ResolvedValue returnValue = r.resolvedInputs().get("annualReturn");
         ResolvedValue inflationValue = r.resolvedInputs().get("annualInflation");
         assertEquals(Origin.ASSUMPTION, returnValue.origin());
-        assertEquals(d("3.00"), returnValue.value());
+        assertEquals(d("0.00"), returnValue.value()); // A0 sprendimas #2: numatytoji grąža 0 %, ne 3 %
         assertNull(returnValue.asOf());
         assertEquals(Origin.ASSUMPTION, inflationValue.origin());
         assertEquals(d("2.50"), inflationValue.value());
         // income/expenses nebuvo pateikti ir F2 statistikos šaltinio čia nėra - nerodomi kaip išspręsti
         assertFalse(r.resolvedInputs().containsKey("income"));
         assertFalse(r.resolvedInputs().containsKey("expenses"));
+    }
+
+    @Test
+    void missingAnnualReturnAppliesZeroPercentInTheMonthlyFormula() {
+        // A0 sprendimas #2: numatytoji grąža yra 0 %, taigi praleista grąža neturi sumažinti reikalingos
+        // mėnesinės įmokos per kaupimo augimą (rm=0) - tik infliacijos korekcija (i=2.5 % numatytoji) veikia.
+        GoalInput withDefaultReturn = new GoalInput(GoalType.OTHER, GoalMode.YEARS, d("1200"), 1, null, null, null,
+                null, null, household("1000", "900"), new Assumptions(null, null), Map.of());
+        GoalInput withExplicitZeroReturn = new GoalInput(GoalType.OTHER, GoalMode.YEARS, d("1200"), 1, null, null,
+                null, null, null, household("1000", "900"), new Assumptions(d("0"), null), Map.of());
+
+        GoalResult withDefault = engine.calculate(withDefaultReturn, TODAY);
+        GoalResult withExplicitZero = engine.calculate(withExplicitZeroReturn, TODAY);
+
+        assertEquals(withExplicitZero.monthly(), withDefault.monthly());
+        assertEquals(d("0.00"), GoalsEngine.DEFAULT_ANNUAL_RETURN.setScale(2));
     }
 
     @Test

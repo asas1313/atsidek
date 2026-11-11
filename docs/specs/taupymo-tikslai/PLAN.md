@@ -39,7 +39,7 @@ Naujas modulis „Taupymo tikslai“ prisijungia prie esamo Atsidėk stack'o (Sp
 - Patvirtinta kaip siūlyta (žr. 1 skyriaus ankstesnę versiją dėl surastų šaltinių: `osp.stat.gov.lt` darbo užmokesčio/pajamų puslapiai, `lb.lt/lt/indeliu-palukanu-normos`). F2 agentas atidaro portalus tiesiogiai (ne per paiešką) ir patikslina, kur įmanoma; nepatikrintos reikšmės lieka `is_illustrative=true`.
 
 ### K5 – Grąžos/infliacijos numatytosios: PRIELAIDOS, ne statistika
-- MVP numatytosios: **infliacija 2,5 %, grąža 3 %**. Tai ilgalaikės modelio prielaidos, ne trumpalaikė LB prognozė – **nenaudojame** svyruojančių LB ketvirtinių prognozių (K4 tyrime rastos 3,1–5,1 % reikšmės) numatytosioms.
+- MVP numatytosios: **infliacija 2,5 %, grąža 0 %** (A0 sprendimas #2, žr. PLAN-taupymas-agentas.md – jokių investavimo patarimų, grąža tik vartotojo įvesta prielaida). Tai ilgalaikės modelio prielaidos, ne trumpalaikė LB prognozė – **nenaudojame** svyruojančių LB ketvirtinių prognozių (K4 tyrime rastos 3,1–5,1 % reikšmės) numatytosioms.
 - Naujas, **4-as kilmės tipas: `ASSUMPTION`** (šalia `USER`/`AI`/`STATISTICS`). UI ženkliukas – neutrali pilka spalva (ne `STATISTICS` mėlyna). Šaltinio laukas rodo vieno sakinio paaiškinimą (pvz. „Ilgalaikė modelio prielaida, ne statistinė prognozė“), **be** `source_url`/`as_of` (tai ne duomenų šaltinis).
 - `stat_defaults` lentelėje `annualInflation`/`annualReturn` arba lieka joje su `is_illustrative=true` ir aiškiu `source='Prielaida'`, arba (geriau) **nededami į `stat_defaults` iš viso**, o užkoduojami kaip konstantos `GoalsEngine`/konfigūracijoje su `origin=ASSUMPTION` – F1 agentas pasirenka švaresnį variantą ir užrašo PR apraše, kodėl.
 
