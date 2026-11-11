@@ -205,7 +205,9 @@
              /mano-tikslas nuorodoje (nav), šis blokas jam nebereikalingas (PLAN.md §5/§6 task 11/12). -->
         <section class="card" id="save-progress-cta" th:unless="${loggedIn}">
             <h2>Išsaugok ir sek progresą</h2>
-            <p>Prisijunk su Google ir sek, kaip sekasi pasiekti šį tikslą – rankiniu būdu pažymėsi
+            <!-- Tekstas pradžioje – numatytasis atsarginis variantas (jei /goals/savings/locked-features
+                 fetch nepavyktų); JS jį perrašo konkrečiu locked_features kvietimu (PLAN-taupymas-agentas.md A5). -->
+            <p id="save-progress-cta-text">Prisijunk su Google ir sek, kaip sekasi pasiekti šį tikslą – rankiniu būdu pažymėsi
                 mėnesio įmokas, o mes parodysime, ar sekasi pagal planą.</p>
             <button type="button" id="save-progress-btn">Išsaugok ir sek progresą – prisijunk</button>
             <p class="small err" id="save-progress-error" hidden>Nepavyko išsaugoti skaičiavimo. Bandykite vėliau.</p>
@@ -275,6 +277,24 @@
     };
     var MONTHS_LT = ["sausio", "vasario", "kovo", "balandžio", "gegužės", "birželio", "liepos", "rugpjūčio",
         "rugsėjo", "spalio", "lapkričio", "gruodžio"];
+
+    // "Išsaugok ir sek progresą" CTA tekstas pagal locked_features (PLAN-taupymas-agentas.md A5) - fiksuoti
+    // šablonai vienai funkcijai, NE AI tekstas (kaip ir SavingsPlanService.generalTip()). Kiekvienam
+    // locked_features elementui – savas sakinys; rodomas TIK VIENAS (kaip ir B4 agento kvietimas), kad CTA
+    // nebūtų ilgas sąrašas.
+    var LOCKED_FEATURE_CTA = {
+        SAVINGS_MULTI_GOAL: "Turite daugiau nei vieną taupymo tikslą? Prisijungę galėsite sekti keletą tikslų " +
+            "vienu metu, ne tik vieną.",
+        SAVINGS_IV_LINK: "Jūsų pajamos svyruoja – prisijungę pamatysite, kiek atsidėti stipresniais ir " +
+            "silpnesniais mėnesiais.",
+        SAVINGS_SCENARIOS: "Prisijungę galėsite greta palyginti keletą taupymo scenarijų – pvz. skirtingus " +
+            "terminus ar sumas."
+    };
+    // Rodoma pirmiausia, jei užrakinta – tai plano paties pateiktas pavyzdys (PLAN-taupymas-agentas.md A5:
+    // „Jūsų pajamos svyruoja..."). Anonimui šiuo metu VISADA užrakinta visos trys (A4 beta logika), todėl be
+    // šio prioriteto CTA visada rodytų tą pačią (pirmą masyve) žinutę – SAVINGS_IV_LINK pasirinkta, nes
+    // kalba apie universaliausią IV savarankiškai dirbančiojo skausmo tašką (svyruojančias pajamas).
+    var PREFERRED_CTA_FEATURE = "SAVINGS_IV_LINK";
 
     var statsMeta = null; // paskutinio GET /goals/stats/defaults atsakymo kešas (šaltinių sąrašui)
     var debounceTimer = null;
@@ -644,6 +664,45 @@
         return headers;
     }
 
+    // ---- kvietimo prisijungti tekstas iš locked_features (GET /goals/savings/locked-features, A5) ----
+    // Naudoja TĄ PATĮ šaltinį (SavingsPlanService.lockedFeatures()) kaip ir POST /api/v1/savings/plan -
+    // /goals/calculate kontraktas ŠIUO atnaujinimu nekeičiamas (PLAN-taupymas-agentas.md A0 sprendimas #1).
+
+    function pickCtaFeature(lockedFeatures) {
+        if (!lockedFeatures || lockedFeatures.length === 0) { return null; }
+        if (lockedFeatures.indexOf(PREFERRED_CTA_FEATURE) !== -1) { return PREFERRED_CTA_FEATURE; }
+        return lockedFeatures[0];
+    }
+
+    function renderSaveProgressCtaText(lockedFeatures) {
+        var section = $("save-progress-cta");
+        if (!section) { return; } // prisijungusiam serveris šios sekcijos iš viso nepaduoda (th:unless)
+        var feature = pickCtaFeature(lockedFeatures);
+        if (!feature) {
+            // Visos funkcijos jau atrakintos (ateityje - šiuo metu anonimui tai nepasiekiama, A4 beta
+            // logika) - jokio kvietimo prisijungti nerodoma (plano reikalavimas: tuščias locked_features
+            // = jokios CTA).
+            section.hidden = true;
+            return;
+        }
+        var textEl = $("save-progress-cta-text");
+        if (textEl && LOCKED_FEATURE_CTA[feature]) {
+            textEl.textContent = LOCKED_FEATURE_CTA[feature];
+        }
+    }
+
+    function loadLockedFeaturesCta() {
+        fetch("/goals/savings/locked-features")
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .then(function (data) {
+                if (data) { renderSaveProgressCtaText(data.lockedFeatures); }
+            })
+            .catch(function () {
+                // Tinklo klaida - CTA lieka su numatytuoju HTML tekstu (žr. šabloną), jokių netikrų
+                // skaičių ar tuščios sekcijos nerodoma.
+            });
+    }
+
     function wireSaveProgressCta() {
         var btn = $("save-progress-btn");
         if (!btn) { return; }
@@ -730,6 +789,7 @@
         wireGoalTypeAndMode();
         wireSteppers();
         wireSaveProgressCta();
+        loadLockedFeaturesCta();
 
         refreshStatsThenCalculate();
     });

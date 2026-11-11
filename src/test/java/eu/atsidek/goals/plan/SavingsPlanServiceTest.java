@@ -412,6 +412,47 @@ class SavingsPlanServiceTest {
         assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("-1000.00");
     }
 
+    /*
+     * A5: eu.atsidek.goals.plan.web.LockedFeaturesController (ir prieš jį taupymo-tikslai.html JS)
+     * naudoja šį viešą metodą, kad gautų TĄ PAČIĄ locked_features reikšmę kaip ir /api/v1/savings/plan
+     * (PLAN-taupymas-agentas.md A0 sprendimas #1), be pilno SavingsPlanRequest (goal/pajamos
+     * nereikalingi tik tam, kad sužinotum, kurios funkcijos užrakintos).
+     */
+
+    @Test
+    void lockedFeaturesForAnonymousReturnsAllGatedFeaturesInFixedOrder() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysGrants(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+
+        assertThat(service.lockedFeatures(null)).containsExactlyElementsOf(GATED);
+    }
+
+    @Test
+    void lockedFeaturesForLoggedInUserWithAllFeaturesIsEmpty() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysGrants(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+
+        assertThat(service.lockedFeatures(USER_ID)).isEmpty();
+    }
+
+    @Test
+    void lockedFeaturesForLoggedInUserWithoutAnyFeatureMatchesAnonymous() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+
+        assertThat(service.lockedFeatures(USER_ID)).containsExactlyElementsOf(GATED);
+    }
+
+    @Test
+    void lockedFeaturesMatchesWhatPlanReturnsForSameUser() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+
+        SavingsPlanResponse response = service.plan(request(yearsGoal("15000", 5), "3100", "900", "1350"), USER_ID);
+
+        assertThat(service.lockedFeatures(USER_ID)).containsExactlyElementsOf(response.lockedFeatures());
+    }
+
     @Test
     void disclaimerIsTheFixedPlanSentence() {
         SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),

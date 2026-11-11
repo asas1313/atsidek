@@ -79,4 +79,17 @@ class GoalsPageControllerTest {
                 .andReturn().getResponse().getContentAsString();
         assertThat(loggedIn).doesNotContain("Išsaugok ir sek progresą – prisijunk");
     }
+
+    /**
+     * A5 (PLAN-taupymas-agentas.md): kvietimo prisijungti tekstas generuojamas iš
+     * {@code GET /goals/savings/locked-features} (SavingsPlanService.lockedFeatures()), ne statinis -
+     * patikrina, kad puslapis turi reikiamą JS "kablį" (id) ir kreipiasi į teisingą endpoint'ą.
+     */
+    @Test
+    void ctaTextElementAndLockedFeaturesFetchArePresent() throws Exception {
+        String html = mvc.perform(get("/taupymo-tikslai")).andReturn().getResponse().getContentAsString();
+        assertThat(html)
+                .contains("id=\"save-progress-cta-text\"")
+                .contains("/goals/savings/locked-features");
+    }
 }
