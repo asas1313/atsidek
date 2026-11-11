@@ -15,7 +15,11 @@ import org.springframework.web.server.ResponseStatusException;
  */
 public class GoalsService {
 
-    private static final BigDecimal MAX_AMOUNT = new BigDecimal("100000000");
+    /**
+     * Viešas, kad {@code eu.atsidek.goals.plan.SavingsPlanService} (ir kiti sluoksniai, naudojantys
+     * šią engine ribą) nebedubliuotų tos pačios konstantos (review NIT).
+     */
+    public static final BigDecimal MAX_AMOUNT = new BigDecimal("100000000");
     private static final BigDecimal MAX_RATE = new BigDecimal("100");
     private static final int MAX_YEARS = 100;
     private static final int MAX_AGE = 130;
