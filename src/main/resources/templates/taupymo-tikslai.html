@@ -186,8 +186,8 @@
                     <label for="annualReturn">Grąža per metus</label>
                     <span class="origin-badge" id="annualReturn-badge" data-origin="ASSUMPTION">Prielaida</span>
                 </div>
-                <input type="range" id="annualReturn" min="0" max="8" step="0.1" value="3">
-                <output class="range-output" id="annualReturn-output" for="annualReturn">3 %</output>
+                <input type="range" id="annualReturn" min="0" max="8" step="0.1" value="0">
+                <output class="range-output" id="annualReturn-output" for="annualReturn">0 %</output>
             </div>
             <div class="field">
                 <div class="field-head">
@@ -580,12 +580,21 @@
     function renderSources(result) {
         var ul = $("sources-list");
         ul.innerHTML = "";
+        // annualReturn/annualInflation rodomi iš result.resolvedInputs (serverio faktiškai naudota reikšmė),
+        // NE iš žaliavinės slankiklio DOM reikšmės - kol vartotojas slankiklio nepajudino (origin != USER),
+        // rodoma reikšmė turi sutapti su tuo, kas realiai panaudota skaičiavime (traceable origin principas).
+        var resolvedInputs = result.resolvedInputs || {};
+        function pctDisplay(key) {
+            var resolved = resolvedInputs[key];
+            var value = origins[key] === "USER" ? getFieldNumber(key) : (resolved ? resolved.value : getFieldNumber(key));
+            return formatPct(value) + "/m.";
+        }
         var items = [
             { key: "amount", label: "Tikslo suma", display: formatEurWhole(getFieldNumber("amount")) },
             { key: "income", label: "Pajamos", display: formatEurWhole(getFieldNumber("income")) },
             { key: "expenses", label: "Išlaidos", display: formatEurWhole(getFieldNumber("expenses")) },
-            { key: "annualReturn", label: "Grąža", display: formatPct(getFieldNumber("annualReturn")) + "/m." },
-            { key: "annualInflation", label: "Infliacija", display: formatPct(getFieldNumber("annualInflation")) + "/m." }
+            { key: "annualReturn", label: "Grąža", display: pctDisplay("annualReturn") },
+            { key: "annualInflation", label: "Infliacija", display: pctDisplay("annualInflation") }
         ];
         items.forEach(function (item) {
             var origin = origins[item.key];

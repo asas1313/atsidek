@@ -225,5 +225,12 @@ class SavingsGoalServiceTest {
                 .setScale(2, RoundingMode.HALF_UP);
 
         assertThat(progress.expectedAccumulated()).isEqualByComparingTo(expected);
+
+        // Papildomas, NE tautologinis patikrinimas: ties rm=0 sukaupta suma po k mėnesių yra tiesiog
+        // monthly*k (be jokio sudėtinių palūkanų augimo) - tai formulė GoalsEngine.balance() naudoja
+        // TIK kai rm.signum()==0. Jei numatytoji grąža būtų grąžinta į 3 % (rm!=0), balance() naudotų
+        // sudėtinių palūkanų formulę ir rezultatas skirtųsi nuo šio plokščio sandaugos - testas sulūžtų.
+        BigDecimal flatMultiple = engineResult.monthly().multiply(BigDecimal.valueOf(progress.elapsedMonths()));
+        assertThat(progress.expectedAccumulated()).isEqualByComparingTo(flatMultiple);
     }
 }

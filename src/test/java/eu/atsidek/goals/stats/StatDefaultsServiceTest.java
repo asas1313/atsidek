@@ -106,6 +106,9 @@ class StatDefaultsServiceTest {
         assertThat(r.annualInflation().illustrative()).isFalse();
 
         assertThat(r.annualReturn().value()).isEqualByComparingTo(StatDefaultsService.DEFAULT_ANNUAL_RETURN);
+        // A0 sprendimas #2: numatytoji grąža konkrečiai 0 %, ne tik "kas tuo metu yra konstantoje" –
+        // literalus assertas, kad grąžinimas prie 3 % (konstantos pakeitimas) šį testą sulaužytų.
+        assertThat(r.annualReturn().value()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(r.annualReturn().origin()).isEqualTo("ASSUMPTION");
     }
 
