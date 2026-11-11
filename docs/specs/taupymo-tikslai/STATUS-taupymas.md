@@ -49,5 +49,21 @@ tiksliai tą workflow'ą, kurio reikalauja šis planas. Prieš tęsiant A1–A6,
    varikliui ar bendrai.
 3. Ar `docs/PLAN-taupymas.md` (nerastas) reikalingas prieš tęsiant, ir jei taip, iš kur jį gauti.
 
-Pagal plano ir šio paleidimo nurodymą, darbas **sustoja čia** — A1–A6 nepradėti, laukiama savininko
+Pagal plano ir šio paleidimo nurodymą, darbas **sustojo čia** — A1–A6 nepradėti, laukta savininko
 „patvirtinu" arba atsakymų į aukščiau išvardintus klausimus.
+
+## Savininko sprendimai (2026-11-11)
+
+Savininkas atsakė į visus 3 klausimus ir patvirtino A1–A5 vykdymą. Pilnas sprendimų sąrašas įrašytas
+`PLAN-taupymas-agentas.md` skyriuje „A0 sprendimai (savininkas, 2026-11-11)“. Santrauka:
+
+1. Naujo variklio nekurti — `GoalsEngine` lieka; `/api/v1/savings/plan` = plonas API sluoksnis virš jo;
+   tier/`core`/`premium`/`locked_features` logika iškeliama į `SavingsPlanService`, naudojamą ir API, ir UI.
+2. Numatytoji grąža 0 % visur — keisti `GoalsEngine.DEFAULT_ANNUAL_RETURN`, patikrinti poveikį DB įrašams.
+3. `docs/PLAN-taupymas.md` nereikalingas, nuoroda pašalinta.
+4. `SAVINGS_IRREGULAR_INCOME` nekurti, naudoti esamą `SAVINGS_IV_LINK`.
+5. A2: `is_illustrative` paliekama, versijavimo nereikia.
+6. A4: `tier` tik pagal sesiją; Python→Java vidinis autentifikavimas perkeltas į B1.
+7. B1: patikrinti, ar `revenue`/`total` metinės, prieš pridedant `net_monthly_income`.
+
+Toliau vykdoma A1–A5, kiekviena fazė atskiroje šakoje su testais ir PR (žr. `PLAN-taupymas-agentas.log.md`).

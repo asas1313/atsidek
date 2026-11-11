@@ -1,8 +1,8 @@
 # Planas: taupymo modulio užbaigimas → AI agentas (mokesčiai + taupymas)
 
-> Planas Claude Code agentams. Vieta repozitorijoje: `docs/PLAN-taupymas-agentas.md`.
-> Susiję dokumentai: `docs/specs/taupymo-tikslai/spec.md`, `docs/PLAN-taupymas.md`.
-> Pirmiausia atlikite **A0** ir **sustokite, kol savininkas patvirtins būklės ataskaitą**.
+> Planas Claude Code agentams. Vieta repozitorijoje: `docs/specs/taupymo-tikslai/PLAN-taupymas-agentas.md`.
+> Susijęs dokumentas: `docs/specs/taupymo-tikslai/spec.md`.
+> **A0 atlikta ir savininko patvirtinta 2026-11-11** (žr. `STATUS-taupymas.md` ir žemiau esančius sprendimus). Toliau vykdoma A1–A5.
 
 ## Eiliškumas
 
@@ -36,18 +36,28 @@ B dalis remiasi A dalies API kontraktu, todėl jo nekeisti be savininko pritarim
 - Patikrinkite, ar `/api/v1/compare` atsakyme yra grynosios mėnesio pajamos ir mėnesio mokesčių atidėjimo suma (reikės B1).
 - Toliau A1–A6 vykdykite tik tai, ko trūksta pagal ataskaitą.
 
+### A0 sprendimai (savininkas, 2026-11-11)
+
+1. Naujo variklio nekurti — `GoalsEngine` lieka su tuo pačiu pavadinimu. `/api/v1/savings/plan` kuriamas kaip plonas API sluoksnis virš `GoalsEngine`, pagal A3 kontraktą (snake_case). Tier logika (`core`/`premium`/`locked_features`) iškeliama į vieną servisą (`SavingsPlanService`), kurį naudoja ir naujas API, ir esamas UI. Esami `/goals/*` endpoint'ai nekeičiami; UI kvietimas prisijungti generuojamas iš to paties serviso `locked_features`.
+2. Numatytoji grąža **0 % visur** — pakeisti `GoalsEngine.DEFAULT_ANNUAL_RETURN`, atnaujinti testus. Patikrinti, ar `StatDefaultsService.DEFAULT_ANNUAL_RETURN` turi sutapti. Patikrinti, ar išsaugoti tikslai DB remiasi numatytąja grąža (null `annualReturn`), ir pranešti, kiek įrašų paveikta.
+3. `docs/PLAN-taupymas.md` nereikalingas — nuoroda pašalinta iš šio plano.
+4. `SAVINGS_IRREGULAR_INCOME` nekurti — naudoti esamą `SAVINGS_IV_LINK` kaip `locked_features` reikšmę.
+5. A2: `is_illustrative` paliekama, versijavimas nedaromas. Kiekviena reikšmė turi turėti šaltinį ir datą; iliustracinės reikšmės API atsakyme pažymimos.
+6. A4: `tier` nustatomas tik pagal sesiją (Google OAuth). Python→Java vidinio autentifikavimo mechanizmas perkeliamas į B1.
+7. B1 pastaba (ateičiai): prieš pridedant `net_monthly_income` į `TaxResult`, patikrinti, ar `revenue`/`total` yra metinės sumos — mėnesio reikšmė turi būti skaičiuojama Java pusėje.
+
 ### A1. Skaičiavimo variklis (Java)
 
-- `SavingsEngine` – grynos funkcijos, `BigDecimal`, jokio I/O.
-- Režimai: `YEARS`, `DATE`, `CHILD_AGE` → mėnesio įmoka; `WHEN` → data arba „nepasiekiama per 50 m.“.
-- Infliacijos korekcija tikslo sumai, vartotojo grąžos prielaida (numatytoji 0 %).
-- Unit testai: data praeityje, 0 ar neigiama suma, labai ilgas horizontas, `WHEN` su įmoka, kuri neviršija infliacijos.
+- Naudoti esamą `GoalsEngine` (nekurti naujo `SavingsEngine` — sprendimas #1). Visi 4 režimai (`YEARS`, `DATE`, `CHILD_AGE`, `WHEN`) ir infliacijos korekcija jau atitinka šio plano reikalavimus pagal A0 ataskaitą — tik patikrinti, nekeisti be reikalo.
+- Pakeisti numatytąją grąžos prielaidą į **0 %** (sprendimas #2): `GoalsEngine.DEFAULT_ANNUAL_RETURN`. Patikrinti `StatDefaultsService.DEFAULT_ANNUAL_RETURN` panaudojimą ir suderinti.
+- Patikrinti poveikį esamiems išsaugotiems tikslams DB, kai `assumptions.annualReturn` yra `null` (t. y. naudojamas numatytasis) — pranešti paveiktų įrašų skaičių.
+- Unit testai: esami testai atnaujinti numatytajai 0 % grąžai; nauji testai, kur jų trūksta pagal A0 ataskaitą.
 
 ### A2. Statistikos duomenys
 
-- Versijuota lentelė PostgreSQL (LXC 106): reikšmė, vienetas, šaltinis, šaltinio data, galiojimo pradžia.
-- Pradinės reikšmės: vidutinės namų ūkio išlaidos pagal sudėtį, tipinės tikslų sumos (automobilis, pradinis įnašas, vaiko studijos).
-- Neaiškaus šaltinio reikšmės pažymimos `needs_review` ir **nepatvirtinamos be savininko**.
+- Naudoti esamą `stat_defaults` lentelę ir `is_illustrative` žymę (sprendimas #5) — **versijavimo nedaryti**, naujos lentelės nekurti.
+- Patikrinti, kad kiekviena reikšmė turi šaltinį (`source`) ir datą (`as_of`/`source_date`); trūkstamas papildyti arba žymėti `is_illustrative = true`.
+- `/api/v1/savings/plan` atsakyme iliustracinės reikšmės turi būti pažymėtos (pvz. per `origin: STATISTICS` įrašo `source`/papildomą lauką, nurodantį, kad skaičius iliustracinis).
 
 ### A3. API `POST /api/v1/savings/plan`
 
@@ -80,19 +90,19 @@ Išvestis:
     "assumptions": [ { "field": "monthly_expenses", "value": 0, "origin": "STATISTICS", "source": "…", "source_date": "…" } ],
     "disclaimer": "…"
   },
-  "locked_features": ["SAVINGS_MULTI_GOAL", "SAVINGS_IRREGULAR_INCOME", "SAVINGS_SCENARIOS"],
+  "locked_features": ["SAVINGS_MULTI_GOAL", "SAVINGS_IV_LINK", "SAVINGS_SCENARIOS"],
   "premium": { }
 }
 ```
 
 - `premium` sekcija grąžinama tik turint teises; anonimui jos nėra.
-- `locked_features` – sąrašas, iš kurio agentas ir UI formuoja kvietimą prisijungti.
+- `locked_features` – sąrašas, iš kurio agentas ir UI formuoja kvietimą prisijungti. Naudoti tik esamas `Feature` enum reikšmes (`SAVINGS_IV_LINK`, ne naują `SAVINGS_IRREGULAR_INCOME` — sprendimas #4).
 - `general_tip` – deterministinis šablonas pagal `share_of_free_cash_pct` ribas, ne AI tekstas.
+- Tier/`core`/`premium`/`locked_features` logika gyvena viename servise `SavingsPlanService` (sprendimas #1), kurį naudoja ir šis endpoint'as, ir esamas UI (A5).
 
 ### A4. Teisės (entitlements)
 
-- `tier` nustatomas Java pusėje pagal prisijungusį vartotoją (Google OAuth sesija arba vidinis vartotojo id iš Python serviso).
-- Python servisas yra vidinis ir patikimas: perduoda vartotojo id antraštėje, autentifikuojasi serviso token'u. Viešai ši antraštė ignoruojama.
+- `tier` nustatomas Java pusėje tik pagal prisijungusio vartotojo Google OAuth sesiją (sprendimas #6) — vidinis Python→Java autentifikavimas šiai fazei nereikalingas, perkeliamas į B1.
 - Beta vėliava: visi prisijungę gauna premium.
 - Testai: anonimo atsakyme nėra `premium` lauko; prisijungusio – yra.
 
@@ -121,7 +131,9 @@ Išvestis:
 ### B1. Mokesčių įrankis `calculate_iv_taxes`
 
 - Kviečia `/api/v1/compare`. Jei A0 parodė, kad atsakyme trūksta grynųjų mėnesio pajamų ar mėnesio mokesčių atidėjimo, pirmiausia nedidelis Java pakeitimas.
+- Prieš pridedant `net_monthly_income` į `TaxResult` (sprendimas #7): patikrinti, ar `revenue`/`total` yra metinės ar mėnesio sumos. Mėnesio reikšmė turi būti skaičiuojama Java pusėje, ne spėjama.
 - Rezultatas išsaugomas `RequestContext`, modeliui grąžinamas su `tax_calc_id`.
+- Vidinis Python→Java autentifikavimas (vartotojo id antraštėje, serviso token'as — žr. A4 sprendimą #6) įgyvendinamas šioje fazėje.
 
 ### B2. Taupymo įrankis `calculate_savings_plan`
 
