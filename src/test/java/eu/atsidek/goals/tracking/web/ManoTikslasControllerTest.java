@@ -193,4 +193,14 @@ class ManoTikslasControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void preliminarusRejectsUnknownField() throws Exception {
+        String body = "{\"goalType\":\"CAR\",\"mode\":\"YEARS\",\"amount\":1200,\"years\":1,"
+                + "\"assumptions\":{\"annualReturn\":0,\"annualInflation\":0},\"bogusField\":123}";
+
+        mvc.perform(post("/goals/tikslai/preliminarus").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest());
+    }
 }

@@ -91,4 +91,11 @@ class GoalsControllerTest {
         calculate("{\"goalType\":\"OTHER\",\"mode\":\"YEARS\",\"amount\":1000,\"years\":1}")
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void rejectsUnknownField() throws Exception {
+        calculate("{\"goalType\":\"OTHER\",\"mode\":\"YEARS\",\"amount\":1000,\"years\":1,"
+                + "\"bogusField\":123}")
+                .andExpect(status().isBadRequest());
+    }
 }
