@@ -44,7 +44,7 @@ public class SecurityConfig {
                         .requestMatchers("/", "/skaiciuokle", "/calculate", "/privatumas",
                                 "/style.css", "/htmx.min.js", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/error",
                                 "/taupymo-tikslai", "/goals/calculate", "/goals/stats/defaults",
-                                "/goals/tikslai/preliminarus").permitAll()
+                                "/goals/tikslai/preliminarus", "/goals/savings/locked-features").permitAll()
                         // Dvi siauros, atskirai pagrįstos šablonu apsaugotos išimtys:
                         // /api/** – jau apsaugota API raktu (ApiKeyFilter, veikia PRIEŠ AuthorizationFilter),
                         //           permitAll() čia reiškia tik "Spring Security pati nebeprideda rolės reikalavimo";

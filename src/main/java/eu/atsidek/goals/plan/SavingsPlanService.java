@@ -119,11 +119,24 @@ public class SavingsPlanService {
 
         Core core = buildCore(result, assumptions);
 
-        List<Feature> locked = GATED_FEATURES.stream().filter(f -> !hasAccess(currentUserId, f)).toList();
+        List<Feature> locked = lockedFeatures(currentUserId);
         Tier tier = locked.isEmpty() ? Tier.PREMIUM : Tier.FREE;
         Premium premium = currentUserId != null ? new Premium() : null;
 
         return new SavingsPlanResponse(tier, core, locked, premium);
+    }
+
+    /**
+     * Tas pats {@code locked_features} sąrašas, kurį grąžina {@link #plan}, bet be pilno
+     * {@code SavingsPlanRequest} (A5, PLAN-taupymas-agentas.md A0 sprendimas #1: UI kvietimas
+     * prisijungti generuojamas iš TO PAČIO serviso, ne atskiros logikos kopijos) - naudoja
+     * {@code eu.atsidek.goals.plan.web.LockedFeaturesController}, kurį kviečia
+     * {@code taupymo-tikslai.html} puslapio JS.
+     *
+     * @param currentUserId prisijungusio vartotojo id arba {@code null} anonimui (ta pati sutartis kaip {@link #plan})
+     */
+    public List<Feature> lockedFeatures(UUID currentUserId) {
+        return GATED_FEATURES.stream().filter(f -> !hasAccess(currentUserId, f)).toList();
     }
 
     /**
