@@ -13,11 +13,14 @@ import static org.mockito.Mockito.when;
 import eu.atsidek.goals.Assumptions;
 import eu.atsidek.goals.GoalInput;
 import eu.atsidek.goals.GoalMode;
+import eu.atsidek.goals.GoalResult;
 import eu.atsidek.goals.GoalType;
+import eu.atsidek.goals.GoalsEngine;
 import eu.atsidek.goals.Household;
 import eu.atsidek.goals.tracking.SavingsGoalService.Progress;
 import eu.atsidek.goals.tracking.SavingsGoalService.SaveResult;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -199,5 +202,28 @@ class SavingsGoalServiceTest {
 
         assertThat(progress.elapsedMonths()).isEqualTo(12);
         assertThat(progress.expectedAccumulated()).isEqualByComparingTo("1200.00");
+    }
+
+    @Test
+    void progressResolvesNullAnnualReturnFromTheCurrentGoalsEngineDefaultEachCall() {
+        // A0 sprendimas #2 / DB poveikio patikra: assumptions.annualReturn DB saugomas kaip null, o jo
+        // skaitinė reikšmė NĖRA „užšaldyta" tikslo išsaugojimo metu - progress() ją kaskart iš naujo
+        // ima iš GoalsEngine.DEFAULT_ANNUAL_RETURN. Todėl pakeitus numatytąją grąžą (3% -> 0%), jau
+        // išsaugotų tikslų su null grąža progresas pasikeičia be jokios duomenų migracijos ar backfill'o.
+        SavingsGoalStore store = mock(SavingsGoalStore.class);
+        GoalInput input = new GoalInput(GoalType.CAR, GoalMode.YEARS, new BigDecimal("1200"), 1, null, null, null,
+                null, null, new Household(null, null, null, null, null), new Assumptions(null, null), null);
+        SavingsGoal goal = savedGoalWithInput(input, Instant.parse("2026-01-01T00:00:00Z"));
+        when(store.findContributions(GOAL_ID)).thenReturn(List.of());
+
+        SavingsGoalService service = new SavingsGoalService(store, fixedClockAt("2026-04-01T00:00:00Z"));
+        Progress progress = service.progress(goal);
+
+        GoalResult engineResult = new GoalsEngine().calculate(input, LocalDate.of(2026, 1, 1));
+        BigDecimal rm = GoalsEngine.DEFAULT_ANNUAL_RETURN.divide(BigDecimal.valueOf(1200), 20, RoundingMode.HALF_UP);
+        BigDecimal expected = GoalsEngine.balance(engineResult.monthly(), rm, progress.elapsedMonths())
+                .setScale(2, RoundingMode.HALF_UP);
+
+        assertThat(progress.expectedAccumulated()).isEqualByComparingTo(expected);
     }
 }

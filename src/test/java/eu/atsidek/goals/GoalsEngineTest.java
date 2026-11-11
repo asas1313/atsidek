@@ -186,13 +186,29 @@ class GoalsEngineTest {
         ResolvedValue returnValue = r.resolvedInputs().get("annualReturn");
         ResolvedValue inflationValue = r.resolvedInputs().get("annualInflation");
         assertEquals(Origin.ASSUMPTION, returnValue.origin());
-        assertEquals(d("3.00"), returnValue.value());
+        assertEquals(d("0.00"), returnValue.value()); // A0 sprendimas #2: numatytoji grąža 0 %, ne 3 %
         assertNull(returnValue.asOf());
         assertEquals(Origin.ASSUMPTION, inflationValue.origin());
         assertEquals(d("2.50"), inflationValue.value());
         // income/expenses nebuvo pateikti ir F2 statistikos šaltinio čia nėra - nerodomi kaip išspręsti
         assertFalse(r.resolvedInputs().containsKey("income"));
         assertFalse(r.resolvedInputs().containsKey("expenses"));
+    }
+
+    @Test
+    void missingAnnualReturnAppliesZeroPercentInTheMonthlyFormula() {
+        // A0 sprendimas #2: numatytoji grąža yra 0 %, taigi praleista grąža neturi sumažinti reikalingos
+        // mėnesinės įmokos per kaupimo augimą (rm=0) - tik infliacijos korekcija (i=2.5 % numatytoji) veikia.
+        GoalInput withDefaultReturn = new GoalInput(GoalType.OTHER, GoalMode.YEARS, d("1200"), 1, null, null, null,
+                null, null, household("1000", "900"), new Assumptions(null, null), Map.of());
+        GoalInput withExplicitZeroReturn = new GoalInput(GoalType.OTHER, GoalMode.YEARS, d("1200"), 1, null, null,
+                null, null, null, household("1000", "900"), new Assumptions(d("0"), null), Map.of());
+
+        GoalResult withDefault = engine.calculate(withDefaultReturn, TODAY);
+        GoalResult withExplicitZero = engine.calculate(withExplicitZeroReturn, TODAY);
+
+        assertEquals(withExplicitZero.monthly(), withDefault.monthly());
+        assertEquals(d("0.00"), GoalsEngine.DEFAULT_ANNUAL_RETURN.setScale(2));
     }
 
     @Test

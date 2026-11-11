@@ -34,7 +34,7 @@ class StatDefaultsControllerTest {
                 .andExpect(jsonPath("$.income.origin").value("STATISTICS"))
                 .andExpect(jsonPath("$.annualInflation.origin").value("ASSUMPTION"))
                 .andExpect(jsonPath("$.annualInflation.value").value(2.5))
-                .andExpect(jsonPath("$.annualReturn.value").value(3))
+                .andExpect(jsonPath("$.annualReturn.value").value(0)) // A0 sprendimas #2: numatytoji grąža 0 %
                 .andExpect(jsonPath("$.typicalAmount").doesNotExist());
     }
 
