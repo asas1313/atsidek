@@ -1,6 +1,14 @@
 spring:
   config:
     import: optional:file:./.env[.properties]   # lokaliam paleidimui (docker-compose .env skaito pats)
+  jackson:
+    deserialization:
+      # Spring Boot default yra false (tyliai atmeta nežinomus JSON laukus) - visi @RequestBody
+      # endpoint'ai (žr. /api/v1/compare javadoc) turi atmesti nežinomus laukus su 400, ne tyliai juos
+      # ignoruoti. Auditas (žr. CompareRequestJsonTest, GoalsControllerTest ir pan.) patvirtino, kad
+      # jokie realūs klientai (naršyklės JS, Python assistant/) nesiunčia papildomų laukų už DTO
+      # ribų - webhook'ų ar kitų trečiosios šalies valdomų payload'ų šis app'as neturi.
+      fail-on-unknown-properties: true
   servlet:
     multipart:
       max-file-size: 10MB
