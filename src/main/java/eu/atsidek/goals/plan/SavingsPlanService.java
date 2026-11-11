@@ -56,10 +56,18 @@ public class SavingsPlanService {
      * dubliuoti visą {@code GoalsService.validate()} logiką čia (su savo ribomis, pvz. {@code
      * MAX_YEARS}/{@code MAX_AGE}) sukurtų antrą tiesos šaltinį, kurį reikėtų sinchronizuoti ranka -
      * vertimo lentelė yra siauresnė, lengviau peržiūrima pokyčio rizika (tik pavadinimai, ne ribos).
-     * {@code income}/{@code expenses} čia defensyviai įtraukti, nors praktiškai nepasiekiami (žr.
-     * {@link #validate}/{@link #plan} - jie patikrinti/apriboti anksčiau), kad naujas
-     * {@code GoalsService} patikrinimas tyliai nenutekėtų, jei šis defensyvus apribojimas kada
-     * pasikeistų.
+     * {@code income} čia defensyviai įtrauktas, nors praktiškai nepasiekiamas - {@link #validate}
+     * patikrina {@code net_monthly_income - monthly_tax_setaside} PRIEŠ delegavimą, todėl neigiamas
+     * {@code income} niekada nenukeliauja iki {@code GoalsService.validate()}; įrašas paliktas, kad
+     * naujas patikrinimas tyliai nenutekėtų, jei šis defensyvus apribojimas kada pasikeistų.
+     * {@code expenses} TAI PRIEŠINGAI YRA REALIAI PASIEKIAMAS (review finding, round 2): kai
+     * {@code monthly_expenses} praleistas, reikšmę skaičiuoja {@link #resolveMonthlyExpenses} per
+     * {@code StatDefaultsService.resolve()} (statistika) - ta reikšmė NEIŠVENGIA {@link #checkAmount}
+     * patikrinimo (jis tikrina tik {@code request.monthlyExpenses()}, kuris tuomet yra {@code null}),
+     * todėl bloga/ribas viršijanti {@code stat_defaults} eilutė realiai pasiekia
+     * {@code GoalsService.validate()}'o {@code expenses} tikrinimą - žr.
+     * {@code statisticsResolvedExpensesOutOfBoundsIsRejectedNamingRealRequestFieldNotInternalExpenses}
+     * testą {@code SavingsPlanServiceTest} - šis įrašas NĖRA negyvas kodas, jo NEGALIMA pašalinti.
      */
     private static final Map<String, String> ENGINE_FIELD_TO_PUBLIC_FIELD = Map.ofEntries(
             Map.entry("goalType", "goal.type"),

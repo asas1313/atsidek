@@ -2,6 +2,7 @@ package eu.atsidek.goals.plan;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -284,6 +285,106 @@ class SavingsPlanServiceTest {
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("assumptions.annual_return_pct")
                 .hasMessageNotContaining("annualReturn");
+    }
+
+    /*
+     * Toliau esantys 6 testai: ENGINE_FIELD_TO_PUBLIC_FIELD vertimas čia tikrinamas visiems likusiems
+     * raktams, kurių translateEngineFieldNames() vertimas (review SHOULD, round 2) iki šiol NEBUVO
+     * padengtas - mode/amount/years/targetMonth/annualInflation/expenses. Keturiems iš jų
+     * (mode/amount/years/expenses) translated reikšmė (pvz. "goal.mode") PATI SAVYJE turi vidinio
+     * lauko vardą kaip substring'ą ("mode" yra "goal.mode" dalis), todėl hasMessageNotContaining(vidinis
+     * vardas) - stilius, naudotas aukščiau "annualReturn"/"targetYear" testuose - būtų klaidingai
+     * teigiamas (false positive: testas "praeitų" net jei vertimas neįvyktų, nes substring vis tiek
+     * atsirastų per prefiksą). Todėl šiems keturiems tikrinamas TIKSLUS getReason() (vienintelė klaida,
+     * užklausa parinkta taip, kad kita validacija nesusijungtų su ";"), o likusiems dviem
+     * (targetMonth/annualInflation, kur substring kolizijos nėra) - ta pati hasMessageContaining/
+     * hasMessageNotContaining forma, kaip ir esamuose testuose.
+     */
+
+    @Test
+    void missingModeIsRejectedNamingRealRequestFieldNotInternalMode() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        // GoalRequest.mode neturi savo bean validacijos - null pasiekia GoalsService.validate(), kuris
+        // iškart grąžina "mode privalomas" (be kitų klaidų, nes be mode negalima tikrinti termino laukų).
+        GoalRequest goal = new GoalRequest(GoalType.HOME_DOWN_PAYMENT, null, new BigDecimal("15000"), 5, null, null,
+                null, null, null);
+        SavingsPlanRequest req = request(goal, "3100", "900", "1350");
+
+        ResponseStatusException ex = (ResponseStatusException) catchThrowable(() -> service.plan(req, null));
+
+        assertThat(ex.getReason()).isEqualTo("goal.mode privalomas");
+    }
+
+    @Test
+    void negativeGoalAmountIsRejectedNamingRealRequestFieldNotInternalAmount() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        // SavingsPlanService.validate() patikrina tik net_monthly_income/monthly_tax_setaside/
+        // monthly_expenses - goal.amount pasiekia tik GoalsService.validate() "amount" tikrinimą.
+        GoalRequest goal = new GoalRequest(GoalType.HOME_DOWN_PAYMENT, GoalMode.YEARS, new BigDecimal("-1"), 5, null,
+                null, null, null, null);
+        SavingsPlanRequest req = request(goal, "3100", "900", "1350");
+
+        ResponseStatusException ex = (ResponseStatusException) catchThrowable(() -> service.plan(req, null));
+
+        assertThat(ex.getReason()).isEqualTo("goal.amount negali būti neigiamas");
+    }
+
+    @Test
+    void yearsOutOfRangeIsRejectedNamingRealRequestFieldNotInternalYears() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        GoalRequest goal = yearsGoal("15000", 0);
+        SavingsPlanRequest req = request(goal, "3100", "900", "1350");
+
+        ResponseStatusException ex = (ResponseStatusException) catchThrowable(() -> service.plan(req, null));
+
+        assertThat(ex.getReason()).isEqualTo("goal.years turi būti 1–100");
+    }
+
+    @Test
+    void targetMonthOutOfRangeIsRejectedNamingRealRequestFieldNotInternalTargetMonth() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        GoalRequest goal = new GoalRequest(GoalType.HOME_DOWN_PAYMENT, GoalMode.DATE, new BigDecimal("15000"), null,
+                2030, 13, null, null, null);
+        SavingsPlanRequest req = request(goal, "3100", "900", "1350");
+
+        assertThatThrownBy(() -> service.plan(req, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("goal.target_month")
+                .hasMessageNotContaining("targetMonth");
+    }
+
+    @Test
+    void negativeAnnualInflationPctIsRejectedNamingRealRequestFieldNotInternalAnnualInflation() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        GoalRequest goal = yearsGoal("15000", 5);
+        SavingsPlanRequest req = new SavingsPlanRequest(goal, new BigDecimal("3100"), new BigDecimal("900"),
+                new BigDecimal("1350"), null, new AssumptionsRequest(null, new BigDecimal("-1")));
+
+        assertThatThrownBy(() -> service.plan(req, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("assumptions.annual_inflation_pct")
+                .hasMessageNotContaining("annualInflation");
+    }
+
+    @Test
+    void statisticsResolvedExpensesOutOfBoundsIsRejectedNamingRealRequestFieldNotInternalExpenses() {
+        // monthly_expenses NĖRA praleistas apribojimas: kai klientas jo nenurodo, reikšmė ateina iš
+        // StatDefaultsService.resolve() (statistika), kuri NEIŠVENGIA SavingsPlanService.checkAmount()
+        // patikrinimo (tas tikrina tik request.monthlyExpenses(), kuris čia null) - todėl bloga
+        // statistikos reikšmė pasiekia GoalsService.validate()'o "expenses" tikrinimą realiai, ne
+        // tik teoriškai (review finding - žr. SavingsPlanService javadoc).
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("-50.00"), true));
+        SavingsPlanRequest req = request(yearsGoal("15000", 5), "3100", "900", null);
+
+        ResponseStatusException ex = (ResponseStatusException) catchThrowable(() -> service.plan(req, null));
+
+        assertThat(ex.getReason()).isEqualTo("monthly_expenses negali būti neigiamas");
     }
 
     @Test
