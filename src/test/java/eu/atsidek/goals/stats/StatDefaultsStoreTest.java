@@ -64,4 +64,17 @@ class StatDefaultsStoreTest {
     void returnsEmptyForUnknownSegment() {
         assertThat(store.find("income", "members=999;workers=999")).isEmpty();
     }
+
+    @Test
+    void everySeededRowHasTraceableSourceOrIsIllustrative() {
+        // PLAN-taupymas-agentas.md A2 / A0 sprendimas #5: kiekviena V4__seed_stat_defaults.sql eilutė turi
+        // turėti netuščią source IR (as_of datą ARBA is_illustrative=true). Šis testas sulaužtų bet kokią
+        // būsimą seed/UPSERT migraciją, pridedančią eilutę, kuri pažeidžia šį invariantą.
+        List<StatDefaultsStore.Row> all = store.findAll();
+        assertThat(all).isNotEmpty();
+        assertThat(all).allSatisfy(row -> assertThat(row.hasTraceableOrigin())
+                .as("stat_defaults eilutė key=%s segment=%s turi turėti netuščią source ir (as_of arba"
+                        + " is_illustrative=true)", row.key(), row.segment())
+                .isTrue());
+    }
 }
