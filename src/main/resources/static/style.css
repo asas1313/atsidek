@@ -3,6 +3,10 @@
   :root { --bg:#12171d; --fg:#e8edf2; --card:#1b232c; --accent:#3ecf9e; --muted:#9aa6b2; --err:#ff8a80; }
 }
 * { box-sizing: border-box; }
+/* Elementai su boolean hidden atributu niekada neturi matytis, net jei kita taisyklė (pvz. .small
+   su display:block) turi tokį pat specifiškumą ir pagal CSS cascade tvarką nugalėtų UA numatytąjį
+   [hidden]{display:none} (žr. taupymo-tikslai.html #calc-error/#save-progress-error klaidą). */
+[hidden] { display:none !important; }
 body { margin:0; font:16px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
 .hero { text-align:center; padding:2rem 1rem 1rem; }
 .hero h1 { margin:0; font-size:2.2rem; color:var(--accent); }
