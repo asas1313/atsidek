@@ -64,4 +64,9 @@ class TaxApiControllerTest {
     void rejectsPsdMonthsOutOfRange() throws Exception {
         compare("{\"ivRevenue\":1000,\"psdMinMonths\":13}").andExpect(status().isBadRequest());
     }
+
+    @Test
+    void rejectsUnknownField() throws Exception {
+        compare("{\"ivRevenue\":1000,\"bogusField\":123}").andExpect(status().isBadRequest());
+    }
 }

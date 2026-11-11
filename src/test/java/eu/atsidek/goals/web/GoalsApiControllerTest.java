@@ -58,4 +58,11 @@ class GoalsApiControllerTest {
         calculate("{\"goalType\":\"OTHER\",\"mode\":\"YEARS\",\"years\":5}")
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void rejectsUnknownField() throws Exception {
+        calculate("{\"goalType\":\"OTHER\",\"mode\":\"YEARS\",\"amount\":12000,\"years\":5,"
+                + "\"bogusField\":123}")
+                .andExpect(status().isBadRequest());
+    }
 }
