@@ -44,4 +44,13 @@ class GoalInputJsonTest {
         assertThatThrownBy(() -> mapper.readValue(json, GoalInput.class))
                 .isInstanceOf(UnrecognizedPropertyException.class);
     }
+
+    @Test
+    void rejectsUnknownFieldNestedInSubObject() {
+        String json = "{\"goalType\":\"OTHER\",\"mode\":\"YEARS\",\"amount\":12000,\"years\":5,"
+                + "\"household\":{\"income\":1,\"bogus\":2}}";
+
+        assertThatThrownBy(() -> mapper.readValue(json, GoalInput.class))
+                .isInstanceOf(UnrecognizedPropertyException.class);
+    }
 }

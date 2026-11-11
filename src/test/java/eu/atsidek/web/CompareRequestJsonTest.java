@@ -59,4 +59,9 @@ class CompareRequestJsonTest {
         assertThatThrownBy(() -> mapper.readValue(json, CompareRequest.class))
                 .isInstanceOf(UnrecognizedPropertyException.class);
     }
+
+    // No "rejects unknown field nested in a sub-object" case here: CompareRequest has no nested
+    // object/record fields (only BigDecimal, the ExpenseMethod enum, Boolean and Integer), so there
+    // is no sub-object JSON structure to nest an unknown field inside. See GoalInputJsonTest for the
+    // nested case, proven against GoalInput.household (a genuine nested record).
 }

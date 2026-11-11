@@ -31,8 +31,9 @@ import org.springframework.web.server.ResponseStatusException;
  * standartinį {@code @RequestBody SavingsPlanRequest} susiejimą - nes patikrinta ({@code
  * SavingsPlanRequestJsonTest}), kad Spring Boot automatiškai sukonfigūruotas Jackson
  * {@code ObjectMapper} bean'as IŠJUNGIA {@code FAIL_ON_UNKNOWN_PROPERTIES}, o PLAN-taupymas-agentas.md
- * A3 reikalauja, kad nežinomi laukai → 400 (kaip {@code /api/v1/compare} *turėtų* elgtis - tas
- * endpoint'as čia NEKEIČIAMAS, žr. agento ataskaitą). Kadangi kūnas skaitomas kaip {@code String}
+ * A3 reikalauja, kad nežinomi laukai → 400 - taip pat, kaip dabar elgiasi {@code /api/v1/compare}, kuris
+ * nežinomus laukus atmeta per globalią {@code spring.jackson.deserialization.fail-on-unknown-properties}
+ * konfigūraciją {@code application.yml} faile. Kadangi kūnas skaitomas kaip {@code String}
  * (priima {@code StringHttpMessageConverter}, kuris pats savaime leidžia bet kokį/jokį
  * {@code Content-Type}), {@code consumes = APPLICATION_JSON_VALUE} čia PRIVALOMAS, kitaip šis
  * endpoint'as (kitaip nei {@code /api/v1/compare}, kuris naudoja tipuotą {@code @RequestBody}) nebe
