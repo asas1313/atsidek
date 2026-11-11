@@ -283,17 +283,23 @@
     // locked_features elementui – savas sakinys; rodomas TIK VIENAS (kaip ir B4 agento kvietimas), kad CTA
     // nebūtų ilgas sąrašas.
     var LOCKED_FEATURE_CTA = {
-        SAVINGS_MULTI_GOAL: "Turite daugiau nei vieną taupymo tikslą? Prisijungę galėsite sekti keletą tikslų " +
-            "vienu metu, ne tik vieną.",
-        SAVINGS_IV_LINK: "Jūsų pajamos svyruoja – prisijungę pamatysite, kiek atsidėti stipresniais ir " +
+        SAVINGS_MULTI_GOAL: "Turi daugiau nei vieną taupymo tikslą? Jei prisijungsi, galėsi sekti keletą " +
+            "tikslų vienu metu, ne tik vieną.",
+        // Pastaba dėl registro: plane (PLAN-taupymas-agentas.md A5) šis sakinys pateiktas formaliu „jūs“
+        // registru („Jūsų pajamos svyruoja – prisijungę pamatysite...“). Čia sąmoningai pritaikytas prie
+        // neformalaus „tu“ registro, nes šis CTA rodomas tame pačiame kortelės bloke kaip neformalus
+        // atsarginis tekstas ir mygtukas („Prisijunk su Google ir sek...“, „Išsaugok ir sek progresą –
+        // prisijunk“) – vienos kortelės viduryje registras turi sutapti.
+        SAVINGS_IV_LINK: "Tavo pajamos svyruoja – jei prisijungsi, pamatysi, kiek atsidėti stipresniais ir " +
             "silpnesniais mėnesiais.",
-        SAVINGS_SCENARIOS: "Prisijungę galėsite greta palyginti keletą taupymo scenarijų – pvz. skirtingus " +
-            "terminus ar sumas."
+        SAVINGS_SCENARIOS: "Jei prisijungsi, galėsi greta palyginti keletą taupymo scenarijų – pvz. " +
+            "skirtingus terminus ar sumas."
     };
     // Rodoma pirmiausia, jei užrakinta – tai plano paties pateiktas pavyzdys (PLAN-taupymas-agentas.md A5:
-    // „Jūsų pajamos svyruoja..."). Anonimui šiuo metu VISADA užrakinta visos trys (A4 beta logika), todėl be
-    // šio prioriteto CTA visada rodytų tą pačią (pirmą masyve) žinutę – SAVINGS_IV_LINK pasirinkta, nes
-    // kalba apie universaliausią IV savarankiškai dirbančiojo skausmo tašką (svyruojančias pajamas).
+    // „Jūsų pajamos svyruoja..."), pritaikytas prie šios kortelės „tu" registro (žr. pastabą aukščiau).
+    // Anonimui šiuo metu VISADA užrakinta visos trys (A4 beta logika), todėl be šio prioriteto CTA visada
+    // rodytų tą pačią (pirmą masyve) žinutę – SAVINGS_IV_LINK pasirinkta, nes kalba apie universaliausią IV
+    // savarankiškai dirbančiojo skausmo tašką (svyruojančias pajamas).
     var PREFERRED_CTA_FEATURE = "SAVINGS_IV_LINK";
 
     var statsMeta = null; // paskutinio GET /goals/stats/defaults atsakymo kešas (šaltinių sąrašui)
