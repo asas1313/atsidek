@@ -213,6 +213,80 @@ class SavingsPlanServiceTest {
     }
 
     @Test
+    void dateModeWithoutTargetYearIsRejectedNamingRealRequestFieldNotInternalTargetYear() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        // GoalsService.validate() tikrina GoalInput.targetYear ir žinoma tik apie tą vidinį pavadinimą -
+        // klaida turi įvardinti tikrąjį SavingsPlanRequest lauką goal.target_year, ne targetYear.
+        GoalRequest goal = new GoalRequest(GoalType.HOME_DOWN_PAYMENT, GoalMode.DATE, new BigDecimal("15000"), null,
+                null, null, null, null, null);
+        SavingsPlanRequest req = request(goal, "3100", "900", "1350");
+
+        assertThatThrownBy(() -> service.plan(req, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("goal.target_year")
+                .hasMessageNotContaining("targetYear");
+    }
+
+    @Test
+    void childAgeModeWithoutAgesIsRejectedNamingRealRequestFieldsNotInternalChildAgeNames() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        GoalRequest goal = new GoalRequest(GoalType.CHILD, GoalMode.CHILD_AGE, new BigDecimal("15000"), null, null,
+                null, null, null, null);
+        SavingsPlanRequest req = request(goal, "3100", "900", "1350");
+
+        assertThatThrownBy(() -> service.plan(req, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("goal.child_current_age")
+                .hasMessageContaining("goal.child_target_age")
+                .hasMessageNotContaining("childCurrentAge")
+                .hasMessageNotContaining("childTargetAge");
+    }
+
+    @Test
+    void whenModeWithoutMonthlyContributionIsRejectedNamingRealRequestFieldNotInternalMonthlyContribution() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        GoalRequest goal = new GoalRequest(GoalType.CAR, GoalMode.WHEN, new BigDecimal("15000"), null, null, null,
+                null, null, null);
+        SavingsPlanRequest req = request(goal, "3100", "900", "1350");
+
+        assertThatThrownBy(() -> service.plan(req, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("goal.monthly_contribution")
+                .hasMessageNotContaining("monthlyContribution");
+    }
+
+    @Test
+    void missingGoalTypeIsRejectedNamingRealRequestFieldNotInternalGoalType() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        GoalRequest goal = new GoalRequest(null, GoalMode.YEARS, new BigDecimal("15000"), 5, null, null, null, null,
+                null);
+        SavingsPlanRequest req = request(goal, "3100", "900", "1350");
+
+        assertThatThrownBy(() -> service.plan(req, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("goal.type")
+                .hasMessageNotContaining("goalType");
+    }
+
+    @Test
+    void negativeAnnualReturnPctIsRejectedNamingRealRequestFieldNotInternalAnnualReturn() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        GoalRequest goal = yearsGoal("15000", 5);
+        SavingsPlanRequest req = new SavingsPlanRequest(goal, new BigDecimal("3100"), new BigDecimal("900"),
+                new BigDecimal("1350"), null, new AssumptionsRequest(new BigDecimal("-1"), null));
+
+        assertThatThrownBy(() -> service.plan(req, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("assumptions.annual_return_pct")
+                .hasMessageNotContaining("annualReturn");
+    }
+
+    @Test
     void comfortableShareFitsWithLowTip() {
         SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
                 statsResolvingExpensesTo(BigDecimal.ZERO, false));

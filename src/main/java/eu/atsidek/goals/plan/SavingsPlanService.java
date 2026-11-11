@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -42,8 +43,38 @@ public class SavingsPlanService {
             Feature.SAVINGS_SCENARIOS);
 
     private static final String DISCLAIMER = "Skaičiavimai informaciniai, tai nėra finansinis ar investavimo patarimas.";
-    private static final BigDecimal MAX_AMOUNT = new BigDecimal("100000000");
     private static final BigDecimal PERCENT_SCALE = BigDecimal.valueOf(100);
+
+    /**
+     * {@code GoalsService.validate()} klaidų pranešimai vardina {@link GoalInput}'o vidinius
+     * camelCase laukus (be {@code goal.}/{@code assumptions.} priešdėlio) - tai TIKSLIAI tinka
+     * {@code /goals/calculate}, kurio savas DTO naudoja tuos pačius camelCase vardus, bet NETINKA šiam
+     * endpoint'ui, kurio viešas kontraktas yra {@code SavingsPlanRequest} snake_case laukai (review
+     * BLOCKER - platesnis tos pačios klasės bug'as, kaip ir anksčiau pataisytas {@code income}/
+     * {@code net_monthly_income} nutekėjimas, tik čia apimami VISI {@code GoalsService.validate()}
+     * galimi laukų vardai, ne tik viena šaka). Verčiama PO delegavimo (žr. {@link #plan}), nes
+     * dubliuoti visą {@code GoalsService.validate()} logiką čia (su savo ribomis, pvz. {@code
+     * MAX_YEARS}/{@code MAX_AGE}) sukurtų antrą tiesos šaltinį, kurį reikėtų sinchronizuoti ranka -
+     * vertimo lentelė yra siauresnė, lengviau peržiūrima pokyčio rizika (tik pavadinimai, ne ribos).
+     * {@code income}/{@code expenses} čia defensyviai įtraukti, nors praktiškai nepasiekiami (žr.
+     * {@link #validate}/{@link #plan} - jie patikrinti/apriboti anksčiau), kad naujas
+     * {@code GoalsService} patikrinimas tyliai nenutekėtų, jei šis defensyvus apribojimas kada
+     * pasikeistų.
+     */
+    private static final Map<String, String> ENGINE_FIELD_TO_PUBLIC_FIELD = Map.ofEntries(
+            Map.entry("goalType", "goal.type"),
+            Map.entry("mode", "goal.mode"),
+            Map.entry("amount", "goal.amount"),
+            Map.entry("years", "goal.years"),
+            Map.entry("targetYear", "goal.target_year"),
+            Map.entry("targetMonth", "goal.target_month"),
+            Map.entry("childCurrentAge", "goal.child_current_age"),
+            Map.entry("childTargetAge", "goal.child_target_age"),
+            Map.entry("monthlyContribution", "goal.monthly_contribution"),
+            Map.entry("income", "net_monthly_income"),
+            Map.entry("expenses", "monthly_expenses"),
+            Map.entry("annualReturn", "assumptions.annual_return_pct"),
+            Map.entry("annualInflation", "assumptions.annual_inflation_pct"));
 
     private final EntitlementService entitlementService;
     private final StatDefaultsService statDefaultsService;
@@ -73,7 +104,7 @@ public class SavingsPlanService {
         BigDecimal income = nz(request.netMonthlyIncome()).subtract(nz(request.monthlyTaxSetaside()));
 
         GoalInput goalInput = toGoalInput(request, income, monthlyExpenses);
-        GoalResult result = goalsService.calculate(goalInput);
+        GoalResult result = calculate(goalInput);
 
         addAssumptionIfNotUserProvided(assumptions, "annual_return_pct", result, "annualReturn");
         addAssumptionIfNotUserProvided(assumptions, "annual_inflation_pct", result, "annualInflation");
@@ -85,6 +116,31 @@ public class SavingsPlanService {
         Premium premium = currentUserId != null ? new Premium() : null;
 
         return new SavingsPlanResponse(tier, core, locked, premium);
+    }
+
+    /**
+     * Kviečia {@code GoalsService.calculate()} ir, jei tas atmeta su 400, verčia pranešimo vidinius
+     * {@link GoalInput} laukų vardus į tikruosius {@code SavingsPlanRequest} snake_case laukus (žr.
+     * {@link #ENGINE_FIELD_TO_PUBLIC_FIELD}) - kitaip klientas matytų laukus, kurių jo užklausoje
+     * NĖRA (review BLOCKER).
+     */
+    private GoalResult calculate(GoalInput goalInput) {
+        try {
+            return goalsService.calculate(goalInput);
+        } catch (ResponseStatusException e) {
+            throw new ResponseStatusException(e.getStatusCode(), translateEngineFieldNames(e.getReason()), e);
+        }
+    }
+
+    private static String translateEngineFieldNames(String reason) {
+        if (reason == null) {
+            return null;
+        }
+        String translated = reason;
+        for (var entry : ENGINE_FIELD_TO_PUBLIC_FIELD.entrySet()) {
+            translated = translated.replaceAll("\\b" + entry.getKey() + "\\b", entry.getValue());
+        }
+        return translated;
     }
 
     private boolean hasAccess(UUID userId, Feature feature) {
@@ -123,7 +179,7 @@ public class SavingsPlanService {
         }
         if (v.signum() < 0) {
             errors.add(name + " negali būti neigiamas");
-        } else if (v.compareTo(MAX_AMOUNT) > 0) {
+        } else if (v.compareTo(GoalsService.MAX_AMOUNT) > 0) {
             errors.add(name + " per didelis");
         }
     }
