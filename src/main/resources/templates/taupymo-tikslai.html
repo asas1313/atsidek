@@ -584,9 +584,11 @@
         // NE iš žaliavinės slankiklio DOM reikšmės - kol vartotojas slankiklio nepajudino (origin != USER),
         // rodoma reikšmė turi sutapti su tuo, kas realiai panaudota skaičiavime (traceable origin principas).
         var resolvedInputs = result.resolvedInputs || {};
+        // Čia tik USER!=origin atvejai (žr. items.forEach žemiau), todėl resolved reikšmė visada naudojama
+        // tiesiai - be papildomos USER šakos (ji būtų nepasiekiama, nes USER filtruojamas anksčiau).
         function pctDisplay(key) {
             var resolved = resolvedInputs[key];
-            var value = origins[key] === "USER" ? getFieldNumber(key) : (resolved ? resolved.value : getFieldNumber(key));
+            var value = resolved ? resolved.value : getFieldNumber(key);
             return formatPct(value) + "/m.";
         }
         var items = [
