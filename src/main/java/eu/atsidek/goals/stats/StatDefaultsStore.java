@@ -27,7 +27,17 @@ public class StatDefaultsStore {
      * @param illustrative   ar reikšmė iliustracinė (neparemta patikrinta statistika)
      */
     public record Row(String key, String segment, BigDecimal value, String unit, String source, String sourceUrl,
-                      LocalDate asOf, boolean illustrative) {}
+                      LocalDate asOf, boolean illustrative) {
+
+        /**
+         * A0 sprendimas #5 / PLAN-taupymas-agentas.md A2: kiekviena eilutė turi turėti netuščią šaltinį IR
+         * (patikrinamą duomenų datą ARBA būti pažymėta kaip iliustracinė). Reikšmė be datos ir be
+         * {@code is_illustrative = true} žymės negali būti pristatoma kaip patikrinta statistika.
+         */
+        public boolean hasTraceableOrigin() {
+            return source != null && !source.isBlank() && (asOf != null || illustrative);
+        }
+    }
 
     private final JdbcTemplate jdbc;
 
@@ -45,6 +55,16 @@ public class StatDefaultsStore {
     public List<Row> findAllByKey(String key) {
         return jdbc.query("SELECT key, segment, value, unit, source, source_url, as_of, is_illustrative"
                 + " FROM stat_defaults WHERE key = ? ORDER BY id", StatDefaultsStore::map, key);
+    }
+
+    /**
+     * Visos lentelės eilutės, nepriklausomai nuo {@code key}. Naudojama invariantų testams (PLAN A2 / A0
+     * sprendimas #5), kad būsimos seed migracijos, pridedančios eilutę be šaltinio/datos ar
+     * {@code is_illustrative} žymės, sulaužytų testą.
+     */
+    public List<Row> findAll() {
+        return jdbc.query("SELECT key, segment, value, unit, source, source_url, as_of, is_illustrative"
+                + " FROM stat_defaults ORDER BY id", StatDefaultsStore::map);
     }
 
     private static Row map(ResultSet rs, int n) throws SQLException {
