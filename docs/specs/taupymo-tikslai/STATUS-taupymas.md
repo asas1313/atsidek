@@ -1,0 +1,69 @@
+# Būklės ataskaita: taupymo modulis vs. `PLAN-taupymas-agentas.md` (A0)
+
+Palyginimo pagrindas: `docs/specs/taupymo-tikslai/spec.md` (originali, jau įgyvendinta specifikacija,
+F1–F6), `docs/specs/taupymo-tikslai/PLAN-taupymas-agentas.md` (šis planas, A1–A6/B0–B7), ir realus kodas
+(`src/main/java/eu/atsidek/goals/**`, `src/main/java/eu/atsidek/entitlement/**`,
+`src/main/java/eu/atsidek/web/TaxApiController.java`, `src/main/resources/db/migration/*.sql`).
+
+**Svarbu:** `PLAN-taupymas-agentas.md` 4 eilutėje nurodo susijusį dokumentą `docs/PLAN-taupymas.md`
+(ir SKILL savo antraštėje mini `docs/PLAN-taupymas-agentas.md`) — **šis failas repozitorijoje
+neegzistuoja** (patikrinta failų paieška visame repo, taip pat `.git` istorijoje nerasta). Negalima
+spėti jo turinio; jei jis egzistuoja kažkur kitur (pvz. tik vietiniame failų sistemos aplanke pas
+savininką), reikia jį atnešti arba pašalinti nuorodą.
+
+## A dalis. Funkcija → būklė → kur kode → kas trūksta
+
+| Funkcija (plano skyrius) | Būklė | Kur kode | Kas trūksta |
+|---|---|---|---|
+| A1. `SavingsEngine` (grynos funkcijos, `YEARS`/`DATE`/`CHILD_AGE`/`WHEN`, infliacijos korekcija, grąžos prielaida) | **Dalinai** — ekvivalentiškas variklis jau yra, bet kitu vardu ir su kitokiu numatytuoliu | `eu.atsidek.goals.GoalsEngine` + `GoalMode` (visi 4 režimai sutampa), testai `GoalsEngineTest` | Klasės pavadinimas (`SavingsEngine` vs `GoalsEngine`) ir **prielaidų numatytosios reikšmės konfliktuoja**: `GoalsEngine.DEFAULT_ANNUAL_RETURN = 3%`, šis planas (A1 + bendri principai) reikalauja **numatytosios 0%** grąžos. Tai produkto lygio konfliktas tarp dviejų specifikacijų, ne kodo klaida — reikia savininko sprendimo, ar kuriamas naujas variklis su 0% numatytuoliu, ar keičiamas esamo `GoalsEngine` numatytasis (kas paveiktų jau veikiantį `/goals/calculate`). |
+| A2. Versijuota statistikos lentelė (`needs_review` žymė, savininko patvirtinimas) | **Dalinai** | `stat_defaults` lentelė (`V3__stat_defaults.sql`, `V4__seed_stat_defaults.sql`), `StatDefaultsService`/`StatDefaultsStore` | Lentelė turi `is_illustrative` (ne `needs_review`) žymę — artimas, bet ne identiškas konceptas (nėra atskiro "nepatvirtinta be savininko" darbo eigos lauko/proceso). Nėra versijavimo (kelių reikšmių istorijos per laiką) — tik viena aktyvi eilutė per `(key, segment)`. |
+| A3. `POST /api/v1/savings/plan` (tier/core/locked_features/premium kontraktas) | **Nepradėta** | — | Endpointo, kontrolerio, DTO su `tier`/`core`/`locked_features`/`premium` laukais visai nėra. Esami `goals` endpoint'ai (`/goals/calculate`, `/goals/tikslai`, `/goals/tikslai/{id}`) turi kitokį, nesuderinamą atsakymo formatą (camelCase, be `tier`/`locked_features`/`premium` sekcijų). `locked_features` pavyzdyje minimas `SAVINGS_IRREGULAR_INCOME` — tokios reikšmės nėra esamame `Feature` enum'e (yra `SAVINGS_MULTI_GOAL`, `SAVINGS_SCENARIOS`, `SAVINGS_IV_LINK`, bet ne `SAVINGS_IRREGULAR_INCOME`). |
+| A4. Teisės (`tier` iš Google OAuth sesijos arba Python serviso, beta vėliava) | **Dalinai** — pagrindas jau yra, bet ne šiam konkrečiam endpoint'ui | `eu.atsidek.entitlement.EntitlementService`/`EntitlementStore`/`AppUser`/`Feature`, beta vėliava `app_setting.goals_beta_mode_enabled` (`V6__app_setting.sql`) | Kadangi A3 endpoint'o nėra, nėra ir jo `tier`-nustatymo kodo. Nėra Python serviso → Java serviso vidinio autentifikavimo žymeno/antraštės mechanizmo (žr. B0/B1 — tai iš dalies B dalies darbas, bet A4 jį numato). |
+| A5. UI (nemokama forma pagal maketą, kvietimas prisijungti iš `locked_features`) | **Dalinai** — panašus UI jau yra, bet senesnei specifikacijai | `templates/taupymo-tikslai.html`, `templates/mano-tikslas.html`, `templates/goals/tikslas.html`, `GoalsController`/`ManoTikslasController` | Esamas UI kviečia `/goals/calculate` ir `/goals/tikslai`, ne `/api/v1/savings/plan`; kvietimo-prisijungti tekstas šiuo metu statinis (CTA iš praėjusio inkremento), ne generuojamas iš `locked_features` sąrašo. |
+| A6. Staging + DoD (visi testai žali, rankinis patikrinimas, `STATUS-taupymas.md` atnaujintas) | **Nepradėta šiam planui** | — | Negalima pasiekti staging'o patikrinimui iš šios aplinkos (žr. žemiau). `STATUS-taupymas.md` kuriamas dabar, pirmą kartą — jame dauguma eilučių bus "dalinai"/"nepradėta", ne "padaryta". |
+
+## Du A0 reikalaujami gyvi patikrinimai
+
+- **`POST /api/v1/savings/plan` veikimas staging'e ir A3 kontrakto atitikimas** — **negalima patikrinti**:
+  šioje sandbox aplinkoje nėra leidžiama išeinanti tinklo prieiga (`curl` į `staging.atsidek.eu` buvo
+  atmestas sandbox leidimų, ne tinklo klaidos). Be to, kodo lygmeniu endpoint'as **neegzistuoja** (žr. A3
+  eilutę aukščiau), tad net su tinklo prieiga atsakymas būtų `404`. Reikia rankinio patikrinimo iš
+  aplinkos, kuri turi tinklo prieigą prie staging.
+- **`/api/v1/compare` atsakyme: grynosios mėnesio pajamos + mėnesio mokesčių atidėjimas** — **patikrinta
+  tiesiai kode** (be tinklo): `TaxApiController.compare()` grąžina `TaxComparison` → `TaxResult`
+  (`eu.atsidek.engine.TaxResult`). Jame **yra** `monthlyReserve` laukas — tai ir yra mėnesio mokesčių
+  atidėjimo suma, reikalinga B1. **Grynųjų mėnesio pajamų lauko nėra** tiesiogiai — jį reikėtų skaičiuoti
+  iš esamų laukų (`revenue`, `total`, `expenses`), nes atsakyme jų skirtumas šiuo metu negrąžinamas kaip
+  atskiras pavadintas laukas. Taigi B1 užduočiai nurodytas "nedidelis Java pakeitimas" bus reikalingas
+  bent jau grynųjų mėnesio pajamų laukui (bet B dalis šiuo metu nevykdoma — tik faktas užfiksuotas).
+
+## Išvada
+
+A dalis **nėra** paruošta be papildomo darbo — A3 (pats API) neegzistuoja, A1 turi principinį prielaidų
+numatytojo konfliktą su jau veikiančiu `GoalsEngine`, A2 turi dalį reikiamos infrastruktūros, bet ne
+tiksliai tą workflow'ą, kurio reikalauja šis planas. Prieš tęsiant A1–A6, savininkui reikia nuspręsti:
+
+1. Ar A3 kuriamas kaip **naujas**, atskiras endpoint'as/DTO rinkinys (`/api/v1/savings/plan`), ar
+   išplečiamas/pervadinamas esamas `/goals/calculate` + `SavingsGoalController` rinkinys jo vietoje.
+2. Kaip sutaikyti numatytąją grąžos prielaidą (esama `3%` vs. šio plano reikalaujama `0%`) — naujam
+   varikliui ar bendrai.
+3. Ar `docs/PLAN-taupymas.md` (nerastas) reikalingas prieš tęsiant, ir jei taip, iš kur jį gauti.
+
+Pagal plano ir šio paleidimo nurodymą, darbas **sustojo čia** — A1–A6 nepradėti, laukta savininko
+„patvirtinu" arba atsakymų į aukščiau išvardintus klausimus.
+
+## Savininko sprendimai (2026-11-11)
+
+Savininkas atsakė į visus 3 klausimus ir patvirtino A1–A5 vykdymą. Pilnas sprendimų sąrašas įrašytas
+`PLAN-taupymas-agentas.md` skyriuje „A0 sprendimai (savininkas, 2026-11-11)“. Santrauka:
+
+1. Naujo variklio nekurti — `GoalsEngine` lieka; `/api/v1/savings/plan` = plonas API sluoksnis virš jo;
+   tier/`core`/`premium`/`locked_features` logika iškeliama į `SavingsPlanService`, naudojamą ir API, ir UI.
+2. Numatytoji grąža 0 % visur — keisti `GoalsEngine.DEFAULT_ANNUAL_RETURN`, patikrinti poveikį DB įrašams.
+3. `docs/PLAN-taupymas.md` nereikalingas, nuoroda pašalinta.
+4. `SAVINGS_IRREGULAR_INCOME` nekurti, naudoti esamą `SAVINGS_IV_LINK`.
+5. A2: `is_illustrative` paliekama, versijavimo nereikia.
+6. A4: `tier` tik pagal sesiją; Python→Java vidinis autentifikavimas perkeltas į B1.
+7. B1: patikrinti, ar `revenue`/`total` metinės, prieš pridedant `net_monthly_income`.
+
+Toliau vykdoma A1–A5, kiekviena fazė atskiroje šakoje su testais ir PR (žr. `PLAN-taupymas-agentas.log.md`).

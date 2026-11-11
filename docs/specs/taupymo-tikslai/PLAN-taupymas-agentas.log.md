@@ -1,0 +1,16 @@
+# Ship log: taupymas-agentas (A dalis + B dalis, mokesčiai + taupymas AI agentas)
+
+Spec: docs/specs/taupymo-tikslai/PLAN-taupymas-agentas.md
+Branch: feat/taupymas-agentas-a0 (from main @ origin/main)
+
+| Phase | Outcome | Iterations | Notes |
+|-------|---------|------------|-------|
+| Branch | done | - | created from up-to-date main |
+| A0 status check | done | - | compared repo vs. `spec.md` + referenced `docs/PLAN-taupymas.md` (not found in repo — flagged, not substituted); wrote `docs/STATUS-taupymas.md` with the feature → status → code → gap table for A1–A6; checked both A0-required live facts (staging network unreachable from this sandbox; `/api/v1/compare`'s `TaxResult.monthlyReserve` already covers the tax-setaside fact, net-monthly-income does not exist as a field) |
+| A0 decisions | done | - | owner answered all 3 open questions 2026-11-11; recorded in `PLAN-taupymas-agentas.md` ("A0 sprendimai") and `STATUS-taupymas.md`; proceeding to A1–A5 |
+| A1 | pending | 0 | branch not yet created |
+| A2 | pending | 0 | branch not yet created |
+| A3 | pending | 0 | branch not yet created |
+| A4 | pending | 0 | branch not yet created |
+| A5 | pending | 0 | branch not yet created |
+| A6 | pending | 0 | staging unreachable from this sandbox — will produce curl checklist instead of live verification |
