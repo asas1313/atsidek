@@ -8,7 +8,7 @@ Branch: feat/taupymas-agentas-a0 (from main @ origin/main)
 | Branch | done | - | created from up-to-date main |
 | A0 status check | done | - | compared repo vs. `spec.md` + referenced `docs/PLAN-taupymas.md` (not found in repo — flagged, not substituted); wrote `docs/STATUS-taupymas.md` with the feature → status → code → gap table for A1–A6; checked both A0-required live facts (staging network unreachable from this sandbox; `/api/v1/compare`'s `TaxResult.monthlyReserve` already covers the tax-setaside fact, net-monthly-income does not exist as a field) |
 | A0 decisions | done | - | owner answered all 3 open questions 2026-11-11; recorded in `PLAN-taupymas-agentas.md` ("A0 sprendimai") and `STATUS-taupymas.md`; proceeding to A1–A5 |
-| A1 | pending | 0 | branch not yet created |
+| A1 | in review | 1 | branch feat/taupymas-agentas-a1; default annual return 3%→0% in `GoalsEngine` + `StatDefaultsService`; DB-impact finding reported (persisted goals with null `annualReturn` recompute live, no migration); 1 reviewer round done (CHANGES REQUESTED: SHOULD-level constant cross-check + stale docs, NIT dead-code comment — no blockers), fixes in progress |
 | A2 | pending | 0 | branch not yet created |
 | A3 | pending | 0 | branch not yet created |
 | A4 | pending | 0 | branch not yet created |
