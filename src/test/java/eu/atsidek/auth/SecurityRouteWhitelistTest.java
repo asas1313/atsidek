@@ -64,6 +64,7 @@ class SecurityRouteWhitelistTest {
             Map.entry("GET /goals/stats/defaults", Access.PUBLIC),
             Map.entry("POST /goals/tikslai/preliminarus", Access.PUBLIC),
             Map.entry("GET /goals/savings/locked-features", Access.PUBLIC),
+            Map.entry("POST /chat/send", Access.PUBLIC),
 
             // Banko modulis - tik ROLE_ADMIN (nepakitusi apimtis, žr. ADR-0001).
             Map.entry("GET /importas", Access.ADMIN),
