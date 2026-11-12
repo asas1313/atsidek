@@ -41,11 +41,11 @@ LOCKED_FEATURE_CTA = {
         "metu, ne tik vieną."
     ),
     "SAVINGS_IV_LINK": (
-        "Tavo pajamos svyruoja - jei prisijungsi, pamatysi, kiek atsidėti stipresniais ir "
+        "Tavo pajamos svyruoja – jei prisijungsi, pamatysi, kiek atsidėti stipresniais ir "
         "silpnesniais mėnesiais."
     ),
     "SAVINGS_SCENARIOS": (
-        "Jei prisijungsi, galėsi greta palyginti keletą taupymo scenarijų - pvz. skirtingus "
+        "Jei prisijungsi, galėsi greta palyginti keletą taupymo scenarijų – pvz. skirtingus "
         "terminus ar sumas."
     ),
 }

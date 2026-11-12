@@ -263,3 +263,204 @@ def test_cta_section_renders_exactly_one_sentence_for_preferred_feature():
     assert text.count("prisijung") >= 1
     # Only the preferred feature's sentence appears, not the other locked feature's sentence.
     assert "daugiau nei vieną taupymo tikslą" not in text
+
+
+# --- QA follow-up: empty inputs, defensive degradation, exact-number independence ---------------
+
+def test_empty_tool_calls_and_empty_string_final_text_returns_empty_string():
+    """Falsy-but-not-None `final_text` (e.g. "") must behave like `None` - still returns ""."""
+    assert build_response([], "") == ""
+
+
+def test_no_tool_calls_at_all_and_final_text_none_is_empty_string_not_none_or_crash():
+    result = build_response([], None)
+    assert result == ""
+    assert result is not None
+
+
+def test_last_successful_savings_call_wins_when_a_later_savings_call_fails():
+    """AC-B4-1's 'last successful call wins, not last call overall', specifically for
+    calculate_savings_plan (the existing coverage only exercised calculate_iv_taxes for this)."""
+    tool_calls = [
+        savings_call(call_id="s1", result=SAVINGS_RESULT),
+        savings_call(call_id="s2", is_error=True, result=None),
+    ]
+
+    text = build_response(tool_calls, None)
+
+    # The earlier, successful result's numbers are used - not a crash, not an empty savings
+    # section from falling through to the later failed call.
+    assert "400,00" in text  # free_cash_monthly from SAVINGS_RESULT
+    assert "200,00" in text  # monthly_contribution from SAVINGS_RESULT
+
+
+def test_mixed_tax_and_savings_calls_each_pick_their_own_last_successful_result_independently():
+    """A failed LATER tax call must not blank out the savings section, and vice versa - the two
+    tools' 'last successful' lookups are independent of each other."""
+    tool_calls = [
+        tax_call(call_id="t1", result=TAX_RESULT),
+        savings_call(call_id="s1", result=SAVINGS_RESULT),
+        tax_call(call_id="t2", is_error=True, result=None),
+    ]
+
+    text = build_response(tool_calls, None)
+
+    assert "1 234,56" in text
+    assert "400,00" in text
+
+
+def test_final_text_numbers_are_not_mixed_into_or_used_for_deterministic_sections():
+    """AC-B4-1: numbers come EXACTLY from tool results, never from `final_text` - a bogus number
+    in the model's free text must pass through verbatim in its own place but must not replace or
+    corrupt the tool-derived numeric section."""
+    tool_calls = [tax_call(result=TAX_RESULT)]
+    final_text = "Apytiksliai tai gali būti apie 999999 eur."
+
+    text = build_response(tool_calls, final_text)
+
+    assert final_text in text
+    assert "1 234,56" in text  # the tool's real number, unaffected by the bogus one above
+    assert "102,88" in text
+    assert "987,65" in text
+
+
+def test_negative_free_cash_monthly_renders_as_sane_negative_money_string():
+    """Per `GoalsEngine`'s NO_FREE_CASH verdict, `free_cash_monthly` can be negative - must
+    render as a normal signed amount, not raise or produce garbled output."""
+    result = {
+        "tier": "FREE",
+        "core": {
+            "monthly_contribution": 0.0,
+            "free_cash_monthly": -50.5,
+            "share_of_free_cash_pct": 0.0,
+            "fits": False,
+            "general_tip": "Pagal nurodytas pajamas ir išlaidas laisvų pinigų nelieka.",
+            "assumptions": [],
+            "disclaimer": "Šis skaičiavimas yra informacinio pobūdžio ir nėra finansinė konsultacija.",
+        },
+        "locked_features": [],
+        "income_origin": "USER",
+    }
+
+    text = build_response([savings_call(result=result)], None)
+
+    assert "-50,50 €" in text
+    assert "0,00 €" in text
+
+
+def test_assumptions_section_handles_unmapped_field_and_origin_gracefully():
+    """Defensive design: an unexpected `field`/`origin` string (not one of the 3/4 known values)
+    must degrade to the raw string, not crash and not produce a blank/ugly fallback."""
+    assumptions = [
+        {
+            "field": "some_future_field",
+            "value": 12.3,
+            "origin": "SOME_FUTURE_ORIGIN",
+            "source": None,
+            "source_date": None,
+            "is_illustrative": None,
+        }
+    ]
+    result = {
+        "tier": "FREE",
+        "core": {
+            "monthly_contribution": 10.0,
+            "free_cash_monthly": 20.0,
+            "share_of_free_cash_pct": 5.0,
+            "fits": True,
+            "general_tip": "tip",
+            "assumptions": assumptions,
+            "disclaimer": "disc",
+        },
+        "locked_features": [],
+        "income_origin": "USER",
+    }
+
+    text = build_response([savings_call(result=result)], None)
+
+    assert "some_future_field" in text
+    assert "SOME_FUTURE_ORIGIN" in text
+
+
+def test_cta_section_handles_unmapped_locked_feature_gracefully_no_crash_no_raw_dump():
+    """An unrecognized `locked_features` entry is still a valid `pick_cta_feature` return value
+    (no mapping to validate against there), but `LOCKED_FEATURE_CTA.get(...)` has no sentence for
+    it - the CTA section must be silently omitted, not show a raw/ugly fallback string."""
+    result = {
+        "tier": "FREE",
+        "core": {
+            "monthly_contribution": 10.0,
+            "free_cash_monthly": 20.0,
+            "share_of_free_cash_pct": 5.0,
+            "fits": True,
+            "general_tip": "tip",
+            "assumptions": [],
+            "disclaimer": "disc",
+        },
+        "locked_features": ["SOME_FUTURE_LOCKED_FEATURE"],
+        "income_origin": "USER",
+    }
+
+    assert pick_cta_feature(["SOME_FUTURE_LOCKED_FEATURE"]) == "SOME_FUTURE_LOCKED_FEATURE"
+
+    text = build_response([savings_call(result=result)], None)
+
+    assert "SOME_FUTURE_LOCKED_FEATURE" not in text
+    assert "prisijung" not in text.lower()
+
+
+def test_origin_labels_exactly_match_the_established_vocabulary_in_taupymo_tikslai_html():
+    """AC-B4-1: `ORIGIN_LABELS` must be a verbatim port of the JS `ORIGIN_LABELS` object in
+    taupymo-tikslai.html - reads the real template source so this fails if either side drifts."""
+    import pathlib
+    import re
+
+    from app.response_builder import ORIGIN_LABELS
+
+    html_path = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "src/main/resources/templates/taupymo-tikslai.html"
+    )
+    html = html_path.read_text(encoding="utf-8")
+    match = re.search(r'var ORIGIN_LABELS = \{([^}]*)\};', html)
+    assert match is not None, "ORIGIN_LABELS not found in taupymo-tikslai.html - template moved?"
+    pairs = re.findall(r'(\w+):\s*"([^"]*)"', match.group(1))
+    expected = dict(pairs)
+
+    assert expected, "regex extracted nothing - check the template's ORIGIN_LABELS literal syntax"
+    assert ORIGIN_LABELS == expected
+
+
+def test_locked_feature_cta_sentences_match_html_source_byte_for_byte():
+    """Companion to the exact ORIGIN_LABELS check above: the module docstring/comment claims
+    `LOCKED_FEATURE_CTA` is "verbatim" from taupymo-tikslai.html - this asserts that literally,
+    including dash style (QA originally caught a hyphen-vs-en-dash drift in two of the three
+    sentences here, now fixed; this test is the byte-exact regression guard against it
+    recurring, not a normalized/approximate comparison).
+    """
+    import pathlib
+    import re
+
+    from app.response_builder import LOCKED_FEATURE_CTA
+
+    html_path = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "src/main/resources/templates/taupymo-tikslai.html"
+    )
+    html = html_path.read_text(encoding="utf-8")
+    match = re.search(r"var LOCKED_FEATURE_CTA = \{(.*?)\};", html, re.DOTALL)
+    assert match is not None, "LOCKED_FEATURE_CTA not found in taupymo-tikslai.html - template moved?"
+    block = match.group(1)
+    # Each entry is `KEY: "chunk" + "chunk" + ...` possibly spanning multiple string literals.
+    entries = re.findall(r'(\w+):\s*((?:"[^"]*"\s*\+?\s*)+)', block)
+    html_sentences = {}
+    for key, chunks in entries:
+        pieces = re.findall(r'"([^"]*)"', chunks)
+        html_sentences[key] = "".join(pieces)
+
+    assert set(html_sentences) == set(LOCKED_FEATURE_CTA)
+    for key, html_sentence in html_sentences.items():
+        assert LOCKED_FEATURE_CTA[key] == html_sentence, (
+            f"{key} is not byte-for-byte identical between response_builder.py and "
+            "taupymo-tikslai.html"
+        )

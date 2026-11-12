@@ -5,6 +5,7 @@ import copy
 import logging
 
 from app.agent_client import create_message
+from app.savings_tool import TOOL_DEF as SAVINGS_TOOL_DEF
 from app.tax_tool import TOOL_DEF as TAX_TOOL_DEF
 
 
@@ -134,3 +135,56 @@ def test_cache_metrics_log_with_none_fields_when_usage_is_absent_does_not_raise(
     [record] = [r for r in caplog.records if r.name == "app.agent_client"]
     assert record.cache_read_input_tokens is None
     assert record.cache_creation_input_tokens is None
+
+
+# --- QA follow-up: real multi-tool module constants, repeated-call safety -----------------------
+
+def test_both_real_tool_defs_together_neither_module_constant_is_mutated_only_last_gets_cache_control():
+    """The task's own strongest correctness property, exercised with BOTH real shared
+    module-level TOOL_DEF constants together (not just tax_tool's alone) - a mutation bug here
+    would corrupt global state shared by every future call in the process, for either tool."""
+    client = FakeClient(FakeResponseNoUsage())
+    tax_snapshot = copy.deepcopy(TAX_TOOL_DEF)
+    savings_snapshot = copy.deepcopy(SAVINGS_TOOL_DEF)
+    tools = [TAX_TOOL_DEF, SAVINGS_TOOL_DEF]
+
+    create_message(client, model="m", system="s", tools=tools, messages=[], max_tokens=100)
+
+    assert TAX_TOOL_DEF == tax_snapshot
+    assert "cache_control" not in TAX_TOOL_DEF
+    assert SAVINGS_TOOL_DEF == savings_snapshot
+    assert "cache_control" not in SAVINGS_TOOL_DEF
+
+    sent_tools = client.messages.calls[0]["tools"]
+    assert "cache_control" not in sent_tools[0]
+    assert sent_tools[1]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_repeated_calls_with_the_same_original_tools_list_each_produce_exactly_one_cache_control():
+    """Guards against a subtler variant of the mutation bug: `run_agent_loop` passes the SAME
+    `tools` list object on every loop iteration - if `create_message` ever mutated it in place,
+    repeated calls would accumulate stale/duplicate `cache_control` keys instead of each call
+    independently producing a clean single breakpoint on the last tool."""
+    client = FakeClient(FakeResponseNoUsage())
+    tools = [{"name": "a"}, {"name": "b"}]
+
+    create_message(client, model="m", system="s", tools=tools, messages=[], max_tokens=100)
+    create_message(client, model="m", system="s", tools=tools, messages=[], max_tokens=100)
+
+    assert tools == [{"name": "a"}, {"name": "b"}]
+    for call in client.messages.calls:
+        sent_tools = call["tools"]
+        assert "cache_control" not in sent_tools[0]
+        assert sent_tools[1]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_messages_list_itself_is_not_mutated_by_create_message():
+    """`messages` is caller-owned conversation state (`agent_loop.py` keeps appending to it
+    across iterations) - `create_message` must only read it, not add/remove/reorder entries."""
+    client = FakeClient(FakeResponseNoUsage())
+    messages = [{"role": "user", "content": "hi"}]
+    snapshot = copy.deepcopy(messages)
+
+    create_message(client, model="m", system="s", tools=[], messages=messages, max_tokens=100)
+
+    assert messages == snapshot

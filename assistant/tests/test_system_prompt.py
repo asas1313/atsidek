@@ -43,3 +43,41 @@ def test_prompt_carries_over_prompt_injection_defense_clause():
     lowered = SYSTEM_PROMPT.lower()
     assert "duomenys" in lowered
     assert "nurodym" in lowered
+
+
+# --- QA follow-up: stronger, less tautology-prone checks -----------------------------------------
+
+def test_role_restriction_never_clause_is_specifically_about_numbers_not_merely_coincidental():
+    """`test_prompt_restricts_model_role_to_never_stating_numbers_itself` passes as long as
+    "niekada" and "skaičių"/"skaičius" each appear ANYWHERE in the prompt (they do, in 3 and 4
+    separate places respectively) - this test instead requires the two to appear close together,
+    so it would actually fail if the "never state a number" restriction were deleted while an
+    unrelated "niekada" (e.g. the investment-advice ban) stayed behind."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    # "niekada" followed within ~60 chars by a "skaiči*" word (same sentence/clause).
+    assert re.search(r"niekada.{0,60}skaiči\w*", lowered) or re.search(
+        r"skaiči\w*.{0,60}niekada", lowered
+    )
+
+
+def test_income_clause_specifically_forbids_guessing_from_statistics():
+    """The AC text explicitly calls out 'forbid assuming income' including FROM STATISTICS (a
+    real temptation - the savings tool's own assumptions can carry STATISTICS-origin values for
+    other fields) - must name "statistik" in the same breath as the income-guessing ban, not just
+    somewhere unrelated in the prompt."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert re.search(r"(nespėlio|neprielei)\w*.{0,60}pajam", lowered) or re.search(
+        r"pajam\w*.{0,80}statistik", lowered
+    )
+
+
+def test_prompt_explicitly_bans_approximate_or_illustrative_numbers_too_not_just_exact_ones():
+    """A model that says 'roughly 300 euros' while reserving exact figures for the template
+    would technically satisfy a looser 'never state A number' reading - the prompt must close
+    that loophole explicitly."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "apytikslio" in lowered or "iliustracinio" in lowered
