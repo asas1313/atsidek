@@ -84,8 +84,30 @@ class IvExtractionToolInput(BaseModel):
             raise ValueError("bool reikšmė neleidžiama skaitiniam laukui")
         return v
 
+    @field_validator("psd_menesiai", mode="before")
+    @classmethod
+    def _reject_non_int_for_psd_menesiai(cls, v):
+        # parse() reikalauja isinstance(months, int) and not isinstance(months, bool); be šios
+        # patikros pydantic tyliai konvertuotų float ("6.0") ir skaitmeninį str ("6") į 6, o
+        # parse() tokiais atvejais grąžina psd_months=None. Bool atmetamas aukščiau esančiu
+        # validatoriumi (eilės tvarka: šis nematys bool, nes jis vykdomas po to pirmo).
+        if v is not None and not isinstance(v, int):
+            raise ValueError("psd_menesiai turi būti int arba null, kaip ir parse()")
+        return v
+
+    @field_validator("pensiju_kaupimas", mode="before")
+    @classmethod
+    def _reject_non_bool_for_pensiju_kaupimas(cls, v):
+        # parse() reikalauja isinstance(pillar, bool); be šios patikros pydantic tyliai
+        # konvertuotų int (1/0) ir str ("true"/"yes") į True/False, o parse() tokiais atvejais
+        # grąžina pillar2=None.
+        if v is not None and not isinstance(v, bool):
+            raise ValueError("pensiju_kaupimas turi būti bool arba null, kaip ir parse()")
+        return v
+
 
 class ExtractionError(Exception):
+
     """Žinutė rodoma vartotojui."""
 
 
