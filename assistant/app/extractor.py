@@ -89,8 +89,8 @@ class IvExtractionToolInput(BaseModel):
     def _reject_non_int_for_psd_menesiai(cls, v):
         # parse() reikalauja isinstance(months, int) and not isinstance(months, bool); be šios
         # patikros pydantic tyliai konvertuotų float ("6.0") ir skaitmeninį str ("6") į 6, o
-        # parse() tokiais atvejais grąžina psd_months=None. Bool atmetamas aukščiau esančiu
-        # validatoriumi (eilės tvarka: šis nematys bool, nes jis vykdomas po to pirmo).
+        # parse() tokiais atvejais grąžina psd_months=None. Bool čia praleidžiamas (bool yra int
+        # potipis), bet jį vis tiek atmeta kitas, bendras validatorius (_reject_bool_for_numeric).
         if v is not None and not isinstance(v, int):
             raise ValueError("psd_menesiai turi būti int arba null, kaip ir parse()")
         return v
@@ -107,7 +107,6 @@ class IvExtractionToolInput(BaseModel):
 
 
 class ExtractionError(Exception):
-
     """Žinutė rodoma vartotojui."""
 
 
