@@ -31,6 +31,14 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 public class ChatController {
 
+    /**
+     * Review round 1 SHOULD #3: be šios ribos žinutės dydis buvo neribotas. Nėra Java pusės
+     * atitikmens pakartotinai naudoti (ne {@code eu.atsidek.goals} paketas - ten tokios konstantos
+     * nėra; ji yra tik Python pusėje, žr. {@code assistant/app/main.py}'s {@code MAX_LENGTH}) -
+     * reikšmė sąmoningai sutampa su ja dėl simetrijos, nes abi riboja tą pačią laisvo teksto žinutę.
+     */
+    static final int MAX_LENGTH = 1000;
+
     private final CurrentAppUser currentAppUser;
     private final SavingsPlanService savingsPlanService;
     private final ContextTokenService contextTokenService;
@@ -53,9 +61,28 @@ public class ChatController {
         if (message.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "message privalomas");
         }
+        if (message.length() > MAX_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "message per ilgas (daugiausia " + MAX_LENGTH + " simbolių)");
+        }
         UUID userId = currentAppUser.optionalId().orElse(null);
-        Tier tier = savingsPlanService.lockedFeatures(userId).isEmpty() ? Tier.PREMIUM : Tier.FREE;
-        String contextToken = contextTokenService.issue(userId, tier.name());
+        Tier tier = SavingsPlanService.deriveTier(savingsPlanService.lockedFeatures(userId));
+        String contextToken = issueContextToken(userId, tier);
         return assistantClient.chat(contextToken, message);
+    }
+
+    /**
+     * Review round 1 NIT #6: {@link ContextTokenService#issue} tyčia meta
+     * {@link IllegalStateException}, kai paslaptis nesukonfigūruota (fail closed) - be šio
+     * {@code catch}, ta žinutė (su konfigūracijos raktų pavadinimais) nutekėtų į HTTP atsakymą kaip
+     * žaliavinis stack trace. Čia verčiama į švarų, be detalių 500.
+     */
+    private String issueContextToken(UUID userId, Tier tier) {
+        try {
+            return contextTokenService.issue(userId, tier.name());
+        } catch (IllegalStateException misconfigured) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "AI pokalbio paslauga laikinai nesukonfigūruota.", misconfigured);
+        }
     }
 }

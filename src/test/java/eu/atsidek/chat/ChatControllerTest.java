@@ -130,6 +130,20 @@ class ChatControllerTest {
     }
 
     @Test
+    void messageOverMaxLengthIsRejectedWith400BeforeCallingAssistant() throws Exception {
+        // Review round 1 SHOULD #3: mirrors the Python assistant's /asistentas MAX_LENGTH cap
+        // (assistant/app/main.py) - there is no Java-side equivalent constant to reuse yet, so
+        // ChatController.MAX_LENGTH matches that same value (1000) for symmetry.
+        String tooLong = "a".repeat(ChatController.MAX_LENGTH + 1);
+        String body = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(Map.of("message", tooLong));
+
+        mvc.perform(post("/chat/send").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest());
+
+        verify(assistantClient, org.mockito.Mockito.never()).chat(anyString(), any());
+    }
+
+    @Test
     void surfacesWhateverThePythonSideReturns() throws Exception {
         when(assistantClient.chat(anyString(), anyString())).thenReturn(Map.of("reply", "ack"));
 
