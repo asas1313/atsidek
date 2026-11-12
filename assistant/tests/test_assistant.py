@@ -290,6 +290,22 @@ def test_savings_plan_client_sends_full_nested_body_with_java_matching_field_nam
     }
 
 
+def test_savings_plan_client_400_message_is_generic_not_numbers_specific():
+    """Review round 1 SHOULD #2: savings_plan()'s body also carries goal.type/goal.mode (free-form
+    strings, not just numbers like compare()'s body) - its own 400 message must not claim
+    "skaičius" (numbers) were rejected, unlike compare()'s message which fits its purely numeric
+    body."""
+    api = AtsidekApi("http://x", "k", httpx.MockTransport(lambda r: httpx.Response(400, text="{}")))
+    goal = {"type": "OTHER", "mode": "YEARS", "amount": "1"}
+
+    try:
+        api.savings_plan(goal, Decimal(1000), None, None, None, None)
+        assert False
+    except CalculatorError as e:
+        assert "skaičius" not in str(e)
+        assert "atmetė" in str(e)
+
+
 def test_savings_plan_client_errors():
     def api(status):
         return AtsidekApi("http://x", "k", httpx.MockTransport(lambda r: httpx.Response(status, text="{}")))

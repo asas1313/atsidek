@@ -132,7 +132,10 @@ class AtsidekApi:
         except httpx.HTTPError as e:
             raise CalculatorError("Nepavyko pasiekti skaičiuoklės paslaugos.") from e
         if resp.status_code == 400:
-            raise CalculatorError("Skaičiuoklė atmetė skaičius. Patikslink tekstą.", status_code=400)
+            # Review round 1 SHOULD #2: NOT compare()'s "skaičius" (numbers) wording - this body
+            # also carries goal.type/goal.mode (free-form strings, finding 3) and nested shape, so
+            # a 400 here may be a bad enum/shape, not just a bad number.
+            raise CalculatorError("Skaičiuoklė atmetė užklausą. Patikslink duomenis.", status_code=400)
         if resp.status_code != 200:
             raise CalculatorError(f"Skaičiuoklės paslauga grąžino klaidą (HTTP {resp.status_code}).",
                                   status_code=resp.status_code)
