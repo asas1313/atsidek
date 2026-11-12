@@ -25,10 +25,26 @@ class Calculator(Protocol):
     def compare(self, revenue: Decimal, actual_expenses: Optional[Decimal], other_income: Optional[Decimal],
                 pension_accumulation: bool, psd_min_months: int, context_token: Optional[str] = None) -> dict: ...
 
+    def savings_plan(self, goal: dict, net_monthly_income: Optional[Decimal],
+                      monthly_tax_setaside: Optional[Decimal], monthly_expenses: Optional[Decimal],
+                      household: Optional[dict], assumptions: Optional[dict],
+                      context_token: Optional[str] = None) -> dict: ...
+
 
 def _json_default(o):
     if isinstance(o, Decimal):
         return float(o)
+    raise TypeError(type(o))
+
+
+def _json_default_decimal_as_str(o):
+    """B2: tik SIAI savings_plan() kūno serializavimui - pinigų Decimal -> str, NE float (kaip
+    compare()'o _json_default aukščiau), kad išvengtų float apvalinimo paklaidos keliaujant per
+    JSON. Jackson'o BigDecimalDeserializer korektiškai priima tiek JSON skaičių, tiek JSON
+    eilutę deklaruotam BigDecimal laukui (SavingsPlanRequest), tad eilutė čia yra saugus,
+    tikslus pasirinkimas - vienoje vietoje, ne išskirstyta po kelis kvietimo taškus."""
+    if isinstance(o, Decimal):
+        return str(o)
     raise TypeError(type(o))
 
 
@@ -58,6 +74,53 @@ class AtsidekApi:
             resp = self._client.post(
                 "/api/v1/compare",
                 content=json.dumps(body, default=_json_default),
+                headers=headers,
+            )
+        except httpx.HTTPError as e:
+            raise CalculatorError("Nepavyko pasiekti skaičiuoklės paslaugos.") from e
+        if resp.status_code == 400:
+            raise CalculatorError("Skaičiuoklė atmetė skaičius. Patikslink tekstą.", status_code=400)
+        if resp.status_code != 200:
+            raise CalculatorError(f"Skaičiuoklės paslauga grąžino klaidą (HTTP {resp.status_code}).",
+                                  status_code=resp.status_code)
+        return json.loads(resp.text, parse_float=Decimal)
+
+    def savings_plan(self, goal: dict, net_monthly_income: Optional[Decimal],
+                      monthly_tax_setaside: Optional[Decimal], monthly_expenses: Optional[Decimal],
+                      household: Optional[dict], assumptions: Optional[dict],
+                      context_token: Optional[str] = None) -> dict:
+        """B2 (AC-B2-2..4): compare()'o šablono atkartojimas kitam Java endpoint'ui
+        (`POST /api/v1/savings/plan`, A3/ADR-0003). Skirtumai nuo compare():
+          * `goal`/`household`/`assumptions` siunčiami TIESIAI, kaip gauti - jau snake_case
+            žodynai (žr. B2 Pydantic schemą `savings_tool.py`), šis metodas jų TURINIO neliečia.
+          * `monthly_tax_setaside`/`monthly_expenses` NĖRA keičiami į 0, kai `None` - Java pati
+            žino, ką daryti su trūkstama reikšme (`SavingsPlanService.nz()` → 0 mokesčių
+            atidėjimui, `resolveMonthlyExpenses()` → iš `stat_defaults` išlaidoms; šis klientas
+            NEI vieno iš tų sprendimų neturi daryti pats, kad neuzurpuotų Java pusės logikos).
+          * `net_monthly_income` TURI būti privalomas pagal Java kontraktą (trūkstamas → 400) -
+            tai handler'io (ne šio klientų sluoksnio) atsakomybė visada jį rezultatyviai
+            nustatyti PRIEŠ šio metodo kvietimą (žr. B2-pairing-notes.md).
+          * pinigų reikšmės JSON kūne - eilutės, ne float (`_json_default_decimal_as_str`).
+        """
+        if not self.api_key:
+            raise CalculatorError("Skaičiuoklės paslauga nesukonfigūruota (trūksta ATSIDEK_API_KEY).")
+        body = {
+            "goal": goal,
+            "net_monthly_income": net_monthly_income,
+            "monthly_tax_setaside": monthly_tax_setaside,
+            "monthly_expenses": monthly_expenses,
+            "household": household,
+            "assumptions": assumptions,
+        }
+        # ADR-0003: tas pats elgesys kaip compare() - žetonas (jei yra) perduodamas NEPAKEISTAS;
+        # jo nebuvimas → antraštė visiškai nesiunčiama.
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        if context_token:
+            headers["X-Atsidek-Context-Token"] = context_token
+        try:
+            resp = self._client.post(
+                "/api/v1/savings/plan",
+                content=json.dumps(body, default=_json_default_decimal_as_str),
                 headers=headers,
             )
         except httpx.HTTPError as e:
