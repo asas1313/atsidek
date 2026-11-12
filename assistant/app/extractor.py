@@ -1,9 +1,10 @@
 """Laisvo teksto -> struktūra. Modelis tik supranta tekstą, mokesčių NESKAIČIUOJA."""
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional, Protocol
+from typing import Literal, Optional, Protocol
 
 import anthropic
+from pydantic import BaseModel, field_validator
 
 TOOL = "irasyti_iv_duomenis"
 
@@ -56,6 +57,53 @@ TOOL_DEF = {
     "description": "Įrašo iš vartotojo teksto ištrauktus individualios veiklos duomenis.",
     "input_schema": SCHEMA,
 }
+
+
+class IvExtractionToolInput(BaseModel):
+    """Pydantic mirror of SCHEMA above (B0, AC-B0-2) - Java-DTO-equivalent validation of the
+    structured dict Claude returns via tool_use, before it reaches the existing, unchanged
+    `parse()`. Field set/types/required-ness match SCHEMA exactly; no new fields, no behaviour
+    change to `parse()` itself.
+    """
+
+    pajamos_eur: Optional[float]
+    islaidos_eur: Optional[float]
+    islaidu_budas: Literal["faktines", "30_proc", "nezinoma"]
+    laikotarpis: str
+    kitos_pajamos_eur: Optional[float]
+    pensiju_kaupimas: Optional[bool]
+    psd_menesiai: Optional[int]
+    trukstama_info: list[str]
+
+    @field_validator("pajamos_eur", "islaidos_eur", "kitos_pajamos_eur", "psd_menesiai", mode="before")
+    @classmethod
+    def _reject_bool_for_numeric(cls, v):
+        # bool yra int potipis - pydantic v2 kitaip tylomis konvertuotų True/False į 1.0/0.0;
+        # atmetam, kad sutaptų su parse()/_num() semantika (žr. _num() komentarą žemiau).
+        if isinstance(v, bool):
+            raise ValueError("bool reikšmė neleidžiama skaitiniam laukui")
+        return v
+
+    @field_validator("psd_menesiai", mode="before")
+    @classmethod
+    def _reject_non_int_for_psd_menesiai(cls, v):
+        # parse() reikalauja isinstance(months, int) and not isinstance(months, bool); be šios
+        # patikros pydantic tyliai konvertuotų float ("6.0") ir skaitmeninį str ("6") į 6, o
+        # parse() tokiais atvejais grąžina psd_months=None. Bool čia praleidžiamas (bool yra int
+        # potipis), bet jį vis tiek atmeta kitas, bendras validatorius (_reject_bool_for_numeric).
+        if v is not None and not isinstance(v, int):
+            raise ValueError("psd_menesiai turi būti int arba null, kaip ir parse()")
+        return v
+
+    @field_validator("pensiju_kaupimas", mode="before")
+    @classmethod
+    def _reject_non_bool_for_pensiju_kaupimas(cls, v):
+        # parse() reikalauja isinstance(pillar, bool); be šios patikros pydantic tyliai
+        # konvertuotų int (1/0) ir str ("true"/"yes") į True/False, o parse() tokiais atvejais
+        # grąžina pillar2=None.
+        if v is not None and not isinstance(v, bool):
+            raise ValueError("pensiju_kaupimas turi būti bool arba null, kaip ir parse()")
+        return v
 
 
 class ExtractionError(Exception):

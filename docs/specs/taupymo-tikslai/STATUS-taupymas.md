@@ -67,3 +67,20 @@ Savininkas atsakė į visus 3 klausimus ir patvirtino A1–A5 vykdymą. Pilnas s
 7. B1: patikrinti, ar `revenue`/`total` metinės, prieš pridedant `net_monthly_income`.
 
 Toliau vykdoma A1–A5, kiekviena fazė atskiroje šakoje su testais ir PR (žr. `PLAN-taupymas-agentas.log.md`).
+
+## A dalis — pabaigta (2026-11-11)
+
+A0–A6 visos sumerge'intos į `main` (PR #32–#38), plius šalutinis radinys `/api/v1/compare`
+nežinomų JSON laukų priėmimo pataisymas (PR #39). A dalis veikia produkcijoje.
+
+**A1 DB-impact sprendimas (owner, 2026-11-12):** 3%→0% numatytosios grąžos keitimas priimamas
+be migracijos. Esami įrašai, kuriuose `assumptions.annualReturn IS NULL`, toliau skaitomi kaip
+0% (naudojant naująją numatytąją reikšmę), atgalinio užpildymo (backfill) nebus. Tai galutinis
+sprendimas, ne laukiantis.
+
+## B dalis — pradėta (2026-11-12)
+
+Planas: `docs/specs/taupymo-tikslai/PLAN-taupymas-agentas.B.plan.md`. Visi atviri klausimai
+atsakyti savininko 2026-11-12; žr. plano skyrių „Owner decisions (2026-11-12)“ ir
+`docs/adr/0003-ai-agent-python-java-service-identity.md` (Accepted). B0 vykdoma pirma; B1 Java
+dalis (kontekstinis token'as, chat endpoint'as) pradedama tik po B0 patvirtinimo.

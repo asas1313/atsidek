@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from .calculator import AtsidekApi, Calculator, CalculatorError
+from .extractor import TOOL as EXTRACT_TOOL_NAME
 from .extractor import ClaudeExtractor, ExtractionError, Extractor
 from .goals_extractor import (
     ClaudeGoalsExtractor,
@@ -24,6 +25,8 @@ from .goals_extractor import (
 from .goals_limiter import Decision as GoalsDecision
 from .goals_limiter import GoalsAiLimiter
 from .limiter import Decision, RateLimiter
+from .request_context import RequestContext
+from .tools import ToolRegistry
 
 MAX_LENGTH = 1000
 MAX_AMOUNT = Decimal("100000000")
@@ -58,13 +61,19 @@ def _invalid(v: Decimal) -> bool:
     return v < 0 or v > MAX_AMOUNT
 
 
-def analyse(text: str, extractor: Extractor, calculator: Calculator) -> dict:
-    """Grąžina šablono kontekstą: x (ką supratau), c (palyginimas), r (rodomas rezultatas) arba error."""
+def analyse(text: str, registry: ToolRegistry, calculator: Calculator, request_ctx: RequestContext) -> dict:
+    """Grąžina šablono kontekstą: x (ką supratau), c (palyginimas), r (rodomas rezultatas) arba error.
+
+    Ekstraktorius kviečiamas per `registry` pagal pavadinimą (B0 - įrankio registras), o ne
+    tiesiogiai; rezultatas papildomai saugomas `request_ctx` (B0 - vienos žinutės kontekstas).
+    Elgsena vartotojui nesikeičia - tai tik B1/B3 pravažiavimo vamzdynas.
+    """
     ctx: dict = {}
     try:
-        x = extractor.extract(text)
+        x = registry.dispatch(EXTRACT_TOOL_NAME, text)
     except ExtractionError as e:
         return {"error": str(e)}
+    request_ctx.store_result(x)
     ctx["x"] = x
     if x.revenue is None:
         return {**ctx, "error": "Be pajamų sumos paskaičiuoti negalima."}
@@ -107,6 +116,9 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
                                                                os.getenv("AI_MODEL", "claude-haiku-5-5"))
     goals_limiter = goals_limiter or GoalsAiLimiter(int(os.getenv("GOALS_AI_DAILY_LIMIT", "500")))
 
+    registry = ToolRegistry()
+    registry.register(EXTRACT_TOOL_NAME, extractor.extract)
+
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
     templates.env.filters["eur"] = eur
@@ -130,7 +142,10 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
         else:
             d = limiter.try_acquire(client_ip(request))
             if d is Decision.ALLOWED:
-                ctx.update(analyse(trimmed, extractor, calculator))
+                # Vienas RequestContext vienai gaunamai žinutei (B0 design decision 2) - niekada
+                # modulio lygio/bendras tarp užklausų.
+                request_ctx = RequestContext(user_id=None, tier="anonymous")
+                ctx.update(analyse(trimmed, registry, calculator, request_ctx))
             elif d is Decision.IP_LIMIT:
                 ctx["error"] = "Per daug užklausų iš tavo adreso. Pabandyk vėliau arba naudok skaičiuoklę."
             else:
