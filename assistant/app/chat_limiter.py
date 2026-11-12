@@ -66,8 +66,9 @@ class ChatLimiter:
         self._lock = threading.Lock()
         self._anon_day: date | None = None
         self._anon_count = 0
-        # key -> (day last used, count consumed that day)
-        self._user_counts: dict[str, tuple[date, int]] = {}
+        # key -> (day last used, count consumed that day); key=None is a legitimate bucket
+        # (truthy tier with no key supplied), not just a typing artifact.
+        self._user_counts: dict[Optional[str], tuple[date, int]] = {}
 
     def _tier_cap(self, tier: str) -> int:
         cap = self.tier_daily_caps.get(tier)

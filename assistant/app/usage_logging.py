@@ -13,7 +13,6 @@ and returned as a whole number of integer cents.
 """
 import json
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Union
 
 # claude-haiku-5-5 pricing, USD per MILLION tokens, as looked up 2026-11-12 from Anthropic's
 # pricing page (decision 8: the agent model is fixed to claude-haiku-5-5, no escalation, so no
@@ -34,6 +33,14 @@ _CENTS_PER_DOLLAR = Decimal(100)
 def _cost_cents(
     input_tokens: int, cache_creation_tokens: int, cache_read_tokens: int, output_tokens: int
 ) -> int:
+    for name, value in (
+        ("input_tokens", input_tokens),
+        ("cache_creation_tokens", cache_creation_tokens),
+        ("cache_read_tokens", cache_read_tokens),
+        ("output_tokens", output_tokens),
+    ):
+        if value < 0:
+            raise ValueError(f"{name} must not be negative, got {value}")
     dollars = (
         Decimal(input_tokens) / _MILLION * INPUT_RATE_PER_MILLION
         + Decimal(cache_creation_tokens) / _MILLION * CACHE_WRITE_RATE_PER_MILLION
@@ -51,7 +58,7 @@ def log_usage(
     cache_read_tokens: int,
     output_tokens: int,
     tool_call_count: int,
-    duration_ms: Union[int, float],
+    duration_ms: int | float,
 ) -> dict:
     """Builds one structured record (tokens, tool-call count, duration, cost in integer cents),
     writes it as a single JSON line to stdout (owner decision 9), and returns the record so
