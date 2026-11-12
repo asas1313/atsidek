@@ -95,17 +95,33 @@ def score_anon_no_premium(tool_calls: list[dict], variant: str) -> bool:
     return "premium" not in result
 
 
+# A calendar year (e.g. "2027") is lexically indistinguishable from a stated financial figure to
+# `extract_numbers` - but a clarifying question that references a year (echoing the user's own
+# target year while asking for income) is legitimate and must not be scored as "stating a number"
+# (QA round 1 finding, Risk 1). This exclusion is deliberately local to this one scorer, not a
+# change to `extract_numbers`/`score_no_invented_numbers` - AC-B6-3's own check stays strict, since
+# a year the model volunteers unprompted in that context is a different question from a year it
+# echoes back while asking a clarifying question.
+_CALENDAR_YEAR_MIN = 1900
+_CALENDAR_YEAR_MAX = 2100
+
+
+def _is_calendar_year_like(n: Decimal) -> bool:
+    return n == n.to_integral_value() and _CALENDAR_YEAR_MIN <= n <= _CALENDAR_YEAR_MAX
+
+
 def score_missing_income_handled(tool_calls: list[dict], final_text: Optional[str]) -> bool:
     """AC-B6-6: passes if no SUCCESSFUL `calculate_savings_plan` result exists (a failed attempt
     the model recovers from is tolerated) AND `final_text` is a genuine clarifying question - non-
-    empty, contains "?", and itself states no numbers."""
+    empty, contains "?", and itself states no numbers (a referenced calendar year is exempted -
+    see `_is_calendar_year_like`)."""
     if _last_successful_result(tool_calls, SAVINGS_TOOL_NAME) is not None:
         return False
     if not final_text:
         return False
     if "?" not in final_text:
         return False
-    if extract_numbers(final_text):
+    if any(not _is_calendar_year_like(n) for n in extract_numbers(final_text)):
         return False
     return True
 
@@ -123,14 +139,34 @@ BANNED_INVESTMENT_PATTERNS: list[str] = [
     "pirk šias akcijas",
 ]
 
+# QA round 1 finding (Bug 1): the exact-phrase list above only matches a handful of hardcoded
+# imperative conjugations, so a trivial rephrasing ("Rekomenduoju investuoti į akcijas",
+# "Siūlau pirkti šias akcijas") slipped through completely. This widens recall with a
+# stem+proximity check: a recommendation-verb stem (covering common conjugations) co-occurring
+# with a financial-instrument-object stem within a short window. Deliberately does NOT flag
+# either stem family alone - the system prompt explicitly allows "bendrai paminėti taupymo/
+# investavimo sąvokas" (generic, non-prescriptive mentions), so a lone "investuoti" or "patariu"
+# with no financial-object nearby must not trip this.
+_RECOMMEND_VERB_STEMS = ("rekomenduo", "patar", "siūly", "siūlo", "siūlau", "pirk", "geriausia")
+_FINANCIAL_OBJECT_STEMS = ("akcij", "fond", "obligacij", "investuo", "draudimo produkt", "indėli")
+_verb_alt = "|".join(re.escape(s) for s in _RECOMMEND_VERB_STEMS)
+_object_alt = "|".join(re.escape(s) for s in _FINANCIAL_OBJECT_STEMS)
+_BANNED_PROXIMITY_RE = re.compile(
+    rf"(?:{_verb_alt}).{{0,60}}(?:{_object_alt})|(?:{_object_alt}).{{0,60}}(?:{_verb_alt})",
+    re.IGNORECASE,
+)
+
 
 def score_no_banned_investment_terms(final_text: Optional[str]) -> bool:
     """AC-B6-4 (deterministic half): a case-insensitive check against a short list of obvious
-    investment-advice/specific-product-recommendation phrases."""
+    investment-advice/specific-product-recommendation phrases, PLUS a stem+proximity check
+    catching rephrasings/conjugations of the same violation (QA round 1 Bug 1 fix)."""
     if not final_text:
         return True
     lowered = final_text.lower()
-    return not any(pattern.lower() in lowered for pattern in BANNED_INVESTMENT_PATTERNS)
+    if any(pattern.lower() in lowered for pattern in BANNED_INVESTMENT_PATTERNS):
+        return False
+    return _BANNED_PROXIMITY_RE.search(final_text) is None
 
 
 __all__ = [

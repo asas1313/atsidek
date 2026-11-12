@@ -101,3 +101,60 @@ def test_every_case_has_a_non_empty_user_message():
     for c in CASES:
         assert isinstance(c.user_message, str)
         assert c.user_message.strip()
+
+
+# --- Additional structural coverage (QA pass) ------------------------------------------------------
+
+import re
+
+# A stated monthly-income figure typically looks like "<number> eurų per mėnesį" or
+# "grynosios/mėnesio/... pajamos (yra) <number>". The two AC-B6-6 cases are explicitly ALLOWED
+# (and in fact expected, per the plan's own case docstring) to say in words that income was not
+# disclosed (e.g. "bet nepasakiau, kiek užsidirbu") - that is the realistic phrasing of a missing-
+# income message, not a bug. What they must NOT do is accidentally also state a number that could
+# be mistaken for a monthly income figure.
+_INCOME_FIGURE = re.compile(r"\d[\d ]*\s*eur\w*\s*per\s*m[eė]nes", re.IGNORECASE)
+_INCOME_WORD_NEAR_NUMBER = re.compile(r"pajam\w*[^.]{0,20}\d|\d[^.]{0,20}pajam\w*", re.IGNORECASE)
+
+
+def test_missing_income_cases_state_no_income_figure():
+    """AC-B6-6: the 2 missing-income cases must give no net-income NUMBER (an explicit "I didn't
+    say my income" sentence is fine and expected - see module docstring); only the goal's own
+    amount/timeframe numbers should be present, so the agent genuinely has nothing to compute
+    income from and must ask instead of guessing."""
+    missing_income_cases = [c for c in CASES if c.expect_clarifying_question]
+    assert len(missing_income_cases) >= 2
+    for c in missing_income_cases:
+        assert not _INCOME_FIGURE.search(c.user_message), (
+            f"{c.id} states an income-per-month figure despite being a missing-income case: {c.user_message!r}"
+        )
+        assert not _INCOME_WORD_NEAR_NUMBER.search(c.user_message), (
+            f"{c.id} pairs an income word with a number despite being a missing-income case: {c.user_message!r}"
+        )
+
+
+_EUR_AMOUNT = re.compile(r"\d[\d ]*\s*eur")
+
+
+def test_combined_cases_state_at_least_two_distinct_euro_amounts():
+    """Confirms combined-group messages give enough information for a real agent to derive BOTH a
+    tax calculation (needs an income figure) AND a savings goal (needs a target amount) from the
+    SAME message - not just vague wording. A concrete, checkable proxy: at least two distinct
+    euro-denominated figures appear (income and goal target, at minimum)."""
+    for c in CASES:
+        if c.group != "combined":
+            continue
+        amounts = {m.group().strip() for m in _EUR_AMOUNT.finditer(c.user_message.lower())}
+        assert len(amounts) >= 2, f"{c.id} does not look like it states both an income and a goal amount: {c.user_message!r}"
+
+
+def test_tax_only_cases_state_at_least_one_euro_amount():
+    for c in CASES:
+        if c.group == "tax_only":
+            assert _EUR_AMOUNT.search(c.user_message.lower()), c.id
+
+
+def test_savings_only_non_missing_income_cases_state_at_least_one_euro_amount():
+    for c in CASES:
+        if c.group == "savings_only" and not c.expect_clarifying_question:
+            assert _EUR_AMOUNT.search(c.user_message.lower()), c.id

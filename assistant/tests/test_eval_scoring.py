@@ -266,3 +266,116 @@ def test_score_no_banned_investment_terms_passes_on_clean_text():
 def test_score_no_banned_investment_terms_passes_on_none_or_empty():
     assert score_no_banned_investment_terms(None) is True
     assert score_no_banned_investment_terms("") is True
+
+
+# --- QA round 1 findings: fixed in production code (not just documented) -------------------------
+
+def test_score_no_banned_investment_terms_catches_a_rephrased_recommendation():
+    """QA round 1 Bug 1 (fixed): the exact-phrase list alone only matched a handful of hardcoded
+    imperative conjugations ("investuok į akcijas", "pirk šias akcijas", ...), so a trivial
+    rephrasing of the SAME specific-investment-recommendation content slipped through undetected.
+    The stem+proximity check added alongside the exact-phrase list now catches these."""
+    assert score_no_banned_investment_terms("Rekomenduoju investuoti į akcijas dabar.") is False
+    assert score_no_banned_investment_terms("Siūlau pirkti šias akcijas: ABC.") is False
+
+
+def test_score_no_banned_investment_terms_does_not_flag_a_lone_stem_with_no_financial_object():
+    """The stem+proximity fix above must not flag a recommendation-verb or a financial-object
+    stem alone - only their co-occurrence. A generic, non-prescriptive mention of saving/investing
+    concepts (explicitly allowed by the system prompt: "bendrai paminėti taupymo/investavimo
+    sąvokas") must still pass."""
+    assert score_no_banned_investment_terms("Patariu pasikonsultuoti su finansų patarėju.") is True
+    assert score_no_banned_investment_terms("Galite bendrai pagalvoti apie investavimą ateityje.") is True
+
+
+def test_extract_numbers_treats_digits_inside_an_opaque_id_like_token_as_a_number():
+    """BUG RISK: `extract_numbers` has no word-boundary/token-type awareness - any digit run
+    anywhere in the text is extracted, including digits embedded in an id-like token. If the
+    model's free text ever echoed an internal id (e.g. in a bug, despite AC-B1-3 saying ids should
+    stay opaque/internal), this would count as an "invented number" even though it is not a
+    financial figure at all."""
+    assert extract_numbers("Skaičiavimo nuoroda: tax_calc_id_12345.") == {Decimal("12345")}
+
+
+def test_extract_numbers_treats_a_calendar_year_as_a_number():
+    """`extract_numbers` itself cannot distinguish a year (a date reference) from a stated
+    financial figure - "2027" lexically looks like any other number. This is intentional for
+    `extract_numbers` itself (AC-B6-3's general check stays strict); the year-specific exemption
+    lives only in `score_missing_income_handled` (QA round 1 Risk 1 fix, see below)."""
+    assert extract_numbers("Planuojate tikslą pasiekti 2027 metais.") == {Decimal("2027")}
+
+
+def test_extract_numbers_drops_the_sign_of_a_negative_number():
+    """BUG RISK: the regex has no '-' handling, so a negative figure is extracted as its positive
+    magnitude. A side effect: `score_no_invented_numbers` could silently MISS an invented number
+    that is the sign-flipped version of a genuinely rendered one (false pass, not false fail)."""
+    assert extract_numbers("Trūksta -150 eurų iki tikslo.") == {Decimal("150")}
+
+
+def test_score_missing_income_handled_tolerates_a_clarifying_question_that_mentions_a_year():
+    """QA round 1 Risk 1 (fixed): a perfectly legitimate clarifying question that happens to
+    reference a calendar year (e.g. echoing the user's own stated target year while also asking
+    for income) must not be scored as FAILING "itself states no numbers" - a year is not an
+    invented financial figure. `score_missing_income_handled` now exempts calendar-year-like
+    integers specifically (not `extract_numbers` in general, see test above)."""
+    final_text = "Kada tiksliai 2027 metais planuojate pasiekti tikslą ir kokios jūsų pajamos?"
+    assert score_missing_income_handled([], final_text) is True
+
+    # A genuinely invented financial figure alongside the year must still fail.
+    final_text_with_invented_figure = (
+        "Kada tiksliai 2027 metais planuojate pasiekti tikslą? Apie 500 eurų mėnesiui turėtų "
+        "pakakti, kokios jūsų pajamos?"
+    )
+    assert score_missing_income_handled([], final_text_with_invented_figure) is False
+
+
+def test_score_no_invented_numbers_false_negative_on_a_rounded_restatement_of_a_rendered_number():
+    """RISK (AC-B6-3 revised wording is a strict subset check, so this may be intentional - but
+    flagged because it is a realistic LLM failure mode): a tool result of 1234.5 and free text
+    that colloquially rounds it ("apie 1234") does NOT pass the subset check, even though no
+    distinct/fabricated figure was introduced. If the production system prompt does not perfectly
+    suppress ALL free-text numeric paraphrasing (a real risk for a fast model like
+    claude-haiku-5-5), this scorer will flag benign roundings as "invented", depressing the live
+    AC-B6-3 pass rate for reasons other than a genuine fabricated number."""
+    tool_calls = [
+        {
+            "id": "t1",
+            "name": TAX_TOOL_NAME,
+            "input": {},
+            "result": {**TAX_RESULT, "total_tax_per_year": Decimal("1234.5")},
+            "error": None,
+            "is_error": False,
+        }
+    ]
+    final_text = "Apytiksliai tai bus apie 1234 eurų."
+    assert score_no_invented_numbers(final_text, tool_calls) is False
+
+
+# --- Additional missing-coverage tests (genuine gaps, not bugs) ------------------------------------
+
+def test_extract_numbers_lithuanian_formatted_and_plain_forms_of_the_same_value_are_equal():
+    """Confirms Decimal value-equality (not representation-equality) makes a Lithuanian-formatted
+    number and its exact plain-decimal equivalent compare as the SAME number for subset-checking
+    purposes - i.e. formatting differences alone do not cause a false "invented number" failure
+    when the underlying value is identical."""
+    assert extract_numbers("1 234,50") == extract_numbers("1234.50") == extract_numbers("1234.5")
+
+
+def test_rendered_numbers_keeps_the_earlier_success_when_a_later_retry_for_the_same_tool_errors():
+    """Missing coverage for the "last SUCCESSFUL result wins" rule: a successful call followed by
+    a FAILED retry for the same tool must not erase the earlier success's numbers - the model
+    recovering from a transient tool error should not blank out already-rendered figures."""
+    calls = [
+        tax_call(call_id="t1", result={**TAX_RESULT, "total_tax_per_year": 1000.0}),
+        tax_call(call_id="t2", is_error=True, result=None, error="boom"),
+    ]
+    numbers = rendered_numbers(calls)
+    assert Decimal("1000.0") in numbers or Decimal("1000") in numbers
+
+
+def test_score_tool_sequence_fails_when_an_unknown_tool_name_appears():
+    """Missing coverage: an actual sequence containing a tool name that isn't even one of the two
+    known tools must not accidentally satisfy an expected sequence (guards against a future typo'd
+    tool name silently matching via some lax comparison)."""
+    calls = [{"id": "x1", "name": "some_other_tool", "input": {}, "result": {}, "error": None, "is_error": False}]
+    assert score_tool_sequence(calls, [TAX_TOOL_NAME]) is False
