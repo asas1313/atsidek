@@ -75,6 +75,17 @@ def test_income_clause_specifically_forbids_guessing_from_statistics():
     )
 
 
+def test_income_clause_uses_the_prielaidos_phrasing_specifically_not_just_nespelio():
+    """Round 2 review NIT: the two tests above only require "nespėlio" OR "prielaid" - since
+    "nespėlio" alone already satisfies both (it was present before AND after round 1's fix),
+    neither would actually fail if the "nedarai prielaidos apie vartotojo pajamas" clause itself
+    were deleted. This test makes that specific clause independently load-bearing."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert re.search(r"prielaid\w*.{0,40}pajam", lowered) or re.search(r"pajam\w*.{0,40}prielaid", lowered)
+
+
 def test_prompt_explicitly_bans_approximate_or_illustrative_numbers_too_not_just_exact_ones():
     """A model that says 'roughly 300 euros' while reserving exact figures for the template
     would technically satisfy a looser 'never state A number' reading - the prompt must close
