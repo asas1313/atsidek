@@ -24,7 +24,7 @@ class FakeExtractor:
 
 
 class FakeCalc:
-    def __init__(self, response=None, error=None):
+    def __init__(self, response=None, error=None, error_status_code=None):
         d = Decimal
         better = {"ruleYear": 2026, "method": "FLAT_30", "revenue": d(0), "expenses": d(0),
                   "taxableIncome": d(0), "gpm": d(0), "extraGpm": d(0), "vsd": d(0), "psd": d(0),
@@ -32,6 +32,7 @@ class FakeCalc:
                   "effectiveRate": d("0.25"), "netMonthlyIncome": d("458.79")}
         self.response = response or {"flat": better, "actual": better, "better": better}
         self.error = error
+        self.error_status_code = error_status_code
         self.calls = []
 
     def compare(self, revenue, actual_expenses, other_income, pension_accumulation, psd_min_months,
@@ -39,7 +40,7 @@ class FakeCalc:
         self.calls.append((revenue, actual_expenses, other_income, pension_accumulation, psd_min_months,
                             context_token))
         if self.error:
-            raise CalculatorError(self.error)
+            raise CalculatorError(self.error, status_code=self.error_status_code)
         return self.response
 
 
@@ -106,3 +107,29 @@ def test_calculator_error_is_surfaced_as_502():
     r = c.post("/internal/chat", json={"message": "Gavau 1000 €"})
 
     assert r.status_code == 502
+
+
+def test_message_over_max_length_is_rejected_with_400_before_calling_extractor():
+    """Review round 1 SHOULD #2: /internal/chat has no length cap today, unlike /asistentas's
+    MAX_LENGTH check - this reuses that SAME constant/value, not a second copy of 1000."""
+    extractor = FakeExtractor(Extraction(revenue=Decimal("1000")))
+    calc = FakeCalc()
+    c = client(extractor=extractor, calc=calc)
+
+    r = c.post("/internal/chat", json={"message": "a" * 1001})
+
+    assert r.status_code == 400
+    assert extractor.texts == []
+    assert calc.calls == []
+
+
+def test_calculator_error_carrying_javas_400_status_is_surfaced_as_400_not_502():
+    """Review round 1 SHOULD #2: a Java-side 400 (bad input, e.g. out-of-range PSD months) is a
+    client-input problem, not an upstream-service failure - must map to 400, not the generic 502
+    used for unreachable/5xx Java responses."""
+    calc = FakeCalc(error="Skaičiuoklė atmetė skaičius. Patikslink tekstą.", error_status_code=400)
+    c = client(Extraction(revenue=Decimal("1000")), calc)
+
+    r = c.post("/internal/chat", json={"message": "Gavau 1000 €"})
+
+    assert r.status_code == 400

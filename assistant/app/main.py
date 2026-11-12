@@ -179,6 +179,10 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
         text = (body.message or "").strip()
         if not text:
             raise HTTPException(400, "message privalomas")
+        # Ta pati MAX_LENGTH riba kaip /asistentas (review round 1 SHOULD #2) - NE antra kopija su
+        # savo skaičiumi, kad abu limitai negalėtų kada nors nebesutapti.
+        if len(text) > MAX_LENGTH:
+            raise HTTPException(400, f"Tekstas per ilgas (daugiausia {MAX_LENGTH} simbolių).")
         # Vienas RequestContext vienai gaunamai žinutei (B0 design decision 2), kaip ir /asistentas.
         request_ctx = RequestContext(user_id=None, tier="anonymous")
         try:
@@ -197,6 +201,12 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
         try:
             tool_result = registry.dispatch(TAX_TOOL_NAME, tool_input, request_ctx, token)
         except CalculatorError as e:
+            # Review round 1 SHOULD #2: Java 400 (atmetė įvestį - kliento problema) != Java
+            # nepasiekiama/5xx (upstream problema). CalculatorError.status_code == 400 ŽINOMAS
+            # atvejis, kai Java aiškiai pasakė "bloga įvestis" - visa kita (None = tinklo klaida/
+            # nesukonfigūruota, arba kitas HTTP kodas) laikoma upstream klaida, kaip ir anksčiau.
+            if e.status_code == 400:
+                raise HTTPException(400, str(e)) from e
             raise HTTPException(502, str(e)) from e
         return {"reply": "ack", "tool_result": tool_result}
 

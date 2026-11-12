@@ -7,7 +7,18 @@ import httpx
 
 
 class CalculatorError(Exception):
-    """Žinutė rodoma vartotojui."""
+    """Žinutė rodoma vartotojui.
+
+    `status_code` (review round 1 SHOULD #2) nešioja Java pusės HTTP statusą, KAI jis žinomas -
+    400, jei Java ATMETĖ įvestį (kliento duomenų problema), arba Java grąžinto klaidos kodo
+    reikšmę kitiems ne-200 atsakymams. `None` reiškia "Java nepasiekiama" (tinklo klaida) arba
+    "paslauga nesukonfigūruota" - šiais atvejais skambinantis kodas (žr. `main.py`
+    `/internal/chat`) tai laiko upstream klaida (502), NE kliento klaida.
+    """
+
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class Calculator(Protocol):
@@ -52,7 +63,8 @@ class AtsidekApi:
         except httpx.HTTPError as e:
             raise CalculatorError("Nepavyko pasiekti skaičiuoklės paslaugos.") from e
         if resp.status_code == 400:
-            raise CalculatorError("Skaičiuoklė atmetė skaičius. Patikslink tekstą.")
+            raise CalculatorError("Skaičiuoklė atmetė skaičius. Patikslink tekstą.", status_code=400)
         if resp.status_code != 200:
-            raise CalculatorError(f"Skaičiuoklės paslauga grąžino klaidą (HTTP {resp.status_code}).")
+            raise CalculatorError(f"Skaičiuoklės paslauga grąžino klaidą (HTTP {resp.status_code}).",
+                                  status_code=resp.status_code)
         return json.loads(resp.text, parse_float=Decimal)
