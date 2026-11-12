@@ -329,6 +329,28 @@ def test_score_no_banned_investment_terms_does_not_flag_an_advisor_referral_phra
     ) is True
 
 
+def test_score_no_banned_investment_terms_a_real_violation_is_not_shielded_by_an_adjacent_advisor_clause():
+    """Review round 3 BLOCKER (fixed): the round-2 own-span-containment check had a
+    false-negative hole caused by `_BANNED_PROXIMITY_RE`'s greedy `.{0,60}` backtracking - a
+    genuine, standalone violation ("Rekomenduoju akcijas.") immediately followed by an unrelated
+    advisor-referral clause about a DIFFERENT instrument ("Pasitarkite su patarėju dėl fondų.")
+    got merged into ONE `finditer` match spanning both clauses, and because that merged span then
+    contained the advisor noun, the real violation was silently suppressed. Fixed by scoring each
+    sentence/clause (split on ".", "!", "?", ";") independently, so an advisor-referral clause
+    can no longer absorb an adjacent, unrelated violation clause into the same match - verified
+    both with and without a space after the sentence-ending period, and with the violation
+    appearing either before or after the referral clause."""
+    assert score_no_banned_investment_terms(
+        "Rekomenduoju akcijas. Pasitarkite su patarėju dėl fondų."
+    ) is False
+    assert score_no_banned_investment_terms(
+        "Rekomenduoju akcijas.Pasitarkite su patarėju dėl fondų."
+    ) is False
+    assert score_no_banned_investment_terms(
+        "Pasitarkite su patarėju dėl fondų. Rekomenduoju akcijas dabar!"
+    ) is False
+
+
 def test_score_no_banned_investment_terms_residual_false_negative_on_verta_phrasing():
     """KNOWN, ACCEPTED GAP (review round 1 SHOULD, not fixed): "verta investuoti į akcijas" (a
     direct, prescriptive recommendation) is caught by neither the exact-phrase list nor any
