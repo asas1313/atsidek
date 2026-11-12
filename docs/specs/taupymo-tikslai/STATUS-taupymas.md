@@ -154,9 +154,9 @@ jokios verifikavimo galimybės — tyčia, per sprendimą #1.
 
 ## B4 dalis — pabaigta (branch `feat/taupymas-agentas-b4`, PR pending)
 
-Šaka `feat/taupymas-agentas-b4` (nuo b3). Review round 1: CHANGES REQUESTED (3× SHOULD, 1× NIT —
-visi pataisyti žemiau aprašytais pakeitimais). Round 2: CHANGES REQUESTED (1× SHOULD — šio skyriaus
-ankstesnė, neteisinga „patvirtinta" formuluotė; pataisyta šia versija). Kas pristatyta:
+Šaka `feat/taupymas-agentas-b4` (nuo b3), patvirtinta per 3 review raundus (round 1: CHANGES
+REQUESTED, 3× SHOULD + 1× NIT; round 2: CHANGES REQUESTED, 1× SHOULD + 1× NIT, visi pataisyti
+žemiau aprašytais pakeitimais; round 3: APPROVED). Kas pristatyta:
 
 - `assistant/app/response_builder.py` — deterministinis atsakymo surinkimas iš
   `AgentLoopResult.tool_calls` (AC-B4-1): tvarka mokesčiai → laisvi pinigai → tikslas → prielaidos
