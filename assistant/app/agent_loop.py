@@ -12,14 +12,16 @@ history is Java's job (`HttpSession`, B5 decision 7) - this module accepts an op
 of prior text turns to prepend, but never stores anything itself; `RequestContext` stays scoped
 to one call exactly as B0 designed it.
 
-Claude-calling code lives directly here for now (NOT in a separate `agent_client.py` - that name
-is reserved for B4's prompt-caching `cache_control` wiring, which will likely refactor this).
+Claude-calling code now lives in `agent_client.create_message` (B4's prompt-caching
+`cache_control` wiring) - this module calls through it instead of `client.messages.create(...)`
+directly.
 """
 import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
+from .agent_client import create_message
 from .errors import ToolError
 from .request_context import RequestContext
 from .tools import ToolRegistry
@@ -224,16 +226,19 @@ def run_agent_loop(
     # Explicit `while`-style bounded loop with a step counter (plan Design decision 1), not
     # recursion - the simplest way to make AC-B3-1's limit trivially correct and testable.
     for _ in range(max_iterations):
-        response = client.messages.create(
+        # `tool_choice` deliberately OMITTED (plan Design decision 2): the Anthropic SDK's
+        # default is "auto", letting the model choose freely among tools across turns and
+        # terminate the loop itself by returning a turn with no tool_use blocks. This is the
+        # core shift away from extractor.py's forced single-tool `tool_choice`. `create_message`
+        # (B4) wraps `system`/`tools` with prompt-caching `cache_control` breakpoints before
+        # calling through to the real client.
+        response = create_message(
+            client,
             model=model,
-            max_tokens=DEFAULT_MAX_TOKENS,
             system=system,
             tools=tools,
             messages=messages,
-            # `tool_choice` deliberately OMITTED (plan Design decision 2): the Anthropic SDK's
-            # default is "auto", letting the model choose freely among tools across turns and
-            # terminate the loop itself by returning a turn with no tool_use blocks. This is the
-            # core shift away from extractor.py's forced single-tool `tool_choice`.
+            max_tokens=DEFAULT_MAX_TOKENS,
         )
         assistant_content = [_content_block_to_dict(b) for b in response.content]
         messages.append({"role": "assistant", "content": assistant_content})
