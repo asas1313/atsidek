@@ -53,7 +53,7 @@ currently tolerates into a hard failure), and AC-B0-4 requires B0 to leave exist
 unchanged. Wiring `IvExtractionToolInput` into the live path is deferred to whichever later
 phase (B1+) actually needs it enforced for real traffic.
 
-### B1 — `calculate_iv_taxes` tool
+### B1 — `calculate_iv_taxes` tool — **DONE** (branch `feat/taupymas-agentas-b1`, approved after 2 review rounds; see `STATUS-taupymas.md`)
 
 | AC | Criterion | Test(s) |
 |----|-----------|---------|
@@ -142,7 +142,7 @@ report is a **pass rate** per case/group, not a single pass/fail.
 
 **Depends on:** nothing (A dalis only). **Blocks:** B1, B3.
 
-### B1 — `feat/taupymas-agentas-b1` (autonomous; Java chat-endpoint/token part starts only after B0 is approved)
+### B1 — `feat/taupymas-agentas-b1` (autonomous; Java chat-endpoint/token part starts only after B0 is approved) — **DONE**
 
 1. Java: add the confirmed-annual-income-derived monthly net income field directly to
    `TaxResult`/`/api/v1/compare`'s response (owner decision 5), computed as

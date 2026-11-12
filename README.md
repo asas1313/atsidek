@@ -28,6 +28,12 @@ Asistentas yra atskiras servisas (`assistant/`, FastAPI + Anthropic SDK). Puslap
 
 Lokaliai: `cd assistant && python -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt && python -m pytest`.
 
+Naujas Java endpoint'as `POST /chat/send` (`eu.atsidek.chat`) kviečia asistento servisą viduje
+(`assistant`'s `POST /internal/chat`), tapatybę perduodamas trumpai galiojančiu, Java pasirašytu
+kontekstiniu token'u pagal ADR-0003 (`docs/adr/0003-ai-agent-python-java-service-identity.md`) –
+Python jo niekada neverifikuoja, tik relay'ina atgal į Java. Reikalingas `ATSIDEK_CHAT_TOKEN_SECRET`
+aplinkos kintamasis (be jo token'o issue/verify fail-closed uždaro endpoint'ą); žr. DEPLOY.md.
+
 Vartotojas savais žodžiais aprašo situaciją (pvz. „Gavau 2400 € už projektą, išlaidų turėjau apie 300“) ir be registracijos gauna rezultatą tokio paties stiliaus kortelėmis kaip skaičiuoklėje: „Ką supratau“ (ištraukti duomenys ir ko trūksta), „Rezultatas“ (GPM, VSD, PSD, kiek atsidėti per mėnesį, 30 % ir faktinių išlaidų palyginimas). Senoji skaičiuoklė su laukais perkelta į `/skaiciuokle`.
 
 **Pagrindinė taisyklė: modelis niekada neskaičiuoja mokesčių.** Claude (`assistant/app/extractor.py`, priverstinis `tool_use` su griežta schema) tik supranta tekstą ir užpildo laukus; skaičiuoja deterministinis `TaxEngine` per `/api/v1/compare` – tas pats, kaip skaičiuoklėje. Dėl to rezultatas patikrinamas ir atkartojamas, o vartotojas mato, ką modelis suprato.

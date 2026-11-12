@@ -84,3 +84,32 @@ Planas: `docs/specs/taupymo-tikslai/PLAN-taupymas-agentas.B.plan.md`. Visi atvir
 atsakyti savininko 2026-11-12; žr. plano skyrių „Owner decisions (2026-11-12)“ ir
 `docs/adr/0003-ai-agent-python-java-service-identity.md` (Accepted). B0 vykdoma pirma; B1 Java
 dalis (kontekstinis token'as, chat endpoint'as) pradedama tik po B0 patvirtinimo.
+
+## B1 dalis — pabaigta (2026-11-12)
+
+Šaka `feat/taupymas-agentas-b1`, patvirtinta per 2 review raundus. Kas pristatyta:
+
+- `TaxResult.netMonthlyIncome = (revenue - total) / 12` — naujas laukas `/api/v1/compare`
+  atsakyme (savininko sprendimas #5).
+- `ContextTokenService` (`eu.atsidek.auth`) — JDK-only HMAC-SHA256 pasirašytas kontekstinis
+  token'as pagal ADR-0003, 5 min. TTL, fail-closed, jei paslaptis tuščia. Naujas konfigūracijos
+  kintamasis `atsidek.chat.context-token-secret` / `ATSIDEK_CHAT_TOKEN_SECRET` (būtinas, kad
+  `/chat/send` veiktų; dokumentuota `DEPLOY.md`).
+- `/api/v1/compare` ir `/api/v1/savings/plan` priima nebūtiną antraštę
+  `X-Atsidek-Context-Token`: nesant jos — senas elgesys nesikeičia; esant galiojančiai — tapatybė
+  priimama, bet `tier` visada iš naujo nustatomas serveryje per `EntitlementService` (niekada ne
+  iš token'o); esant negaliojančiai — atmetama.
+- Naujas Java endpoint'as `POST /chat/send` (`eu.atsidek.chat`): sukuria token'ą, kviečia Python
+  `assistant` servisą (`atsidek.assistant.base-url`, pagal nutylėjimą `http://assistant:8000`,
+  10 s connect/read timeout per `atsidek.assistant.timeout-ms`), persiunčia Python atsakymą.
+  Reikalaujamas CSRF, leidžiama anonimams ir prisijungusiems, žinutė ribojama 1000 simbolių.
+- Python: naujas įrankis `calculate_iv_taxes` (`assistant/app/tax_tool.py`), registruotas B0
+  įrankių registre, naudoja esamą `AtsidekApi.compare()`, perduoda kontekstinį token'ą
+  nepakeistą (tik relay, nepatikrina). Naujas `POST /internal/chat` (`assistant/app/main.py`)
+  nukreipia į įrankių registrą; esamas `/asistentas` nepakeistas.
+- Testai: Java 312 / 0 nepavyko (su Docker/Testcontainers, tikra Postgres), Python 92 / 0
+  nepavyko. `make lint`/`make security` šiame repo tebėra tuščios komandos (nekonfiguruota).
+
+**Architektūrinis faktas B2+ fazėms:** Java dabar yra priekinis AI chat'o sluoksnis pagal
+ADR-0003 (mint'ina ir verifikuoja kontekstinį token'ą); Python yra grynas token'o relay, be
+jokios verifikavimo galimybės — tyčia, per sprendimą #1.
