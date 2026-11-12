@@ -147,6 +147,15 @@ class TaxEngineTest {
     }
 
     @Test
+    void netMonthlyIncomeGoesNegativeAndUnclampedWhenFixedCostsExceedRevenue() {
+        // Owner decision 5: netMonthlyIncome = (revenue - total) / 12, literally, no clamping to
+        // zero - net taikant mažas pajamas, PSD minimumas (12 mėn.) vienas viršija visas pajamas.
+        TaxResult r = engine.calculate(flat("1000", "0", false));
+        assertEquals(d("1079.64"), r.total(), "sanity: total viršija revenue šiame scenarijuje");
+        assertEquals(d("-6.64"), r.netMonthlyIncome());
+    }
+
+    @Test
     void minimumPsdOnlyForSelectedMonths() {
         // 12 000 €: PSD nuo pajamų (≈ 527 €) mažesnė už minimumą, todėl minimumas lemia sumą
         TaxResult all = engine.calculate(flat("12000", "0", false));
