@@ -31,8 +31,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 /**
  * {@code POST /api/v1/savings/plan} (PLAN-taupymas-agentas.md A3/A4). Reikalingas realus PostgreSQL
- * (Testcontainers) - {@code StatDefaultsService}/{@code EntitlementService} skaito iš DB; šio
- * sandbox'o aprašyme ŽINOMA, kad šis testas šičia NEĮVYKDOMAS (nėra Docker) - žr. agent'o ataskaitą.
+ * (Testcontainers) - {@code StatDefaultsService}/{@code EntitlementService} skaito iš DB.
  * Teisėms naudojamos TIKROS {@code entitlement} eilutės konkrečiam naudotojui (ne globalus beta
  * flag'as), kad testai nepriklausytų nuo {@code EntitlementService} ~30s talpyklos lango tarp testų
  * (žr. {@code SavingsGoalControllerTest} tą pačią pastabą).
@@ -180,6 +179,22 @@ class SavingsPlanApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tier").value("PREMIUM"))
                 .andExpect(jsonPath("$.locked_features", org.hamcrest.Matchers.empty()));
+    }
+
+    @Test
+    void contextTokenPremiumClaimIsIgnoredTierIsAlwaysReDerivedFromEntitlementService() throws Exception {
+        // Vartotojas TURI appUserId (žetonas teisėtas), bet NETURI JOKIŲ entitlement eilučių -
+        // žetonas melagingai teigia "PREMIUM", bet atsakymas privalo rodyti FREE su užrakintomis
+        // funkcijomis, nes tier'as visada perskaičiuojamas iš EntitlementService, o ne skaitomas iš
+        // žetono (žetonas - tik tapatybės relė, ne teisių šaltinis, žr. ADR-0003).
+        AppOidcUser user = userWithoutAccess("token-no-access");
+        String token = new ContextTokenService(TOKEN_SECRET, clock).issue(user.appUserId(), "PREMIUM");
+
+        planWithToken(token, YEARS_REQUEST)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tier").value("FREE"))
+                .andExpect(jsonPath("$.locked_features", org.hamcrest.Matchers.containsInAnyOrder(
+                        "SAVINGS_MULTI_GOAL", "SAVINGS_IV_LINK", "SAVINGS_SCENARIOS")));
     }
 
     @Test

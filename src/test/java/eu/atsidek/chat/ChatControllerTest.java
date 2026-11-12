@@ -112,6 +112,16 @@ class ChatControllerTest {
     }
 
     @Test
+    void missingCsrfTokenIsRejectedWith403DespitePermitAll() throws Exception {
+        // ĖJA testai aukščiau visi su .with(csrf()) - įrodo, kad permitAll() autorizacijai NEATŠAUKIA
+        // CSRF apsaugos (ji - kitas sluoksnis, žr. ADR-0003/PLAN-taupymas-agentas.B.plan.md B1).
+        mvc.perform(post("/chat/send").contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"Labas\"}"))
+                .andExpect(status().isForbidden());
+
+        verify(assistantClient, org.mockito.Mockito.never()).chat(anyString(), any());
+    }
+
+    @Test
     void blankMessageIsRejectedWith400BeforeCallingAssistant() throws Exception {
         mvc.perform(post("/chat/send").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"   \"}"))
                 .andExpect(status().isBadRequest());

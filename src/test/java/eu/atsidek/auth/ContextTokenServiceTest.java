@@ -100,6 +100,17 @@ class ContextTokenServiceTest {
     }
 
     @Test
+    void tokenIsRejectedAtTheExactExpiryInstantNotJustAfterIt() {
+        ContextTokenService issuer = service(SECRET, NOW);
+        String token = issuer.issue(UUID.randomUUID(), "PREMIUM");
+
+        // exp == now (ribinis atvejis, be kokio nors papildomos sekundės toleranciją) - "exp"
+        // reiškia "neveikia nuo šio momento", tad == turi būti atmesta, ne priimta.
+        ContextTokenService verifierAtExactExpiry = service(SECRET, NOW.plus(Duration.ofMinutes(5)));
+        assertThat(verifierAtExactExpiry.verify(token)).isEmpty();
+    }
+
+    @Test
     void issueWithoutSecretFailsLoudlyInsteadOfSilentlyUsingAnEmptySecret() {
         ContextTokenService svc = service("", NOW);
         assertThatThrows(() -> svc.issue(UUID.randomUUID(), "FREE"));
