@@ -17,6 +17,19 @@ modules, not here, to avoid errors.py importing FROM the modules that import err
 class ToolError(Exception):
     """Base class for all defined, model-recoverable tool-handler errors (B2/B3)."""
 
+    @property
+    def tool_message(self) -> str:
+        """Text relayed to the model inside B3's `is_error` tool_result block (agent_loop.py).
+
+        Defaults to `str(self)` - correct for every subclass whose constructor message is
+        ALREADY written as an instruction to the model (e.g. `MissingIncomeError`). A subclass
+        whose message was written for a different reader (e.g. `CalculatorError`, B1-era
+        human-facing UI text) overrides this property instead of its `__str__`, so that other,
+        non-agent callers of the same exception (`main.py`'s direct `/asistentas` endpoint)
+        keep seeing the original human-facing wording unchanged.
+        """
+        return str(self)
+
 
 class UnknownResultError(ToolError):
     """Raised when looking up a result id that was never stored in this turn's RequestContext.

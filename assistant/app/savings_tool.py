@@ -31,6 +31,100 @@ MISSING_INCOME_MESSAGE = (
 )
 
 
+def _nullable(t: str, description: str) -> dict:
+    return {"type": [t, "null"], "description": description}
+
+
+# Hand-written, NOT auto-generated from the Pydantic models below (B3 task notes): Pydantic's
+# model_json_schema() on CalculateSavingsPlanInput produces $defs/$ref for the nested
+# Goal/Household/Assumptions models, which Claude's tool-calling `input_schema` does not reliably
+# accept - so each nested shape gets its own flat, hand-written schema dict instead, following
+# extractor.py's SCHEMA/TOOL_DEF precedent. Field names/enums are cross-checked against the
+# corresponding Pydantic models by test_savings_tool.py.
+GOAL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {
+            "type": "string",
+            "enum": ["CHILD", "CAR", "HOME_DOWN_PAYMENT", "OTHER"],
+            "description": "Taupymo tikslo tipas.",
+        },
+        "mode": {
+            "type": "string",
+            "enum": ["YEARS", "DATE", "CHILD_AGE", "WHEN"],
+            "description": (
+                "Kaip apibrėžtas terminas: YEARS (metų skaičius), DATE (konkreti data), "
+                "CHILD_AGE (vaiko amžius), WHEN (klausiama, kada bus sukaupta)."
+            ),
+        },
+        "amount": {"type": "number", "description": "Tikslo suma eurais. Privaloma."},
+        "years": _nullable("integer", "Metų skaičius iki tikslo, kai mode=YEARS."),
+        "target_year": _nullable("integer", "Tikslo metai, kai mode=DATE."),
+        "target_month": _nullable("integer", "Tikslo mėnuo (1-12), kai mode=DATE."),
+        "child_current_age": _nullable("integer", "Vaiko amžius dabar, kai mode=CHILD_AGE."),
+        "child_target_age": _nullable("integer", "Vaiko amžius tikslo momentu, kai mode=CHILD_AGE."),
+        "monthly_contribution": _nullable(
+            "number", "Mėnesinė įmoka eurais, kai mode=WHEN (klausiama, kada bus sukaupta)."),
+    },
+    "required": ["type", "mode", "amount"],
+}
+
+HOUSEHOLD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "adults": _nullable("integer", "Suaugusių namų ūkio narių skaičius."),
+        "children": _nullable("integer", "Vaikų namų ūkio narių skaičius."),
+    },
+    "required": [],
+}
+
+ASSUMPTIONS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "annual_return_pct": _nullable("number", "Metinė investicijų grąža procentais (pvz. 3.5)."),
+        "annual_inflation_pct": _nullable("number", "Metinė infliacija procentais (pvz. 2.5)."),
+    },
+    "required": [],
+}
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "goal": GOAL_SCHEMA,
+        "monthly_expenses": _nullable("number", "Mėnesinės namų ūkio išlaidos eurais. null, jei nežinoma."),
+        "household": HOUSEHOLD_SCHEMA,
+        "assumptions": ASSUMPTIONS_SCHEMA,
+        "tax_calc_id": {
+            "type": ["string", "null"],
+            "description": (
+                "Ankstesnio calculate_iv_taxes kvietimo grąžintas tax_calc_id, iš kurio paimamos "
+                "grynosios mėnesio pajamos. Naudok ARBA šitą, ARBA net_monthly_income - NIEKADA "
+                "abu vienu metu. Jei nei vieno neturi, NESPĖLIOK pajamų - paklausk vartotojo arba "
+                "pirmiau iškviesk calculate_iv_taxes."
+            ),
+        },
+        "net_monthly_income": {
+            "type": ["number", "null"],
+            "description": (
+                "Vartotojo paties nurodytos grynosios mėnesio pajamos eurais, kai nėra "
+                "tax_calc_id. Naudok ARBA šitą, ARBA tax_calc_id - NIEKADA abu vienu metu."
+            ),
+        },
+    },
+    "required": ["goal"],
+}
+
+TOOL_DEF = {
+    "name": TOOL_NAME,
+    "description": (
+        "Paskaičiuoja taupymo planą tikslui pagal grynąsias mėnesio pajamas, išlaidas ir namų "
+        "ūkio sudėtį. Pajamas nustato TIK per tax_calc_id arba net_monthly_income - niekada "
+        "nespėlioja jų pats."
+    ),
+    "input_schema": SCHEMA,
+}
+
+
 class GoalInput(BaseModel):
     """Mirrors `SavingsPlanRequest.GoalRequest` (Java) field-for-field.
 

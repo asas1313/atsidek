@@ -20,11 +20,31 @@ class CalculatorError(ToolError):
     Subclasses `ToolError` (review round 1 SHOULD #1): a Java-side 400/5xx or a misconfigured
     client is model-recoverable (B3's agent loop is meant to catch it and produce an `is_error`
     tool_result block), not a bug that should crash the turn.
+
+    `tool_message` (review round 2, B3 round-1 SHOULD #2) overrides the base class: `message`
+    above was written B1-era for a human reading `/asistentas`'s free-text result after typing a
+    bad number ("patikslink tekstą") - that framing doesn't fit a model that constructed the
+    tool call itself from structured arguments. The model-facing override below is actionable
+    instead: it tells the model what Java's response means and what to do next, without
+    changing `message`/`str(self)`, which `main.py`'s direct human-facing path still relies on.
     """
 
     def __init__(self, message: str, status_code: Optional[int] = None):
         super().__init__(message)
         self.status_code = status_code
+
+    @property
+    def tool_message(self) -> str:
+        if self.status_code == 400:
+            return (
+                "Skaičiuoklė atmetė užklausos duomenis. Patikrink, ar teisingai supratai "
+                "vartotojo pateiktus skaičius ir tikslo parametrus; jei reikia, paklausk "
+                "vartotojo patikslinti. Nebandyk paskaičiuoti pats."
+            )
+        return (
+            "Skaičiuoklės paslauga šiuo metu nepasiekiama arba nesukonfigūruota. Informuok "
+            "vartotoją, kad reikės pabandyti vėliau. Nebandyk paskaičiuoti pats."
+        )
 
 
 class Calculator(Protocol):

@@ -16,8 +16,15 @@ from pydantic import ValidationError
 from app.errors import MissingIncomeError
 from app.request_context import RequestContext, UnknownResultError
 from app.savings_tool import (
+    ASSUMPTIONS_SCHEMA,
+    GOAL_SCHEMA,
+    HOUSEHOLD_SCHEMA,
+    TOOL_DEF,
     TOOL_NAME,
+    AssumptionsInput,
     CalculateSavingsPlanInput,
+    GoalInput,
+    HouseholdInput,
     make_calculate_savings_plan_tool,
     resolve_income,
 )
@@ -49,6 +56,45 @@ class FakeSavingsApi:
 
 def test_tool_name_constant_is_calculate_savings_plan():
     assert TOOL_NAME == "calculate_savings_plan"
+
+
+def test_tool_def_name_matches_tool_name_constant():
+    assert TOOL_DEF["name"] == TOOL_NAME
+
+
+def test_tool_def_top_level_input_schema_field_names_match_the_pydantic_model_exactly():
+    """Cheap regression guard (B3 task list) against TOOL_DEF's hand-written input_schema
+    silently drifting from CalculateSavingsPlanInput's real, Pydantic-validated field set."""
+    schema_fields = set(TOOL_DEF["input_schema"]["properties"].keys())
+    model_fields = set(CalculateSavingsPlanInput.model_fields.keys())
+    assert schema_fields == model_fields
+
+
+def test_goal_schema_field_names_match_goal_input_exactly():
+    assert set(GOAL_SCHEMA["properties"].keys()) == set(GoalInput.model_fields.keys())
+
+
+def test_household_schema_field_names_match_household_input_exactly():
+    assert set(HOUSEHOLD_SCHEMA["properties"].keys()) == set(HouseholdInput.model_fields.keys())
+
+
+def test_assumptions_schema_field_names_match_assumptions_input_exactly():
+    assert set(ASSUMPTIONS_SCHEMA["properties"].keys()) == set(AssumptionsInput.model_fields.keys())
+
+
+def test_goal_schema_enums_match_goal_input_literals_exactly():
+    """Review round 1 SHOULD #3 equivalent for the hand-written schema: GoalInput.type/mode are
+    Literals mirroring Java's GoalType/GoalMode enums - the schema's enum lists must not drift."""
+    assert set(GOAL_SCHEMA["properties"]["type"]["enum"]) == {"CHILD", "CAR", "HOME_DOWN_PAYMENT", "OTHER"}
+    assert set(GOAL_SCHEMA["properties"]["mode"]["enum"]) == {"YEARS", "DATE", "CHILD_AGE", "WHEN"}
+
+
+def test_tax_calc_id_and_net_monthly_income_descriptions_document_mutual_exclusivity():
+    """The schema can't express oneOf/not for this exact shape readably (per the task notes) -
+    confirm the mutual-exclusivity rule is at least documented in both fields' descriptions."""
+    props = TOOL_DEF["input_schema"]["properties"]
+    assert "tax_calc_id" in props["net_monthly_income"]["description"]
+    assert "net_monthly_income" in props["tax_calc_id"]["description"]
 
 
 def test_rejects_payload_with_both_tax_calc_id_and_net_monthly_income():
