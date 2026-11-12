@@ -1,15 +1,14 @@
 """calculate_savings_plan tool (B2, AC-B2-1..4) — pairing phase, see
 docs/specs/taupymo-tikslai/B2-pairing-notes.md.
 
-This module is split deliberately:
-  * `CalculateSavingsPlanInput` (AC-B2-1) — DONE. Mirrors `SavingsPlanRequest`'s Java DTO shape
-    (goal/household/assumptions) plus the two tool-only fields that don't exist on the Java side
-    at all (`tax_calc_id`, `net_monthly_income` as direct alternatives to each other).
-  * `make_calculate_savings_plan_tool(...)` — NOT implemented here on purpose. This is the
-    pairing exercise: resolving a concrete `net_monthly_income` value (from a prior
-    `calculate_iv_taxes` call via `tax_calc_id`, or from a user-stated figure) before calling
-    Java's `/api/v1/savings/plan`, which always requires that field. See the pairing notes doc
-    for exactly what decisions are yours to make here.
+  * `CalculateSavingsPlanInput` (AC-B2-1) — schema shape, tax_calc_id/net_monthly_income
+    mutually exclusive.
+  * `resolve_income` (AC-B2-2/3) — the one place that decides where net_monthly_income comes
+    from: a prior calculate_iv_taxes result (tax_calc_id), a user-stated figure, or
+    MissingIncomeError when neither is given (income is never guessed from statistics).
+  * `make_calculate_savings_plan_tool` (AC-B2-4) — thin handler: validate -> resolve_income ->
+    call `Calculator.savings_plan()` (same context-token-relay convention as B1's tax tool) ->
+    curate what the model sees.
 """
 from dataclasses import dataclass
 from decimal import Decimal
@@ -17,6 +16,7 @@ from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from .calculator import Calculator
 from .errors import MissingIncomeError
 from .request_context import RequestContext
 
@@ -129,15 +129,43 @@ def resolve_income(parsed: CalculateSavingsPlanInput, request_context: RequestCo
     raise MissingIncomeError(MISSING_INCOME_MESSAGE)
 
 
-def make_calculate_savings_plan_tool(
-    *args: Any, **kwargs: Any
-) -> Callable[..., dict]:
-    """B2 pairing exercise — not implemented here. See docs/specs/taupymo-tikslai/
-    B2-pairing-notes.md for: the exact net_monthly_income resolution rules (AC-B2-2/3), how to
-    forward the context token and user id (AC-B2-4, already fully supported by
-    SavingsPlanApiController since B1 — no Java change needed), and what a new
-    AtsidekApi.savings_plan() client method should look like (mirror of the existing
-    AtsidekApi.compare()).
+def make_calculate_savings_plan_tool(api: Calculator) -> Callable[[dict, RequestContext, Optional[str]], dict]:
+    """Binds `api` once per app instance (same shape as B1's `make_calculate_iv_taxes_tool`).
+
+    Body is deliberately thin: validate -> resolve_income -> build the Java request body ->
+    call `api.savings_plan()` with the SAME context-token-relay convention as B1's tax tool ->
+    curate what the model sees. All the actual decisions (where income comes from, what counts
+    as an error) live in `resolve_income`/`CalculateSavingsPlanInput`, not here.
     """
-    raise NotImplementedError(
-        "B2: write this together — see docs/specs/taupymo-tikslai/B2-pairing-notes.md")
+
+    def handle(tool_input: dict, request_context: RequestContext, context_token: Optional[str] = None) -> dict:
+        parsed = CalculateSavingsPlanInput.model_validate(tool_input)
+        income = resolve_income(parsed, request_context)
+
+        goal = parsed.goal.model_dump()
+        household = parsed.household.model_dump() if parsed.household is not None else None
+        assumptions = parsed.assumptions.model_dump() if parsed.assumptions is not None else None
+
+        java_result = api.savings_plan(
+            goal,
+            income.net_monthly_income,
+            income.monthly_tax_setaside,
+            parsed.monthly_expenses,
+            household,
+            assumptions,
+            context_token,
+        )
+
+        out = {
+            "tier": java_result["tier"],
+            "core": java_result["core"],
+            "locked_features": java_result["locked_features"],
+            "income_origin": income.origin,
+        }
+        # SavingsPlanResponse's @JsonInclude(NON_NULL): the key is simply ABSENT for an
+        # anonymous caller, not null - preserve that exactly, never invent a premium block.
+        if "premium" in java_result:
+            out["premium"] = java_result["premium"]
+        return out
+
+    return handle
