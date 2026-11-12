@@ -241,7 +241,7 @@ sudo chown -R <runner-vartotojas> /opt/atsidek && sudo chmod 600 /opt/atsidek/*.
 
 Konteineris `assistant` aptarnauja tik `POST /asistentas` (rezultato fragmentas); puslapį `/` su meniu rodo `app`. Reikia trijų dalykų:
 
-1. `python ai/naujas_raktas.py` → raktą įrašyk į aplinkos `.env` kaip `ATSIDEK_API_KEY`, o maišą – kaip `API_KEY_HASHES` (be jos `/api/**` uždarytas ir asistentas gaus 401). Taip pat `ANTHROPIC_API_KEY`.
+1. `python ai/naujas_raktas.py` → raktą įrašyk į aplinkos `.env` kaip `ATSIDEK_API_KEY`, o maišą – kaip `API_KEY_HASHES` (be jos `/api/**` uždarytas ir asistentas gaus 401). Taip pat `ANTHROPIC_API_KEY`. `POST /chat/send` (B1, ADR-0003) papildomai reikalauja `ATSIDEK_CHAT_TOKEN_SECRET` (bet koks pakankamai ilgas atsitiktinis raktas) – be jo kontekstinio žetono issue/verify fail-closed užveria endpoint'ą (žr. `ContextTokenService`).
 2. **Caddy** (variantas A): maršrutas jau yra `Caddyfile`.
 3. **Cloudflare tunelis**: prie to paties hostname pridėk dar vieną Public hostname eilutę su **Path** `^/asistentas$` (anksčiau buvo `^/(asistentas)?$` – **pirma pakeisk taisyklę, tik tada diegk šią versiją**, kitaip `/` gaus 404 iš assistant) → `http://assistant:8000` ir pastatyk ją **virš** bendros eilutės (`app:8080`). **Nginx Proxy Manager**: Custom locations → tik `location = /asistentas { proxy_pass http://<IP>:8000; }` (Advanced skiltyje).
 
