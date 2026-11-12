@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.request_context import RequestContext
-from app.tax_tool import TOOL_NAME, CalculateIvTaxesInput, make_calculate_iv_taxes_tool
+from app.tax_tool import TOOL_DEF, TOOL_NAME, CalculateIvTaxesInput, make_calculate_iv_taxes_tool
 
 
 def result(total="4875.50", monthly="406.29", net_monthly="2093.71", method="FLAT_30"):
@@ -134,3 +134,19 @@ def test_unknown_field_is_rejected():
 
 def test_tool_name_constant_is_calculate_iv_taxes():
     assert TOOL_NAME == "calculate_iv_taxes"
+
+
+def test_tool_def_name_matches_tool_name_constant():
+    assert TOOL_DEF["name"] == TOOL_NAME
+
+
+def test_tool_def_input_schema_field_names_match_the_pydantic_model_exactly():
+    """Cheap regression guard (B3 task list) against TOOL_DEF's hand-written input_schema
+    silently drifting from CalculateIvTaxesInput's real, Pydantic-validated field set."""
+    schema_fields = set(TOOL_DEF["input_schema"]["properties"].keys())
+    model_fields = set(CalculateIvTaxesInput.model_fields.keys())
+    assert schema_fields == model_fields
+
+
+def test_tool_def_required_lists_only_the_field_with_no_default():
+    assert TOOL_DEF["input_schema"]["required"] == ["revenue"]
