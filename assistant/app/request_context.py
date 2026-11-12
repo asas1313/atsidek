@@ -11,6 +11,9 @@ from typing import Any, Optional
 
 from .errors import UnknownResultError
 
+# UnknownResultError is imported here purely to re-export it (review round 1 NIT #9) so existing
+# test call sites (`from app.request_context import RequestContext, UnknownResultError`) keep
+# working unchanged. `errors.py` is the canonical home for the class itself.
 __all__ = ["RequestContext", "UnknownResultError"]
 
 

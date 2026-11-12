@@ -38,6 +38,10 @@ class Calculator(Protocol):
 
 
 def _json_default(o):
+    """compare()'s Decimal encoder - float, NOT string. Review round 1 NIT #7: this is the
+    LEGACY encoding, kept only for compare()'s existing wire compatibility; it is deliberately
+    NOT the pattern to copy for new client methods - see `_json_default_decimal_as_str` below,
+    which savings_plan() uses instead and documents why string encoding is now preferred."""
     if isinstance(o, Decimal):
         return float(o)
     raise TypeError(type(o))
