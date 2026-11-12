@@ -13,8 +13,14 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
+from app.errors import MissingIncomeError
 from app.request_context import RequestContext, UnknownResultError
-from app.savings_tool import TOOL_NAME, CalculateSavingsPlanInput, make_calculate_savings_plan_tool
+from app.savings_tool import (
+    TOOL_NAME,
+    CalculateSavingsPlanInput,
+    make_calculate_savings_plan_tool,
+    resolve_income,
+)
 
 
 def goal(amount="50000"):
@@ -75,6 +81,63 @@ def test_unknown_field_is_rejected():
         CalculateSavingsPlanInput.model_validate({"goal": goal(), "bogus_field": 1})
 
 
+# --- resolve_income: three branches (DONE, green) --------------------------------------------
+
+def test_resolve_income_from_tax_calc_id_returns_origin_tax_calc():
+    ctx = RequestContext()
+    tax_calc_id = ctx.store_result(
+        {"better": {"netMonthlyIncome": Decimal("2093.71"), "monthlyReserve": Decimal("406.29")}})
+    parsed = CalculateSavingsPlanInput.model_validate({"goal": goal(), "tax_calc_id": tax_calc_id})
+
+    resolved = resolve_income(parsed, ctx)
+
+    assert resolved.net_monthly_income == Decimal("2093.71")
+    assert resolved.monthly_tax_setaside == Decimal("406.29")
+    assert resolved.origin == "TAX_CALC"
+
+
+def test_resolve_income_from_user_stated_figure_returns_origin_user_no_tax_setaside():
+    ctx = RequestContext()
+    parsed = CalculateSavingsPlanInput.model_validate(
+        {"goal": goal(), "net_monthly_income": Decimal("1500")})
+
+    resolved = resolve_income(parsed, ctx)
+
+    assert resolved.net_monthly_income == Decimal("1500")
+    assert resolved.monthly_tax_setaside is None
+    assert resolved.origin == "USER"
+
+
+def test_resolve_income_raises_missing_income_error_with_instructive_message_when_neither_given():
+    ctx = RequestContext()
+    parsed = CalculateSavingsPlanInput.model_validate({"goal": goal()})
+
+    with pytest.raises(MissingIncomeError) as exc:
+        resolve_income(parsed, ctx)
+    assert "calculate_iv_taxes" in str(exc.value)
+
+
+def test_resolve_income_unknown_tax_calc_id_propagates_unknown_result_error():
+    ctx = RequestContext()
+    parsed = CalculateSavingsPlanInput.model_validate({"goal": goal(), "tax_calc_id": "missing"})
+
+    with pytest.raises(UnknownResultError):
+        resolve_income(parsed, ctx)
+
+
+def test_resolve_income_malformed_stored_entry_is_a_bare_keyerror_not_a_tool_error():
+    """Owner decision 1: a stored tax_calc_id result missing better.netMonthlyIncome/
+    monthlyReserve is a JAVA-CONTRACT violation (B1 always stores that shape), not something the
+    model should be asked to recover from - this must stay an uncaught KeyError, never wrapped
+    into a ToolError."""
+    ctx = RequestContext()
+    tax_calc_id = ctx.store_result({"better": {}})  # malformed: missing both keys
+    parsed = CalculateSavingsPlanInput.model_validate({"goal": goal(), "tax_calc_id": tax_calc_id})
+
+    with pytest.raises(KeyError):
+        resolve_income(parsed, ctx)
+
+
 # --- AC-B2-2: resolve from tax_calc_id (RED — pairing exercise) ------------------------------
 
 def test_known_tax_calc_id_injects_the_exact_b1_stored_values():
@@ -126,7 +189,7 @@ def test_neither_tax_calc_id_nor_net_monthly_income_is_a_tool_error_not_a_guess(
     api = FakeSavingsApi()
     handler = make_calculate_savings_plan_tool(api)  # currently: NotImplementedError
 
-    with pytest.raises(Exception):  # exact error type is the pairing session's call
+    with pytest.raises(MissingIncomeError):
         handler({"goal": goal()}, ctx, None)
 
     assert api.calls == []  # Java must never be called with a fabricated/absent income.

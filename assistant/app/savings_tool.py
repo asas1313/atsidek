@@ -11,12 +11,21 @@ This module is split deliberately:
     Java's `/api/v1/savings/plan`, which always requires that field. See the pairing notes doc
     for exactly what decisions are yours to make here.
 """
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from .errors import MissingIncomeError
+from .request_context import RequestContext
+
 TOOL_NAME = "calculate_savings_plan"
+
+MISSING_INCOME_MESSAGE = (
+    "Nėra grynųjų pajamų: paklausk vartotojo mėnesio grynųjų pajamų arba pirmiau iškviesk "
+    "calculate_iv_taxes."
+)
 
 
 class GoalInput(BaseModel):
@@ -75,6 +84,49 @@ class CalculateSavingsPlanInput(BaseModel):
             raise ValueError(
                 "tax_calc_id ir net_monthly_income - tik vienas iš dviejų, ne abu vienu metu")
         return self
+
+
+@dataclass(frozen=True)
+class ResolvedIncome:
+    """Result of `resolve_income` - a concrete income figure to call Java with, plus where it
+    came from (`origin`, surfaced to the model/B4's narration so it can say e.g. "pagal tavo
+    anksčiau apskaičiuotus mokesčius" vs. "pagal tavo nurodytas pajamas")."""
+
+    net_monthly_income: Decimal
+    monthly_tax_setaside: Optional[Decimal]
+    origin: Literal["TAX_CALC", "USER"]
+
+
+def resolve_income(parsed: CalculateSavingsPlanInput, request_context: RequestContext) -> ResolvedIncome:
+    """AC-B2-2/3: the one place that decides where `net_monthly_income` comes from, so the
+    handler itself never has to branch on it.
+
+    - `tax_calc_id` given -> look up B1's stored calculate_iv_taxes result. If the id is unknown,
+      `request_context.get_result` raises `UnknownResultError` (a `ToolError`) - let it propagate
+      unchanged, that is already the correct "model-recoverable" shape (B3).
+    - If the stored entry exists but is missing `better.netMonthlyIncome`/`better.monthlyReserve`,
+      that is a JAVA-CONTRACT VIOLATION (B1 is supposed to always store that shape), not a tool
+      error for the model to recover from - a bare `KeyError` is left to propagate uncaught here,
+      deliberately NOT wrapped into a ToolError.
+    - `net_monthly_income` given directly (no `tax_calc_id`, enforced mutually exclusive by the
+      schema already) -> use it as-is, origin USER, no tax set-aside (Java treats None as 0).
+    - Neither given -> `MissingIncomeError` (PLAN.md principle: never guess income from stats).
+    """
+    if parsed.tax_calc_id is not None:
+        stored = request_context.get_result(parsed.tax_calc_id)
+        better = stored["better"]
+        return ResolvedIncome(
+            net_monthly_income=better["netMonthlyIncome"],
+            monthly_tax_setaside=better["monthlyReserve"],
+            origin="TAX_CALC",
+        )
+    if parsed.net_monthly_income is not None:
+        return ResolvedIncome(
+            net_monthly_income=parsed.net_monthly_income,
+            monthly_tax_setaside=None,
+            origin="USER",
+        )
+    raise MissingIncomeError(MISSING_INCOME_MESSAGE)
 
 
 def make_calculate_savings_plan_tool(
