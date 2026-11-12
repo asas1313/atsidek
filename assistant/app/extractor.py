@@ -1,9 +1,10 @@
 """Laisvo teksto -> struktūra. Modelis tik supranta tekstą, mokesčių NESKAIČIUOJA."""
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional, Protocol
+from typing import Literal, Optional, Protocol
 
 import anthropic
+from pydantic import BaseModel
 
 TOOL = "irasyti_iv_duomenis"
 
@@ -56,6 +57,23 @@ TOOL_DEF = {
     "description": "Įrašo iš vartotojo teksto ištrauktus individualios veiklos duomenis.",
     "input_schema": SCHEMA,
 }
+
+
+class IvExtractionToolInput(BaseModel):
+    """Pydantic mirror of SCHEMA above (B0, AC-B0-2) - Java-DTO-equivalent validation of the
+    structured dict Claude returns via tool_use, before it reaches the existing, unchanged
+    `parse()`. Field set/types/required-ness match SCHEMA exactly; no new fields, no behaviour
+    change to `parse()` itself.
+    """
+
+    pajamos_eur: Optional[float]
+    islaidos_eur: Optional[float]
+    islaidu_budas: Literal["faktines", "30_proc", "nezinoma"]
+    laikotarpis: str
+    kitos_pajamos_eur: Optional[float]
+    pensiju_kaupimas: Optional[bool]
+    psd_menesiai: Optional[int]
+    trukstama_info: list[str]
 
 
 class ExtractionError(Exception):
