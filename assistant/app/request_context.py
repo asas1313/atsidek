@@ -10,6 +10,16 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 
+class UnknownResultError(Exception):
+    """Raised when looking up a result id that was never stored in this turn's RequestContext.
+
+    Mirrors ToolRegistry.dispatch's UnknownToolError (B0): a defined, catchable error a tool
+    handler can turn into an `is_error` tool_result (B3), not a bare KeyError that would kill the
+    turn. Added ahead of B2, whose calculate_savings_plan tool is the first real consumer of
+    get_result() (resolving a tax_calc_id produced by B1's calculate_iv_taxes).
+    """
+
+
 @dataclass
 class RequestContext:
     user_id: Optional[str] = None
@@ -22,9 +32,8 @@ class RequestContext:
         self.results[result_id] = value
         return result_id
 
-    # TODO(B2, AC-B2-2): an unknown id must become a defined tool error (not an exception that
-    # kills the turn), mirroring ToolRegistry.dispatch's UnknownToolError. Bare KeyError is fine
-    # for B0 (no consumer needs a defined error type yet) but must be replaced before B2 relies
-    # on this.
     def get_result(self, result_id: str) -> Any:
-        return self.results[result_id]
+        try:
+            return self.results[result_id]
+        except KeyError:
+            raise UnknownResultError(f"Nežinomas rezultato id: {result_id}") from None

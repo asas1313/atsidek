@@ -1,4 +1,14 @@
-from app.request_context import RequestContext
+import pytest
+
+from app.request_context import RequestContext, UnknownResultError
+
+
+def test_unknown_result_id_raises_defined_error_not_bare_keyerror():
+    """Prep for B2 (AC-B2-2): calculate_savings_plan looks up a tax_calc_id that may not exist
+    (typo'd by the model, or from a different turn) and must get a defined, catchable error."""
+    ctx = RequestContext()
+    with pytest.raises(UnknownResultError):
+        ctx.get_result("does-not-exist")
 
 
 def test_context_starts_empty():
