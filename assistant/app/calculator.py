@@ -12,7 +12,7 @@ class CalculatorError(Exception):
 
 class Calculator(Protocol):
     def compare(self, revenue: Decimal, actual_expenses: Optional[Decimal], other_income: Optional[Decimal],
-                pension_accumulation: bool, psd_min_months: int) -> dict: ...
+                pension_accumulation: bool, psd_min_months: int, context_token: Optional[str] = None) -> dict: ...
 
 
 def _json_default(o):
@@ -26,7 +26,8 @@ class AtsidekApi:
         self.api_key = api_key
         self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=10, transport=transport)
 
-    def compare(self, revenue, actual_expenses, other_income, pension_accumulation, psd_min_months) -> dict:
+    def compare(self, revenue, actual_expenses, other_income, pension_accumulation, psd_min_months,
+                context_token: Optional[str] = None) -> dict:
         if not self.api_key:
             raise CalculatorError("Skaičiuoklės paslauga nesukonfigūruota (trūksta ATSIDEK_API_KEY).")
         body = {
@@ -36,11 +37,17 @@ class AtsidekApi:
             "pensionAccumulation": pension_accumulation,
             "psdMinMonths": psd_min_months,
         }
+        # ADR-0003: žetonas (jei yra) tik perduodamas NEPAKEISTAS - šis servisas jo nei tikrina,
+        # nei dekoduoja. Be žetono (šiandieninis /asistentas kelias) antraštė VISIŠKAI nesiunčiama,
+        # ne tuščia reikšmė - nulinis elgsenos pokytis esamiems kvietimams.
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        if context_token:
+            headers["X-Atsidek-Context-Token"] = context_token
         try:
             resp = self._client.post(
                 "/api/v1/compare",
                 content=json.dumps(body, default=_json_default),
-                headers={"X-API-Key": self.api_key, "Content-Type": "application/json"},
+                headers=headers,
             )
         except httpx.HTTPError as e:
             raise CalculatorError("Nepavyko pasiekti skaičiuoklės paslaugos.") from e

@@ -158,6 +158,7 @@ def test_api_client_sends_key_and_parses_decimals():
         seen["key"] = request.headers["x-api-key"]
         seen["path"] = request.url.path
         seen["body"] = json.loads(request.content)
+        seen["headers"] = request.headers
         return httpx.Response(200, text='{"flat":{"total":1.10}}')
 
     api = AtsidekApi("http://app:8080", "atsk_x", httpx.MockTransport(handler))
@@ -166,6 +167,22 @@ def test_api_client_sends_key_and_parses_decimals():
     assert seen["body"] == {"ivRevenue": 2400.0, "actualExpenses": 300.0, "otherIncome": 0.0,
                             "pensionAccumulation": True, "psdMinMonths": 12}
     assert out["flat"]["total"] == Decimal("1.10")
+    # B1/ADR-0003: be žetono (šiandieninis /asistentas kelias) antraštė VISIŠKAI nesiunčiama, ne
+    # tuščia reikšmė - "zero behaviour change" egzistuojantiems kvietimams.
+    assert "x-atsidek-context-token" not in seen["headers"]
+
+
+def test_api_client_forwards_context_token_header_unmodified_when_given():
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["token_header"] = request.headers.get("x-atsidek-context-token")
+        return httpx.Response(200, text='{"flat":{"total":1.10}}')
+
+    api = AtsidekApi("http://app:8080", "atsk_x", httpx.MockTransport(handler))
+    token = "eyJhbGciOi.somesignature"
+    api.compare(Decimal("2400"), Decimal("300"), None, True, 12, context_token=token)
+    assert seen["token_header"] == token
 
 
 def test_api_client_errors():
