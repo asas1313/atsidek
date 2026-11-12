@@ -189,6 +189,76 @@ def test_independent_tool_calls_run_concurrently_and_dependent_call_waits_for_th
     assert dependent_saw_tax_done == [True]
 
 
+def test_mixed_success_and_failure_in_same_batch_both_results_present_and_correctly_correlated():
+    """A gap in the implementer's own suite: every existing is_error test uses a batch of exactly
+    ONE tool_use block. This proves that when ONE call in a multi-call batch fails with a
+    ToolError, the OTHER call's real (non-error) result is still sent back correctly alongside the
+    is_error block - one failure must not corrupt or drop the rest of the batch's response, and
+    tool_use_id must not be transposed between the two blocks."""
+    registry = ToolRegistry()
+
+    def ok_handler(tool_input, ctx, token=None):
+        return {"value": 42}
+
+    def boom_handler(tool_input, ctx, token=None):
+        raise MissingIncomeError("Nėra pajamų.")
+
+    registry.register("ok_tool", ok_handler)
+    registry.register("boom_tool", boom_handler)
+
+    client = FakeClient([
+        FakeResponse([
+            tool_use_block("tu_ok", "ok_tool", {}),
+            tool_use_block("tu_boom", "boom_tool", {}),
+        ]),
+        FakeResponse([text_block("done")]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    assert result.status == "completed"
+    blocks = {b["tool_use_id"]: b for b in result.messages[2]["content"]}
+    assert len(blocks) == 2
+    assert "is_error" not in blocks["tu_ok"]
+    assert blocks["tu_ok"]["content"] == '{"value": 42}'
+    assert blocks["tu_boom"]["is_error"] is True
+    assert blocks["tu_boom"]["content"] == "Nėra pajamų."
+
+
+def test_batch_result_order_follows_original_tool_use_order_not_completion_order():
+    """Two independent calls, deliberately resolving OUT of their submission order (the second
+    one submitted finishes FIRST) - the tool_result list sent back to the model must still be in
+    the same order as the original tool_use blocks, not completion order, since `tool_use_id`
+    correlation is what matters but a reviewer should confirm ordering isn't silently scrambled."""
+    import time
+
+    def slow(tool_input, ctx, token=None):
+        time.sleep(0.05)
+        return {"name": "slow"}
+
+    def fast(tool_input, ctx, token=None):
+        return {"name": "fast"}
+
+    registry = ToolRegistry()
+    registry.register("slow_tool", slow)
+    registry.register("fast_tool", fast)
+
+    client = FakeClient([
+        FakeResponse([
+            tool_use_block("tu_slow", "slow_tool", {}),
+            tool_use_block("tu_fast", "fast_tool", {}),
+        ]),
+        FakeResponse([text_block("done")]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    ids_in_order = [b["tool_use_id"] for b in result.messages[2]["content"]]
+    assert ids_in_order == ["tu_slow", "tu_fast"]
+
+
 def test_two_independent_tax_calc_id_free_calls_with_no_dependent_call_also_run_concurrently():
     """Same barrier technique, but with ONLY the independent pair (no dependent call in the
     batch at all) - confirms concurrency doesn't depend on a dependent call being present."""
@@ -281,6 +351,60 @@ def test_tool_choice_is_not_forced_to_a_single_tool_model_is_free_to_choose():
 
     call_kwargs = client.calls[0]
     assert "tool_choice" not in call_kwargs or call_kwargs["tool_choice"] == {"type": "auto"}
+
+
+# --- Gaps: `history` param (documented but previously untested) and `max_iterations` boundary ---
+
+def test_history_is_prepended_before_the_new_user_message():
+    """`history` is a documented public kwarg (B5/decision 7's integration point) with zero
+    existing test coverage - confirm it is genuinely prepended, in order, ahead of the new
+    message, and not silently dropped or appended in the wrong place."""
+    registry = ToolRegistry()
+    client = FakeClient([FakeResponse([text_block("ok")])])
+    ctx = RequestContext()
+    history = [
+        {"role": "user", "content": "ankstesnė žinutė 1"},
+        {"role": "assistant", "content": "ankstesnis atsakymas 1"},
+    ]
+
+    result = run_agent_loop(client, registry, [], ctx, None, "naujas klausimas", history=history)
+
+    assert result.messages[0] == history[0]
+    assert result.messages[1] == history[1]
+    assert result.messages[2] == {"role": "user", "content": "naujas klausimas"}
+    sent_messages = client.calls[0]["messages"]
+    assert sent_messages[0] == history[0]
+    assert sent_messages[1] == history[1]
+    assert sent_messages[2]["content"] == "naujas klausimas"
+
+
+def test_max_iterations_boundary_zero_means_zero_model_calls_and_immediate_exceeded_status():
+    """Boundary: `max_iterations=0` must not call the model at all (range(0) is empty) and must
+    still return the defined 'exceeded' status rather than e.g. crashing or returning
+    status='completed' with final_text=None."""
+    registry = ToolRegistry()
+    client = FakeClient([])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi", max_iterations=0)
+
+    assert len(client.calls) == 0
+    assert result.status == "max_iterations_exceeded"
+    assert result.final_text == TOO_MANY_STEPS_MESSAGE
+
+
+def test_max_iterations_boundary_one_means_exactly_one_model_call():
+    """Off-by-one guard at the other boundary: `max_iterations=1` with a model that always
+    requests a tool call must make exactly one model call, not zero and not two."""
+    registry = ToolRegistry()
+    registry.register("noop", lambda tool_input, ctx, token=None: {"ok": True})
+    client = FakeClient([FakeResponse([tool_use_block("tu0", "noop", {})])])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi", max_iterations=1)
+
+    assert len(client.calls) == 1
+    assert result.status == "max_iterations_exceeded"
 
 
 # --- Optional live-API round trip (owner-permitted costed exception for B3/B4/B6 only) ---------
