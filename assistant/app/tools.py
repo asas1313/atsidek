@@ -5,9 +5,16 @@ consumer: `/asistentas`'s existing extraction step, wired through unchanged (see
 """
 from typing import Any, Callable, Optional
 
+from .errors import ToolError
 
-class UnknownToolError(Exception):
-    """Raised when dispatching a tool name that was never registered."""
+
+class UnknownToolError(ToolError):
+    """Raised when dispatching a tool name that was never registered.
+
+    Subclasses `ToolError` (review round 1 SHOULD #1): dispatching an unknown tool name is
+    model-recoverable (B3's agent loop is meant to catch it and produce an `is_error`
+    tool_result block), not a bug that should crash the turn.
+    """
 
 
 class ToolRegistry:

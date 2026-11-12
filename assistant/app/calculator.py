@@ -5,8 +5,10 @@ from typing import Optional, Protocol
 
 import httpx
 
+from .errors import ToolError
 
-class CalculatorError(Exception):
+
+class CalculatorError(ToolError):
     """Žinutė rodoma vartotojui.
 
     `status_code` (review round 1 SHOULD #2) nešioja Java pusės HTTP statusą, KAI jis žinomas -
@@ -14,6 +16,10 @@ class CalculatorError(Exception):
     reikšmę kitiems ne-200 atsakymams. `None` reiškia "Java nepasiekiama" (tinklo klaida) arba
     "paslauga nesukonfigūruota" - šiais atvejais skambinantis kodas (žr. `main.py`
     `/internal/chat`) tai laiko upstream klaida (502), NE kliento klaida.
+
+    Subclasses `ToolError` (review round 1 SHOULD #1): a Java-side 400/5xx or a misconfigured
+    client is model-recoverable (B3's agent loop is meant to catch it and produce an `is_error`
+    tool_result block), not a bug that should crash the turn.
     """
 
     def __init__(self, message: str, status_code: Optional[int] = None):

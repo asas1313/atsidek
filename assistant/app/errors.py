@@ -5,6 +5,12 @@ catch and turn into an `is_error` tool_result block (the model sees the message 
 or ask the user - the turn does not crash). Anything that is NOT a `ToolError` (a bare KeyError,
 an assertion, ...) is a real bug/contract violation and must propagate uncaught - B3 must not
 swallow those either.
+
+Review round 1 (SHOULD #1): `CalculatorError` (calculator.py - raised on a Java 400/5xx response
+or a misconfigured client, e.g. AC-B2-3's "savings tool called with bad data, Java rejects it")
+and `UnknownToolError` (tools.py, B0 - dispatching an unregistered tool name) are both genuinely
+model-recoverable in exactly this sense, so both subclass `ToolError` too (declared in their own
+modules, not here, to avoid errors.py importing FROM the modules that import errors.py).
 """
 
 
