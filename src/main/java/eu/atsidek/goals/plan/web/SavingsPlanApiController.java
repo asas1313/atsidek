@@ -4,14 +4,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
+import eu.atsidek.auth.ContextTokenService;
 import eu.atsidek.auth.CurrentAppUser;
 import eu.atsidek.goals.plan.SavingsPlanRequest;
 import eu.atsidek.goals.plan.SavingsPlanResponse;
 import eu.atsidek.goals.plan.SavingsPlanService;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -38,6 +41,16 @@ import org.springframework.web.server.ResponseStatusException;
  * {@code Content-Type}), {@code consumes = APPLICATION_JSON_VALUE} čia PRIVALOMAS, kitaip šis
  * endpoint'as (kitaip nei {@code /api/v1/compare}, kuris naudoja tipuotą {@code @RequestBody}) nebe
  * grąžintų 415 netinkamam {@code Content-Type} (rastas review metu).
+ * <p>
+ * Tapatybės žetonas (ADR-0003, B1): {@code X-Atsidek-Context-Token} antraštė NEPRIVALOMA. Jos
+ * nebuvimas → TIKSLIAI šiandieninė elgsena ({@link CurrentAppUser#optionalId()} iš naršyklės
+ * sesijos, anonimas - teisėtas atvejis). Jos buvimas IR nesėkminga patikra → 401 (niekada tylus
+ * kritimas į anonimą). Jos buvimas IR SĖKMINGA patikra → žetono {@code userId} PAKEIČIA sesijos
+ * tapatybę (tiksliai dėl šios spragos ADR-0003 ir egzistuoja: Python kvietimas neturi Spring
+ * sesijos, todėl {@code optionalId()} visada grąžintų tuščią reikšmę, net realiam prisijungusiam
+ * vartotojui). Žetono {@code tier} laukas ČIA sąmoningai IGNORUOJAMAS - {@link SavingsPlanService}
+ * teises visada tikrina iš naujo per {@code EntitlementService}, ne pasitikėdamas relėtos
+ * tapatybės pačiu tier'o tekstu (gynyba į gilumą - žetonas tik tvirtina TAPATYBĘ, ne TEISES).
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -53,16 +66,33 @@ public class SavingsPlanApiController {
 
     private final SavingsPlanService service;
     private final CurrentAppUser currentAppUser;
+    private final ContextTokenService contextTokenService;
 
-    public SavingsPlanApiController(SavingsPlanService service, CurrentAppUser currentAppUser) {
+    public SavingsPlanApiController(SavingsPlanService service, CurrentAppUser currentAppUser,
+            ContextTokenService contextTokenService) {
         this.service = service;
         this.currentAppUser = currentAppUser;
+        this.contextTokenService = contextTokenService;
     }
 
     @PostMapping(path = "/savings/plan", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public SavingsPlanResponse plan(@RequestBody String rawBody) {
+    public SavingsPlanResponse plan(@RequestBody String rawBody,
+            @RequestHeader(name = "X-Atsidek-Context-Token", required = false) String contextToken) {
+        UUID userId = resolveUserId(contextToken);
         SavingsPlanRequest request = parse(rawBody);
-        return service.plan(request, currentAppUser.optionalId().orElse(null));
+        return service.plan(request, userId);
+    }
+
+    /** Patikros tvarka: žetonas PRIEŠ kūno parsinimą - suklastotas/pasibaigęs žetonas atmetamas 401
+     * net jei kūnas yra netinkamas, kad 400 niekada nenuslėptų realios tapatybės klaidos. */
+    private UUID resolveUserId(String contextToken) {
+        if (contextToken == null || contextToken.isBlank()) {
+            return currentAppUser.optionalId().orElse(null);
+        }
+        return contextTokenService.verify(contextToken)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                        "Negaliojantis arba pasibaigusio galiojimo kontekstinis žetonas"))
+                .userId().orElse(null);
     }
 
     private static SavingsPlanRequest parse(String rawBody) {

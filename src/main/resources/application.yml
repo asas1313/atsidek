@@ -34,6 +34,20 @@ atsidek:
     allowed-emails: ""   # ATSIDEK_AUTH_ALLOWED_EMAILS – kableliais; tuščia = visi patvirtinti Google el. paštai
   api:
     key-hashes: ""       # ATSIDEK_API_KEY_HASHES – API raktų SHA-256 (hex), kableliais; tuščia = /api/** uždarytas
+  chat:
+    # ATSIDEK_CHAT_TOKEN_SECRET – HMAC-SHA256 paslaptis AI pokalbio kontekstiniam žetonui (ADR-0003);
+    # tuščia = žetonų neišduoda (ContextTokenService#issue meta klaidą) ir nieko nepriima
+    # (ContextTokenService#verify visada Optional.empty()) - fail closed, kaip ir API raktas aukščiau.
+    context-token-secret: ""
+  assistant:
+    # ATSIDEK_ASSISTANT_BASE_URL – Python „assistant“ serviso vidinis adresas (žr. docker-compose.yml
+    # serviso pavadinimą/prievadą); naudoja naujas AI pokalbio endpoint'as (eu.atsidek.chat.ChatController).
+    base-url: http://assistant:8000
+    # ATSIDEK_ASSISTANT_TIMEOUT_MS – jungties IR skaitymo limitas (ms) kviečiant Python assistant
+    # servisą; /chat/send yra permitAll(), todėl be šio limito lėtas/pakibęs Python servisas
+    # neribotai užblokuotų Tomcat worker giją (review SHOULD #1). 10000 = simetriška su Python
+    # pusės httpx.Client(timeout=10) (assistant/app/calculator.py).
+    timeout-ms: 10000
   bank:
     iban-salt: dev-only-salt # ATSIDEK_BANK_IBAN_SALT – mokėtojų IBAN maišos druska
   classifier:

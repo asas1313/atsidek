@@ -21,6 +21,12 @@ services:
       ATSIDEK_AUTH_ALLOWED_EMAILS: ${AUTH_ALLOWED_EMAILS:-}
       ATSIDEK_API_KEY_HASHES: ${API_KEY_HASHES:-}
       ATSIDEK_BANK_IBAN_SALT: ${BANK_IBAN_SALT:-dev-only-salt}
+      # B1/ADR-0003: HMAC paslaptis AI pokalbio kontekstiniam žetonui - tuščia = fail closed (žetonų
+      # neišduoda/nepriima, žr. ContextTokenService). Ši paslaptis egzistuoja TIK čia (app servise) -
+      # Python assistant servisas žetono nei tikrina, nei dekoduoja, tik relėja jį nepakeistą, ir
+      # šios paslapties NIEKADA neturi.
+      ATSIDEK_CHAT_TOKEN_SECRET: ${CHAT_TOKEN_SECRET:-}
+      ATSIDEK_ASSISTANT_BASE_URL: http://assistant:8000
       # Numatytosios reikšmės taiko TIK šio compose "postgres" servisą (žemiau) – tik lokaliam dev.
       # Staging/prod SPRING_DATASOURCE_* ateina iš deploy aplinkos (atskiras Postgres LXC 192.168.68.106),
       # šis compose servisas jų niekada nepaveikia.

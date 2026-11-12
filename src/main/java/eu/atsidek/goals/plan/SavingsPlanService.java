@@ -120,7 +120,7 @@ public class SavingsPlanService {
         Core core = buildCore(result, assumptions);
 
         List<Feature> locked = lockedFeatures(currentUserId);
-        Tier tier = locked.isEmpty() ? Tier.PREMIUM : Tier.FREE;
+        Tier tier = deriveTier(locked);
         Premium premium = currentUserId != null ? new Premium() : null;
 
         return new SavingsPlanResponse(tier, core, locked, premium);
@@ -137,6 +137,15 @@ public class SavingsPlanService {
      */
     public List<Feature> lockedFeatures(UUID currentUserId) {
         return GATED_FEATURES.stream().filter(f -> !hasAccess(currentUserId, f)).toList();
+    }
+
+    /**
+     * Ta pati tier'o taisyklė kaip {@link #plan} (review round 1 NIT #4: anksčiau ta pati
+     * ternarinė išraiška buvo dubliuota {@code eu.atsidek.chat.ChatController}'yje - abu kvietimo
+     * vietos dabar naudoja TĄ PATĮ metodą, kad taisyklė negalėtų nebesutapti).
+     */
+    public static Tier deriveTier(List<Feature> lockedFeatures) {
+        return lockedFeatures.isEmpty() ? Tier.PREMIUM : Tier.FREE;
     }
 
     /**

@@ -44,7 +44,15 @@ public class SecurityConfig {
                         .requestMatchers("/", "/skaiciuokle", "/calculate", "/privatumas",
                                 "/style.css", "/htmx.min.js", "/robots.txt", "/sitemap.xml", "/favicon.ico", "/error",
                                 "/taupymo-tikslai", "/goals/calculate", "/goals/stats/defaults",
-                                "/goals/tikslai/preliminarus", "/goals/savings/locked-features").permitAll()
+                                "/goals/tikslai/preliminarus", "/goals/savings/locked-features",
+                                // AI pokalbis (B1, ADR-0003) - ir anonimas, ir prisijungęs vartotojas yra
+                                // teisėti (A4 sprendimas #6); šis endpoint'as PATS sprendžia tapatybę per
+                                // CurrentAppUser#optionalId(), ne per Spring Security rolę. SĄMONINGAI NE
+                                // CSRF-ignoringRequestMatchers sąraše žemiau (tiksliai kaip
+                                // /goals/tikslai/preliminarus) - CSRF žetonas vis tiek reikalaujamas, kad
+                                // svetima svetainė negalėtų nutaikytai eikvoti prisijungusio vartotojo AI
+                                // limito jo sesijos vardu.
+                                "/chat/send").permitAll()
                         // Dvi siauros, atskirai pagrįstos šablonu apsaugotos išimtys:
                         // /api/** – jau apsaugota API raktu (ApiKeyFilter, veikia PRIEŠ AuthorizationFilter),
                         //           permitAll() čia reiškia tik "Spring Security pati nebeprideda rolės reikalavimo";

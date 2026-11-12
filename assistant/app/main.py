@@ -26,7 +26,11 @@ from .goals_limiter import Decision as GoalsDecision
 from .goals_limiter import GoalsAiLimiter
 from .limiter import Decision, RateLimiter
 from .request_context import RequestContext
+from .tax_tool import TOOL_NAME as TAX_TOOL_NAME
+from .tax_tool import make_calculate_iv_taxes_tool
 from .tools import ToolRegistry
+
+CONTEXT_TOKEN_HEADER = "X-Atsidek-Context-Token"
 
 MAX_LENGTH = 1000
 MAX_AMOUNT = Decimal("100000000")
@@ -35,6 +39,10 @@ GOALS_MAX_LENGTH = 1000
 
 class GoalsParseRequest(BaseModel):
     text: str = ""
+
+
+class InternalChatRequest(BaseModel):
+    message: str = ""
 
 
 def eur(v) -> str:
@@ -118,6 +126,9 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
 
     registry = ToolRegistry()
     registry.register(EXTRACT_TOOL_NAME, extractor.extract)
+    # B1 (ADR-0003): calculator jau sukonfigūruotas aukščiau su ATSIDEK_API_KEY - čia tik
+    # susaistoma su registru, tiksliai taip, kaip extractor.extract aukščiau.
+    registry.register(TAX_TOOL_NAME, make_calculate_iv_taxes_tool(calculator))
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
@@ -152,6 +163,52 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
                 ctx["error"] = "Šiandien AI asistento limitas išnaudotas. Pabandyk rytoj arba naudok skaičiuoklę."
         # Puslapį (meniu, forma) rodo Java; čia visada tik rezultato fragmentas, kurį htmx įdeda į #result
         return render(request, "result.html", ctx)
+
+    @app.post("/internal/chat")
+    def internal_chat(request: Request, body: InternalChatRequest):
+        """B1 (ADR-0003): naujo Java chat endpoint'o (`POST /chat/send`) vidinis tikslas.
+
+        Kontekstinis žetonas ateina CONTEXT_TOKEN_HEADER antraštėje - šis servisas jo NEI tikrina,
+        NEI dekoduoja (ADR-0003: Python tik relė), tik perduoda nepakeistą `calculate_iv_taxes`
+        įrankiui, kuris jį toliau nepakeistą perduoda Java (žr. tax_tool.py/calculator.py).
+
+        Minimalus B1 stub - įrodo, kad žetonas ir ištraukimo→įrankio vamzdynas per `registry`
+        veikia, NE tikras daugiapakopis agento ciklas (B3) ir NE pokalbio istorija (B5 sprendimas 7).
+        """
+        token = request.headers.get(CONTEXT_TOKEN_HEADER)
+        text = (body.message or "").strip()
+        if not text:
+            raise HTTPException(400, "message privalomas")
+        # Ta pati MAX_LENGTH riba kaip /asistentas (review round 1 SHOULD #2) - NE antra kopija su
+        # savo skaičiumi, kad abu limitai negalėtų kada nors nebesutapti.
+        if len(text) > MAX_LENGTH:
+            raise HTTPException(400, f"Tekstas per ilgas (daugiausia {MAX_LENGTH} simbolių).")
+        # Vienas RequestContext vienai gaunamai žinutei (B0 design decision 2), kaip ir /asistentas.
+        request_ctx = RequestContext(user_id=None, tier="anonymous")
+        try:
+            x = registry.dispatch(EXTRACT_TOOL_NAME, text)
+        except ExtractionError as e:
+            raise HTTPException(503, str(e)) from e
+        if x.revenue is None:
+            return {"reply": "Trūksta pajamų sumos skaičiavimui - patikslink tekstą.", "tool_result": None}
+        tool_input = {
+            "revenue": x.revenue,
+            "actual_expenses": x.expenses,
+            "other_income": x.other_income,
+            "pension_accumulation": x.pillar2 is True,
+            "psd_min_months": 12 if x.psd_months is None else max(0, min(12, x.psd_months)),
+        }
+        try:
+            tool_result = registry.dispatch(TAX_TOOL_NAME, tool_input, request_ctx, token)
+        except CalculatorError as e:
+            # Review round 1 SHOULD #2: Java 400 (atmetė įvestį - kliento problema) != Java
+            # nepasiekiama/5xx (upstream problema). CalculatorError.status_code == 400 ŽINOMAS
+            # atvejis, kai Java aiškiai pasakė "bloga įvestis" - visa kita (None = tinklo klaida/
+            # nesukonfigūruota, arba kitas HTTP kodas) laikoma upstream klaida, kaip ir anksčiau.
+            if e.status_code == 400:
+                raise HTTPException(400, str(e)) from e
+            raise HTTPException(502, str(e)) from e
+        return {"reply": "ack", "tool_result": tool_result}
 
     @app.post("/api/v1/goals/parse")
     def goals_parse(body: GoalsParseRequest):
