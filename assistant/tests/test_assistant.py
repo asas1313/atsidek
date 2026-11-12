@@ -259,6 +259,37 @@ def test_savings_plan_client_forwards_context_token_unmodified_when_given():
     assert seen["token_header"] == token
 
 
+def test_savings_plan_client_sends_full_nested_body_with_java_matching_field_names():
+    """Cross-checks the FULL request shape (goal/household/assumptions all populated, not just the
+    minimal cases the other savings_plan client tests use) against SavingsPlanRequest.java's exact
+    field names, including the nested GoalRequest/HouseholdRequest/AssumptionsRequest records."""
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, text='{"tier":"FREE","core":{},"locked_features":[]}')
+
+    api = AtsidekApi("http://app:8080", "atsk_x", httpx.MockTransport(handler))
+    goal = {
+        "type": "HOME_DOWN_PAYMENT", "mode": "YEARS", "amount": "15000", "years": 5,
+        "target_year": None, "target_month": None, "child_current_age": None,
+        "child_target_age": None, "monthly_contribution": None,
+    }
+    household = {"adults": 2, "children": 2}
+    assumptions = {"annual_return_pct": Decimal("3"), "annual_inflation_pct": Decimal("2.5")}
+
+    api.savings_plan(goal, Decimal("3100"), Decimal("900"), Decimal("1350"), household, assumptions)
+
+    assert seen["body"] == {
+        "goal": goal,
+        "net_monthly_income": "3100",
+        "monthly_tax_setaside": "900",
+        "monthly_expenses": "1350",
+        "household": {"adults": 2, "children": 2},
+        "assumptions": {"annual_return_pct": "3", "annual_inflation_pct": "2.5"},
+    }
+
+
 def test_savings_plan_client_errors():
     def api(status):
         return AtsidekApi("http://x", "k", httpx.MockTransport(lambda r: httpx.Response(status, text="{}")))

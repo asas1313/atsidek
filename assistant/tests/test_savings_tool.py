@@ -219,3 +219,90 @@ def test_anonymous_caller_never_sees_a_premium_key_in_the_tool_result():
     out = handler({"goal": goal(), "net_monthly_income": Decimal("1000")}, ctx, None)
 
     assert "premium" not in out
+
+
+def test_premium_key_is_surfaced_unchanged_when_java_actually_returns_one():
+    """Mirror of the anonymous case above: when Java's response DOES include a premium block, the
+    handler must surface it verbatim (never invent/reshape it), not just silently drop it."""
+    ctx = RequestContext(user_id="some-user", tier="PREMIUM")
+    api = FakeSavingsApi(response={
+        "tier": "PREMIUM", "core": {}, "locked_features": [], "premium": {"some": "block"},
+    })
+    handler = make_calculate_savings_plan_tool(api)
+
+    out = handler({"goal": goal(), "net_monthly_income": Decimal("1000")}, ctx, None)
+
+    assert out["premium"] == {"some": "block"}
+
+
+# --- additional edge cases (QA pass) ---------------------------------------------------------
+
+def test_household_and_assumptions_are_forwarded_as_plain_snake_case_dicts():
+    """No existing test actually exercises a non-null household/assumptions payload all the way
+    through the handler to the Java client call — only goal/income are covered elsewhere. Confirms
+    the dicts handed to `api.savings_plan()` use the same snake_case keys as `SavingsPlanRequest`
+    (HouseholdRequest/AssumptionsRequest), not the Pydantic model's Python attribute names by
+    accident (e.g. not nested under an extra envelope, not camelCased)."""
+    ctx = RequestContext()
+    api = FakeSavingsApi()
+    handler = make_calculate_savings_plan_tool(api)
+
+    handler({
+        "goal": goal(),
+        "net_monthly_income": Decimal("1500"),
+        "household": {"adults": 2, "children": 1},
+        "assumptions": {"annual_return_pct": Decimal("3.5"), "annual_inflation_pct": Decimal("2.5")},
+    }, ctx, None)
+
+    household, assumptions = api.calls[0][4], api.calls[0][5]
+    assert household == {"adults": 2, "children": 1}
+    assert assumptions == {"annual_return_pct": Decimal("3.5"), "annual_inflation_pct": Decimal("2.5")}
+
+
+def test_full_goal_shape_is_forwarded_with_java_matching_snake_case_field_names():
+    """Exercises every GoalInput field at once (the other tests only ever send the minimal
+    YEARS-mode goal) - confirms target_year/target_month/child_current_age/child_target_age/
+    monthly_contribution all survive `model_dump()` under the exact names SavingsPlanRequest.
+    GoalRequest expects, not silently dropped or renamed."""
+    ctx = RequestContext()
+    api = FakeSavingsApi()
+    handler = make_calculate_savings_plan_tool(api)
+    full_goal = {
+        "type": "CHILD_EDUCATION", "mode": "CHILD_AGE", "amount": Decimal("5000"),
+        "target_year": 2030, "target_month": 6,
+        "child_current_age": 3, "child_target_age": 18,
+        "monthly_contribution": Decimal("50.00"),
+    }
+
+    handler({"goal": full_goal, "net_monthly_income": Decimal("1500")}, ctx, None)
+
+    sent_goal = api.calls[0][0]
+    assert sent_goal["target_year"] == 2030
+    assert sent_goal["target_month"] == 6
+    assert sent_goal["child_current_age"] == 3
+    assert sent_goal["child_target_age"] == 18
+    assert sent_goal["monthly_contribution"] == Decimal("50.00")
+
+
+def test_empty_string_tax_calc_id_is_not_confused_with_absent_by_schema_validator():
+    """Guards the `is not None` (not truthiness) check in the mutual-exclusivity validator: an
+    empty-string tax_calc_id is still "present" and must still conflict with a simultaneously
+    given net_monthly_income - a falsy-but-not-None value must not slip past the validator."""
+    with pytest.raises(ValidationError):
+        CalculateSavingsPlanInput.model_validate({
+            "goal": goal(), "tax_calc_id": "", "net_monthly_income": Decimal("1000"),
+        })
+
+
+def test_zero_user_stated_net_monthly_income_is_honoured_not_treated_as_absent():
+    """`net_monthly_income=0` is falsy but NOT the same as "not given" - resolve_income must use
+    the `is not None` check (which it does), not a truthiness check that would wrongly fall
+    through to MissingIncomeError for a user who genuinely has (or states) zero net income."""
+    ctx = RequestContext()
+    parsed = CalculateSavingsPlanInput.model_validate(
+        {"goal": goal(), "net_monthly_income": Decimal("0")})
+
+    resolved = resolve_income(parsed, ctx)
+
+    assert resolved.net_monthly_income == Decimal("0")
+    assert resolved.origin == "USER"
