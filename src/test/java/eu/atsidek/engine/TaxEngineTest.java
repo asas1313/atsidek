@@ -48,6 +48,13 @@ class TaxEngineTest {
     }
 
     @Test
+    void official3NetMonthlyIncomeIsRevenueMinusTotalDividedByTwelve() {
+        // (30000 - 4875.50) / 12 = 25124.50 / 12 = 2093.7083(3) -> HALF_UP 2093.71
+        TaxResult r = engine.calculate(flat("30000", "0", false));
+        assertEquals(d("2093.71"), r.netMonthlyIncome());
+    }
+
+    @Test
     void official4() {
         assertScenario(engine.calculate(flat("40000", "0", false)), "28000.00", "2893.33", "3155.04", "1758.96", "7807.33");
     }
@@ -63,6 +70,14 @@ class TaxEngineTest {
         TaxResult r = engine.calculate(in);
         assertEquals(d("37102.50"), r.gpmBase());
         assertScenario(r, "45000.00", "6085.43", "5070.60", "2826.90", "13982.93");
+    }
+
+    @Test
+    void official6NetMonthlyIncomeIsRevenueMinusTotalDividedByTwelveForActualMethodToo() {
+        // (60000 - 13982.93) / 12 = 46017.07 / 12 = 3834.7558(3) -> HALF_UP 3834.76
+        TaxInput in = new TaxInput(d("60000"), ExpenseMethod.ACTUAL, d("15000"), BigDecimal.ZERO, false);
+        TaxResult r = engine.calculate(in);
+        assertEquals(d("3834.76"), r.netMonthlyIncome());
     }
 
     @Test
