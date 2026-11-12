@@ -132,6 +132,21 @@ def test_unknown_field_is_rejected():
         CalculateIvTaxesInput.model_validate({"revenue": 1000, "bogus_field": 1})
 
 
+# B3 review round 1 NIT #6: the schema description text promises "(0-12)" - this constraint
+# makes that true locally instead of relying solely on Java's own double guard.
+@pytest.mark.parametrize("bad_value", [-1, 13])
+def test_psd_min_months_out_of_the_documented_0_to_12_range_is_rejected_locally(bad_value):
+    with pytest.raises(ValidationError) as exc:
+        CalculateIvTaxesInput.model_validate({"revenue": 1000, "psd_min_months": bad_value})
+    assert any("psd_min_months" in str(e["loc"]) for e in exc.value.errors())
+
+
+@pytest.mark.parametrize("boundary_value", [0, 12])
+def test_psd_min_months_at_the_documented_boundaries_is_accepted(boundary_value):
+    parsed = CalculateIvTaxesInput.model_validate({"revenue": 1000, "psd_min_months": boundary_value})
+    assert parsed.psd_min_months == boundary_value
+
+
 def test_tool_name_constant_is_calculate_iv_taxes():
     assert TOOL_NAME == "calculate_iv_taxes"
 

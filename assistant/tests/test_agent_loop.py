@@ -12,9 +12,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.agent_loop import MAX_ITERATIONS, TOO_MANY_STEPS_MESSAGE, run_agent_loop
+from app.agent_loop import MAX_ITERATIONS, TAX_CALC_ID_FIELD, TOO_MANY_STEPS_MESSAGE, run_agent_loop
 from app.errors import MissingIncomeError
 from app.request_context import RequestContext
+from app.savings_tool import SCHEMA as SAVINGS_SCHEMA
 from app.tools import ToolRegistry
 
 
@@ -224,6 +225,124 @@ def test_mixed_success_and_failure_in_same_batch_both_results_present_and_correc
     assert blocks["tu_ok"]["content"] == '{"value": 42}'
     assert blocks["tu_boom"]["is_error"] is True
     assert blocks["tu_boom"]["content"] == "Nėra pajamų."
+
+
+# --- AgentLoopResult.tool_calls (review round 1 SHOULD #1) --------------------------------------
+# B4 is meant to read THIS field for its numeric sections, not re-walk `messages` and
+# json.loads() tool_result content strings itself.
+
+def test_tool_calls_records_a_successful_call_with_the_already_decoded_dict_result():
+    registry = ToolRegistry()
+    registry.register("ok_tool", lambda tool_input, ctx, token=None: {"value": 42})
+    client = FakeClient([
+        FakeResponse([tool_use_block("tu1", "ok_tool", {"x": 1})]),
+        FakeResponse([text_block("done")]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    assert result.tool_calls == [{
+        "id": "tu1",
+        "name": "ok_tool",
+        "input": {"x": 1},
+        "result": {"value": 42},  # a dict, NOT the JSON-encoded string sent to the model
+        "error": None,
+        "is_error": False,
+    }]
+
+
+def test_tool_calls_records_a_failed_call_with_the_tool_message_and_no_result():
+    registry = ToolRegistry()
+
+    def boom(tool_input, ctx, token=None):
+        raise MissingIncomeError("Nėra pajamų - paklausk vartotojo.")
+
+    registry.register("boom", boom)
+    client = FakeClient([
+        FakeResponse([tool_use_block("tu1", "boom", {})]),
+        FakeResponse([text_block("ok")]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    assert result.tool_calls == [{
+        "id": "tu1",
+        "name": "boom",
+        "input": {},
+        "result": None,
+        "error": "Nėra pajamų - paklausk vartotojo.",
+        "is_error": True,
+    }]
+
+
+def test_tool_calls_accumulates_across_multiple_iterations_in_call_order():
+    registry = ToolRegistry()
+    registry.register("first", lambda tool_input, ctx, token=None: {"n": 1})
+    registry.register("second", lambda tool_input, ctx, token=None: {"n": 2})
+    client = FakeClient([
+        FakeResponse([tool_use_block("tu1", "first", {})]),
+        FakeResponse([tool_use_block("tu2", "second", {})]),
+        FakeResponse([text_block("done")]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    assert [c["name"] for c in result.tool_calls] == ["first", "second"]
+
+
+def test_tool_calls_is_populated_even_when_the_iteration_limit_is_exceeded():
+    registry = ToolRegistry()
+    registry.register("again", lambda tool_input, ctx, token=None: {"ok": True})
+    client = FakeClient([FakeResponse([tool_use_block(f"tu{i}", "again", {})]) for i in range(5)])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi", max_iterations=5)
+
+    assert result.status == "max_iterations_exceeded"
+    assert len(result.tool_calls) == 5
+
+
+# --- TAX_CALC_ID_FIELD / dependency-rule hardening (review round 1 NIT #4, #5) ------------------
+
+def test_tax_calc_id_field_constant_matches_the_savings_tool_schema_property_name():
+    """NIT #4: the dependency rule in `_dispatch_batch` and `savings_tool.SCHEMA`'s actual
+    property name must not drift apart silently."""
+    assert TAX_CALC_ID_FIELD in SAVINGS_SCHEMA["properties"]
+
+
+def test_explicit_null_tax_calc_id_is_not_treated_as_a_same_batch_dependency():
+    """NIT #5: a literal `"tax_calc_id": null` in the model's tool input carries no real id to
+    depend on - it must be scheduled as INDEPENDENT (truthiness via `.get`, not key presence)."""
+    barrier = threading.Barrier(2, timeout=2)
+
+    def null_tax_calc_id_call(tool_input, ctx, token=None):
+        barrier.wait()
+        return {"ok": "a"}
+
+    def other(tool_input, ctx, token=None):
+        barrier.wait()
+        return {"ok": "b"}
+
+    registry = ToolRegistry()
+    registry.register("tool_a", null_tax_calc_id_call)
+    registry.register("tool_b", other)
+    client = FakeClient([
+        FakeResponse([
+            tool_use_block("tu_a", "tool_a", {"tax_calc_id": None}),
+            tool_use_block("tu_b", "tool_b", {}),
+        ]),
+        FakeResponse([text_block("done")]),
+    ])
+    ctx = RequestContext()
+
+    # Both handlers hit the barrier - if either were scheduled sequentially AFTER the other
+    # instead of concurrently, this times out loudly (BrokenBarrierError) instead of hanging.
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    assert result.status == "completed"
 
 
 def test_batch_result_order_follows_original_tool_use_order_not_completion_order():

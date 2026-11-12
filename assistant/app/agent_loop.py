@@ -26,6 +26,12 @@ from .tools import ToolRegistry
 
 MAX_ITERATIONS = 5
 
+# The one field name `_dispatch_batch` treats as a structural same-batch-ordering signal (see its
+# docstring). Named as a constant, not a bare literal (review round 1 NIT #4), so a future rename
+# of this field in a tool's schema (`savings_tool.SCHEMA`) has one place to update, and
+# `test_agent_loop.py` can assert the two stay in sync.
+TAX_CALC_ID_FIELD = "tax_calc_id"
+
 DEFAULT_MODEL = "claude-haiku-5-5"
 DEFAULT_MAX_TOKENS = 1024
 
@@ -54,8 +60,17 @@ class AgentLoopResult:
     status: Literal["completed", "max_iterations_exceeded"]
     final_text: Optional[str]
     # Full assembled conversation (user/assistant/tool_result turns, plain-dict content blocks) -
-    # useful for logging/debugging and for B4 to inspect the final tool results if it needs them.
+    # useful for logging/debugging, but NOT the shape B4 should consume for its numeric sections
+    # (that would mean re-walking this list, re-correlating tool_use/tool_result by id, and
+    # json.loads()-ing content strings this module already decoded once - review round 1 SHOULD
+    # #1). Use `tool_calls` below for that instead.
     messages: list[dict[str, Any]]
+    # Every tool call made across the whole run, in the order the model issued them (not
+    # dispatch-completion order - same guarantee `_dispatch_batch` already gives the `messages`
+    # list), each already decoded: {"id", "name", "input", "result": dict | None,
+    # "error": str | None, "is_error": bool}. `result` is the SAME dict `_dispatch_tool_call`
+    # already parsed before JSON-encoding it for the model; B4 reads this directly, no decoding.
+    tool_calls: list[dict[str, Any]]
 
 
 def _content_block_to_dict(block: Any) -> dict[str, Any]:
@@ -83,21 +98,46 @@ def _dispatch_tool_call(
     per `errors.py`) becomes an `is_error` tool_result block, giving the model a chance to
     recover or ask the user, instead of crashing the whole turn. Anything that is NOT a
     `ToolError` is a real bug and is left to propagate uncaught - no blanket `except Exception`.
+
+    Returns BOTH the Messages-API `tool_result` block (for `messages`) and the already-decoded
+    `tool_call` record (for `AgentLoopResult.tool_calls`, review round 1 SHOULD #1) from the same
+    dispatch, instead of making a later caller re-parse `tool_result["content"]`.
     """
     try:
         result = registry.dispatch(tool_use["name"], tool_use["input"], request_context, context_token)
     except ToolError as e:
-        return {
+        # `e.tool_message` (review round 1 SHOULD #2), not `str(e)`: the message a tool-handler
+        # exception carries may have been written for a different reader than the model - see
+        # `ToolError.tool_message`'s docstring and `CalculatorError`'s override.
+        tool_result = {
             "type": "tool_result",
             "tool_use_id": tool_use["id"],
-            "content": str(e),
+            "content": e.tool_message,
             "is_error": True,
         }
-    return {
+        tool_call = {
+            "id": tool_use["id"],
+            "name": tool_use["name"],
+            "input": tool_use["input"],
+            "result": None,
+            "error": e.tool_message,
+            "is_error": True,
+        }
+        return {"tool_result": tool_result, "tool_call": tool_call}
+    tool_result = {
         "type": "tool_result",
         "tool_use_id": tool_use["id"],
         "content": json.dumps(result, default=str),
     }
+    tool_call = {
+        "id": tool_use["id"],
+        "name": tool_use["name"],
+        "input": tool_use["input"],
+        "result": result,
+        "error": None,
+        "is_error": False,
+    }
+    return {"tool_result": tool_result, "tool_call": tool_call}
 
 
 def _dispatch_batch(
@@ -117,15 +157,19 @@ def _dispatch_batch(
     `calculate_savings_plan` call can only carry a real `tax_calc_id` because an EARLIER TURN's
     `calculate_iv_taxes` tool_result already gave the model that id; a `tax_calc_id` appearing in
     this SAME batch is therefore never a same-batch data dependency the model could have actually
-    observed. Treating it structurally (does this call's `tool_input` happen to contain a
-    `tax_calc_id` key?) still satisfies the literal scheduling requirement (run it after the
-    batch's other calls have resolved) without pretending to infer a "real" dependency graph that
-    doesn't exist at this granularity.
-    """
-    independent = [b for b in tool_uses if "tax_calc_id" not in (b["input"] or {})]
-    dependent = [b for b in tool_uses if "tax_calc_id" in (b["input"] or {})]
+    observed. Treating it structurally (does this call's `tool_input` happen to carry a truthy
+    `TAX_CALC_ID_FIELD` value?) still satisfies the literal scheduling requirement (run it after
+    the batch's other calls have resolved) without pretending to infer a "real" dependency graph
+    that doesn't exist at this granularity.
 
-    results_by_id: dict[str, dict[str, Any]] = {}
+    Returns one combined `{"tool_result": ..., "tool_call": ...}` dict per original `tool_use`
+    block, in the model's original batch order (review round 1 NIT #5: truthiness, via `.get`,
+    not mere key-presence - an explicit `"tax_calc_id": null` carries no real id to depend on).
+    """
+    independent = [b for b in tool_uses if not (b["input"] or {}).get(TAX_CALC_ID_FIELD)]
+    dependent = [b for b in tool_uses if (b["input"] or {}).get(TAX_CALC_ID_FIELD)]
+
+    dispatched_by_id: dict[str, dict[str, Any]] = {}
     if independent:
         # All independent calls are SUBMITTED before any of them is awaited (`pool.submit` for
         # every block up front, in this one dict-comprehension) - genuine concurrency, not an
@@ -136,15 +180,15 @@ def _dispatch_batch(
                 for block in independent
             }
             for future, block in futures.items():
-                results_by_id[block["id"]] = future.result()
+                dispatched_by_id[block["id"]] = future.result()
 
     # Dependent calls run sequentially among themselves (if there happen to be more than one),
     # only after every independent call above has resolved.
     for block in dependent:
-        results_by_id[block["id"]] = _dispatch_tool_call(registry, block, request_context, context_token)
+        dispatched_by_id[block["id"]] = _dispatch_tool_call(registry, block, request_context, context_token)
 
-    # Preserve the original batch order in the tool_result content list sent back to the model.
-    return [results_by_id[block["id"]] for block in tool_uses]
+    # Preserve the original batch order in the content list sent back to the model.
+    return [dispatched_by_id[block["id"]] for block in tool_uses]
 
 
 def run_agent_loop(
@@ -175,6 +219,7 @@ def run_agent_loop(
     """
     messages: list[dict[str, Any]] = list(history or [])
     messages.append({"role": "user", "content": message})
+    tool_calls: list[dict[str, Any]] = []
 
     # Explicit `while`-style bounded loop with a step counter (plan Design decision 1), not
     # recursion - the simplest way to make AC-B3-1's limit trivially correct and testable.
@@ -201,15 +246,18 @@ def run_agent_loop(
                 status="completed",
                 final_text="\n".join(texts) if texts else None,
                 messages=messages,
+                tool_calls=tool_calls,
             )
 
-        tool_results = _dispatch_batch(registry, tool_uses, request_context, context_token)
-        messages.append({"role": "user", "content": tool_results})
+        dispatched = _dispatch_batch(registry, tool_uses, request_context, context_token)
+        messages.append({"role": "user", "content": [d["tool_result"] for d in dispatched]})
+        tool_calls.extend(d["tool_call"] for d in dispatched)
 
     return AgentLoopResult(
         status="max_iterations_exceeded",
         final_text=TOO_MANY_STEPS_MESSAGE,
         messages=messages,
+        tool_calls=tool_calls,
     )
 
 
@@ -221,6 +269,7 @@ __all__ = [
     "DEFAULT_MODEL",
     "DEFAULT_SYSTEM_PROMPT",
     "MAX_ITERATIONS",
+    "TAX_CALC_ID_FIELD",
     "TOO_MANY_STEPS_MESSAGE",
     "run_agent_loop",
 ]

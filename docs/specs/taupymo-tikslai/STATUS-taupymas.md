@@ -113,3 +113,41 @@ dalis (kontekstinis token'as, chat endpoint'as) pradedama tik po B0 patvirtinimo
 **Architektūrinis faktas B2+ fazėms:** Java dabar yra priekinis AI chat'o sluoksnis pagal
 ADR-0003 (mint'ina ir verifikuoja kontekstinį token'ą); Python yra grynas token'o relay, be
 jokios verifikavimo galimybės — tyčia, per sprendimą #1.
+
+## B2 dalis — pabaigta (PR #43, open)
+
+Šaka `feat/taupymas-agentas-b2` (nuo main), patvirtinta per 2 review raundus. Kas pristatyta:
+
+- Naujas įrankis `calculate_savings_plan` (`assistant/app/savings_tool.py`), apgaubiantis
+  `/api/v1/savings/plan` (A3) tokiu pat tapatybės/token'o relay'u kaip B1's `calculate_iv_taxes`
+  — jam nereikėjo JOKIO naujo Java kodo.
+- `resolve_income` — vienintelė vieta, nustatanti `net_monthly_income`: iš ankstesnio
+  `calculate_iv_taxes` rezultato (`tax_calc_id`), iš vartotojo tiesiai nurodytos sumos, arba
+  `MissingIncomeError`, kai nei vieno nėra (pajamos niekada nespėliojamos iš statistikos).
+- Naujas `assistant/app/errors.py`: `ToolError` hierarchija, kurią B3's agentų ciklas naudoja
+  `is_error` tool_result blokams; `CalculatorError`/`UnknownToolError` į ją įtraukti (review
+  round 1 radimas, B3 pasiruošimui).
+- Owner sprendimas (2026-11-12): B2/B3/B6 nebėra "pairing" fazės — visos aštuonios B dalies
+  fazės vykdomos savarankiškai (žr. plano Owner decision 13).
+- Testai: Java 313 / Python 125, 0 nepavyko.
+
+## B3 dalis — pabaigta (branch `feat/taupymas-agentas-b3`, PR pending)
+
+Šaka `feat/taupymas-agentas-b3` (nuo b2), patvirtinta per 2 review raundus. Kas pristatyta:
+
+- Pirmas šio kodo pagrindo tikras daugiažingsnis, modelio renkamasis įrankių kvietimų ciklas
+  (`assistant/app/agent_loop.py::run_agent_loop`) — iki šiol visi AI kvietimai buvo priverstinai
+  vieno įrankio (`tool_choice`). Ribotas žingsnių skaičius (`MAX_ITERATIONS=5`, AC-B3-1), modelis
+  patsgali baigti ciklą (tekstinis atsakymas be `tool_use`).
+- `ToolError` → `is_error` tool_result blokas (AC-B3-2), leidžiantis modeliui atsitaisyti arba
+  paklausti vartotojo, ne nulaužti pokalbį. Modeliui rodomas tekstas (`tool_message`) gali
+  skirtis nuo žmogui rodomo (`str(e)`) — review round 1 radimas dėl `CalculatorError`.
+- Nepriklausomi vieno žingsnio įrankių kvietimai vykdomi paraleliai per `ThreadPoolExecutor`
+  (AC-B3-3), priklausomi (turintys `tax_calc_id`) — tik po jų; `calculator.py`'s sinchroninis
+  `httpx.Client` nekeistas.
+- `AgentLoopResult.tool_calls` — B4's integracijos taškas (jau dekoduoti kvietimų rezultatai,
+  be poreikio iš naujo skaityti `messages`/JSON).
+- Rankomis rašytos `TOOL_DEF` schemos `tax_tool.py`/`savings_tool.py` (Pydantic
+  `model_json_schema()` netiko — generuoja `$defs`/`$ref` įdėtiems modeliams).
+- Testai: Python 164 / 0 nepavyko, 1 skip (gyvas Anthropic API testas, praleidžiamas be
+  `ANTHROPIC_API_KEY`). Java nekeista šioje fazėje.

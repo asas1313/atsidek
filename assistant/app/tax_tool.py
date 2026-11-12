@@ -12,7 +12,7 @@ Wraps the EXISTING `AtsidekApi.compare()` (calculator.py) - no second HTTP clien
 from decimal import Decimal
 from typing import Callable, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .calculator import Calculator
 from .request_context import RequestContext
@@ -80,7 +80,11 @@ class CalculateIvTaxesInput(BaseModel):
     actual_expenses: Optional[Decimal] = None
     other_income: Optional[Decimal] = None
     pension_accumulation: bool = False
-    psd_min_months: int = 12
+    # Review round 1 NIT #6: the schema description text above already promises "(0-12)" - this
+    # constraint makes that true locally (fails fast with a Pydantic ValidationError) instead of
+    # relying solely on Java's double guard (TaxApiController's 400 + TaxInput's defensive
+    # clamp), which still exists and is why this was a NIT, not a correctness gap.
+    psd_min_months: int = Field(default=12, ge=0, le=12)
 
 
 def make_calculate_iv_taxes_tool(
