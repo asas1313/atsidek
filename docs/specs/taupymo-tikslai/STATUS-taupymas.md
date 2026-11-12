@@ -113,3 +113,11 @@ dalis (kontekstinis token'as, chat endpoint'as) pradedama tik po B0 patvirtinimo
 **Architektūrinis faktas B2+ fazėms:** Java dabar yra priekinis AI chat'o sluoksnis pagal
 ADR-0003 (mint'ina ir verifikuoja kontekstinį token'ą); Python yra grynas token'o relay, be
 jokios verifikavimo galimybės — tyčia, per sprendimą #1.
+
+## B0 ir B1 — sumerge'inta ir deploy'inta (2026-11-12)
+
+PR #40 (B0) ir PR #41 (B1) sumerge'inti į `main` ir deploy'inti į produkciją (savininkas
+patvirtino). Abi fazės veikia produkcijoje: `ToolRegistry`/`RequestContext`/Pydantic schema
+(B0, scaffolding, dar nepajungta į `ClaudeExtractor.extract()`) ir `/chat/send` +
+`calculate_iv_taxes` + kontekstinis token'as (B1). Toliau — B2 (taupymo įrankis,
+bendradarbiavimo fazė: savininkas rašo handler'į, agentas paruošia schemą/testus).
