@@ -294,6 +294,32 @@ def test_score_no_banned_investment_terms_does_not_flag_a_financial_advisor_refe
         "Siūlau pagalvoti, kad bendrai galėtumėte investuoti į kaupiamąjį draudimą ar fondus, "
         "o konkretų pasirinkimą apsvarstykite su finansų patarėju."
     ) is True
+
+
+def test_score_no_banned_investment_terms_does_not_flag_an_advisor_referral_phrased_with_other_verb_stems():
+    """Review round 2 BLOCKER (fixed): the round-1 fix only excluded the advisor-noun collision
+    for the "patar" stem itself ("patar(?!ėj)") - it did nothing for "rekomenduo"/"siūl"/"pirk",
+    which still false-positived on the SAME "recommend consulting a financial advisor" pattern
+    whenever the referral was phrased with "rekomenduoju"/"siūlau" instead of "patariu" (the
+    object stem the advisor would discuss still sits inside that verb's proximity window). Fixed
+    generally: a proximity match only counts as a violation if its OWN matched span does not
+    itself contain an advisor-referral mention - verified here for all 3 non-"patar" verb stems,
+    plus that a GENUINE violation elsewhere in the same text (a separate match, far from any
+    advisor mention) is still caught."""
+    assert score_no_banned_investment_terms(
+        "Rekomenduoju pasitarti su patarėju dėl fondų pasirinkimo."
+    ) is True
+    assert score_no_banned_investment_terms(
+        "Siūlau pasikonsultuoti su nepriklausomu finansų patarėju dėl akcijų."
+    ) is True
+    assert score_no_banned_investment_terms(
+        "Rekomenduoju kreiptis į finansų patarėją dėl indėlių sąlygų."
+    ) is True
+    # A genuine violation must still be caught even when an unrelated advisor mention appears
+    # elsewhere in the same text, well outside the actual recommendation's own matched span.
+    assert score_no_banned_investment_terms(
+        "Mano patarėjas kažkada minėjo rinkas. Bet šiaip rekomenduoju pirkti šias akcijas."
+    ) is False
     assert score_no_banned_investment_terms(
         "Jei norite, galite pasikalbėti su finansų patarėju apie akcijas."
     ) is True
