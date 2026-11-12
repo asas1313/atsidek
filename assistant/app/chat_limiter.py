@@ -38,7 +38,7 @@ bucketing):
 import threading
 from datetime import date
 from enum import Enum
-from typing import Callable, Optional
+from typing import Callable
 
 MAX_TRACKED_KEYS = 10_000
 
@@ -68,7 +68,7 @@ class ChatLimiter:
         self._anon_count = 0
         # key -> (day last used, count consumed that day); key=None is a legitimate bucket
         # (truthy tier with no key supplied), not just a typing artifact.
-        self._user_counts: dict[Optional[str], tuple[date, int]] = {}
+        self._user_counts: dict[str | None, tuple[date, int]] = {}
 
     def _tier_cap(self, tier: str) -> int:
         cap = self.tier_daily_caps.get(tier)
@@ -79,7 +79,7 @@ class ChatLimiter:
             return min(self.tier_daily_caps.values())
         return 0
 
-    def try_acquire(self, key: Optional[str], tier: Optional[str]) -> Decision:
+    def try_acquire(self, key: str | None, tier: str | None) -> Decision:
         """`tier` falsy -> anonymous: consumes from the single global daily counter, `key`
         ignored. `tier` truthy -> logged-in: consumes from a per-`key` daily counter capped at
         `tier_daily_caps.get(tier, <strictest configured cap>)`. Never raises; cap exceeded
