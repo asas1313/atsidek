@@ -15,7 +15,7 @@ framing itself no longer applies.
 """
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Callable, Literal, Optional
+from typing import Callable, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -32,12 +32,17 @@ MISSING_INCOME_MESSAGE = (
 
 
 class GoalInput(BaseModel):
-    """Mirrors `SavingsPlanRequest.GoalRequest` (Java) field-for-field."""
+    """Mirrors `SavingsPlanRequest.GoalRequest` (Java) field-for-field.
+
+    `type`/`mode` are `Literal`s mirroring Java's `GoalType`/`GoalMode` enums exactly (review
+    round 1 SHOULD #3) - an invalid value fails fast here with a local Pydantic `ValidationError`
+    instead of an opaque Java 400.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    type: str
-    mode: str
+    type: Literal["CHILD", "CAR", "HOME_DOWN_PAYMENT", "OTHER"]
+    mode: Literal["YEARS", "DATE", "CHILD_AGE", "WHEN"]
     amount: Decimal
     years: Optional[int] = None
     target_year: Optional[int] = None

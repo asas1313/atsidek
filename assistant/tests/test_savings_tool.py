@@ -268,7 +268,7 @@ def test_full_goal_shape_is_forwarded_with_java_matching_snake_case_field_names(
     api = FakeSavingsApi()
     handler = make_calculate_savings_plan_tool(api)
     full_goal = {
-        "type": "CHILD_EDUCATION", "mode": "CHILD_AGE", "amount": Decimal("5000"),
+        "type": "CHILD", "mode": "CHILD_AGE", "amount": Decimal("5000"),
         "target_year": 2030, "target_month": 6,
         "child_current_age": 3, "child_target_age": 18,
         "monthly_contribution": Decimal("50.00"),
@@ -292,6 +292,20 @@ def test_empty_string_tax_calc_id_is_not_confused_with_absent_by_schema_validato
         CalculateSavingsPlanInput.model_validate({
             "goal": goal(), "tax_calc_id": "", "net_monthly_income": Decimal("1000"),
         })
+
+
+def test_invalid_goal_type_is_rejected_by_pydantic_directly():
+    """Review round 1 SHOULD #3: GoalInput.type mirrors Java's GoalType enum (CHILD, CAR,
+    HOME_DOWN_PAYMENT, OTHER) via Literal - an invalid value must fail fast with a local
+    ValidationError, not travel all the way to Java and come back as an opaque 400."""
+    with pytest.raises(ValidationError):
+        CalculateSavingsPlanInput.model_validate({"goal": goal() | {"type": "NOT_A_REAL_TYPE"}})
+
+
+def test_invalid_goal_mode_is_rejected_by_pydantic_directly():
+    """Mirrors the above for GoalMode (YEARS, DATE, CHILD_AGE, WHEN)."""
+    with pytest.raises(ValidationError):
+        CalculateSavingsPlanInput.model_validate({"goal": goal() | {"mode": "NOT_A_REAL_MODE"}})
 
 
 def test_zero_user_stated_net_monthly_income_is_honoured_not_treated_as_absent():
