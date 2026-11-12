@@ -1,5 +1,9 @@
 # B2 pairing užrašai: `calculate_savings_plan` įrankis
 
+> Superseded 2026-11-12 — see Owner decision 13 in PLAN-taupymas-agentas.B.plan.md; B2 was
+> implemented autonomously, not as a pairing session. Kept below for its still-accurate technical
+> rationale.
+
 Šaka: `feat/taupymas-agentas-b2`. Agentas paruošė schemą ir "raudonus" testus (žr. žemiau);
 **handler'io kūną ir sprendimo (resolution) logiką rašo savininkas**, agentui peržiūrint diff'us
 ir paaiškinant Java pusės pasekmes. Tai yra tyčia — plano "Collaborative phases" skyrius šią fazę

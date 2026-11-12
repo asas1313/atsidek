@@ -1,5 +1,8 @@
-"""calculate_savings_plan tool (B2, AC-B2-1..4) — pairing phase, see
-docs/specs/taupymo-tikslai/B2-pairing-notes.md.
+"""calculate_savings_plan tool (B2, AC-B2-1..4). Implemented autonomously (see Owner decision 13,
+PLAN-taupymas-agentas.B.plan.md) — the technical design rationale (why net_monthly_income is the
+trickiest part, the three resolution paths) is still written up in
+docs/specs/taupymo-tikslai/B2-pairing-notes.md, kept for that reason even though the pairing
+framing itself no longer applies.
 
   * `CalculateSavingsPlanInput` (AC-B2-1) — schema shape, tax_calc_id/net_monthly_income
     mutually exclusive.
