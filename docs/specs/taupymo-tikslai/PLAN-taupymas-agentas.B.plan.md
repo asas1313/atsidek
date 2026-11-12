@@ -44,6 +44,15 @@ once B0 is reviewed/approved, per explicit owner instruction.
 | AC-B0-3 | A `RequestContext` object exists, scoped to one incoming user message: user id, tier, intermediate tool results. | `assistant/tests/test_request_context.py`: context starts empty; storing a result under a generated id and reading it back round-trips; context is not shared across two independently-constructed instances (no accidental module-level singleton leak). |
 | AC-B0-4 | Existing tests and evals pass unchanged. | Full `pytest -q` run (existing `test_assistant.py`, `test_goals_parse.py`, `test_goals_extractor.py`) green, no assertions changed; `/asistentas` and `/api/v1/goals/parse` behaviour verified identical via existing tests (no new ones needed for this specific AC — regression, not new behaviour). |
 
+**AC-B0-2 scope note:** in B0, `IvExtractionToolInput` is scaffolding only. It is proven in
+isolation against the real, already-tested `parse()` function (`assistant/tests/test_tool_schemas.py`),
+but it is **not** wired into the live `ClaudeExtractor.extract()` call path — that path still
+calls `parse()` directly on Claude's raw tool-input dict. This is deliberate: wiring Pydantic
+validation into that live path is itself a behaviour change (it could turn a case `parse()`
+currently tolerates into a hard failure), and AC-B0-4 requires B0 to leave existing behaviour
+unchanged. Wiring `IvExtractionToolInput` into the live path is deferred to whichever later
+phase (B1+) actually needs it enforced for real traffic.
+
 ### B1 — `calculate_iv_taxes` tool
 
 | AC | Criterion | Test(s) |

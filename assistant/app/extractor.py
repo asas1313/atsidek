@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Literal, Optional, Protocol
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 TOOL = "irasyti_iv_duomenis"
 
@@ -74,6 +74,15 @@ class IvExtractionToolInput(BaseModel):
     pensiju_kaupimas: Optional[bool]
     psd_menesiai: Optional[int]
     trukstama_info: list[str]
+
+    @field_validator("pajamos_eur", "islaidos_eur", "kitos_pajamos_eur", "psd_menesiai", mode="before")
+    @classmethod
+    def _reject_bool_for_numeric(cls, v):
+        # bool yra int potipis - pydantic v2 kitaip tylomis konvertuotų True/False į 1.0/0.0;
+        # atmetam, kad sutaptų su parse()/_num() semantika (žr. _num() komentarą žemiau).
+        if isinstance(v, bool):
+            raise ValueError("bool reikšmė neleidžiama skaitiniam laukui")
+        return v
 
 
 class ExtractionError(Exception):

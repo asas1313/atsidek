@@ -50,3 +50,15 @@ def test_out_of_enum_value_raises_validation_error_with_field_name():
     with pytest.raises(ValidationError) as exc:
         IvExtractionToolInput.model_validate(bad)
     assert any("islaidu_budas" in str(e["loc"]) for e in exc.value.errors())
+
+
+def test_bool_for_numeric_field_rejected_matching_parse():
+    """Fixed per B0 review: the model's numeric fields reject bool values (via an explicit
+    field_validator), matching `parse()`'s `_num()` semantics (see "bool yra int potipis -
+    atmetam"), instead of pydantic v2's default silent bool -> number coercion (True -> 1.0).
+    """
+    payload = {**VALID, "pajamos_eur": True}
+    with pytest.raises(ValidationError) as exc:
+        IvExtractionToolInput.model_validate(payload)
+    assert any("pajamos_eur" in str(e["loc"]) for e in exc.value.errors())
+    assert parse({**VALID, "pajamos_eur": True}).revenue is None  # parse() still rejects it too
