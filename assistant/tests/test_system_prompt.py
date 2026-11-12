@@ -21,7 +21,7 @@ def test_prompt_forbids_recommending_specific_financial_products():
 def test_prompt_forbids_assuming_income_from_statistics_or_otherwise():
     lowered = SYSTEM_PROMPT.lower()
     assert "pajam" in lowered
-    assert "nespėlio" in lowered or "neprielei" in lowered
+    assert "nespėlio" in lowered or "prielaid" in lowered
 
 
 def test_prompt_restricts_model_role_to_never_stating_numbers_itself():
@@ -70,7 +70,7 @@ def test_income_clause_specifically_forbids_guessing_from_statistics():
     import re
 
     lowered = SYSTEM_PROMPT.lower()
-    assert re.search(r"(nespėlio|neprielei)\w*.{0,60}pajam", lowered) or re.search(
+    assert re.search(r"(nespėlio|prielaid)\w*.{0,60}pajam", lowered) or re.search(
         r"pajam\w*.{0,80}statistik", lowered
     )
 

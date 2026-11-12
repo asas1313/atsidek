@@ -151,3 +151,30 @@ jokios verifikavimo galimybės — tyčia, per sprendimą #1.
   `model_json_schema()` netiko — generuoja `$defs`/`$ref` įdėtiems modeliams).
 - Testai: Python 164 / 0 nepavyko, 1 skip (gyvas Anthropic API testas, praleidžiamas be
   `ANTHROPIC_API_KEY`). Java nekeista šioje fazėje.
+
+## B4 dalis — pabaigta (branch `feat/taupymas-agentas-b4`, PR pending)
+
+Šaka `feat/taupymas-agentas-b4` (nuo b3), patvirtinta per review raundą. Kas pristatyta:
+
+- `assistant/app/response_builder.py` — deterministinis atsakymo surinkimas iš
+  `AgentLoopResult.tool_calls` (AC-B4-1): tvarka mokesčiai → laisvi pinigai → tikslas → prielaidos
+  su kilme → teisinis atsiribojimas → vienas kvietimas prisijungti. Visi skaičiai imami TIK iš
+  paskutinio sėkmingo įrankio rezultato, niekada iš modelio teksto. CTA žodynas
+  (`LOCKED_FEATURE_CTA`) ir kilmės etiketės (`ORIGIN_LABELS`) — pažodžiui perkelti iš
+  `taupymo-tikslai.html` (review round 1 radimas: brūkšnio simbolis nesutapo dviejuose
+  sakiniuose — pataisyta, testas sutvirtintas iki tikslaus baitų sutapimo).
+- `assistant/app/system_prompt.py` — tikras produkcinis sisteminis prompt'as (AC-B4-3): draudimas
+  duoti investavimo patarimus, draudimas spėlioti pajamas, modelio vaidmuo ribojamas tik
+  įvadu/paaiškinimu/patikslinančiais klausimais (niekada ne skaičiais). Review round 1 radimas:
+  viena frazė turėjo neegzistuojančią lietuvišką žodžio formą — pataisyta.
+- `assistant/app/agent_client.py` (naujas) — prompt caching (AC-B4-4): `cache_control` sisteminiam
+  prompt'ui ir paskutiniam įrankio apibrėžimui (niekada nekeičiant bendrų `TOOL_DEF` konstantų
+  vietoje), kešavimo metrikos logavimas per kvietimą. `agent_loop.py` pakeistas kviesti šį modulį
+  tiesioginio `client.messages.create()` vietoje — vienintelis pakeitimas tame faile.
+- Review round 1 radimas: `general_tip` (Java, formalus „jūs“ registras) pirmą kartą realiai
+  rodomas vartotojui šiame atsakyme, tiesiai prieš neformalaus „tu“ registro CTA sakinį — tono
+  neatitikimas. Pataisyta `GENERAL_TIP_INFORMAL_LT` žodynu, verčiančiu 4 fiksuotas Java eilutes į
+  neformalų registrą (kryžminiu testu su Java šaltiniu, kad neištrūktų iš sinchronizacijos).
+- Sąmoningai NEBŪVO sujungta su `main.py`/`/internal/chat` — tikras agento ciklo įjungimas į
+  gyvą HTTP endpoint'ą paliktas vėlesnei fazei (B6's eval'ų poreikiui/B7's staging integracijai).
+- Testai: Python 215 / 0 nepavyko, 1 skip. Java nekeista šioje fazėje.

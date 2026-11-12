@@ -464,3 +464,40 @@ def test_locked_feature_cta_sentences_match_html_source_byte_for_byte():
             f"{key} is not byte-for-byte identical between response_builder.py and "
             "taupymo-tikslai.html"
         )
+
+
+def test_general_tip_informal_rewrites_cover_every_literal_string_savings_plan_service_emits():
+    """Review round 1 SHOULD #2: `GENERAL_TIP_INFORMAL_LT`'s keys are meant to be the 4 exact,
+    literal strings `SavingsPlanService.generalTip(Verdict)` (Java) can return - if Java's wording
+    ever changes, this map's keys silently stop matching and `_build_goal_section` would fall back
+    to rendering Java's (now formal-register, unmapped) text unchanged. Extracts the 4 literal
+    string chunks straight from the Java source and asserts every one is a key in the Python map,
+    same cross-source regression pattern as the CTA-vs-HTML test above."""
+    import pathlib
+    import re
+
+    from app.response_builder import GENERAL_TIP_INFORMAL_LT
+
+    java_path = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "src/main/java/eu/atsidek/goals/plan/SavingsPlanService.java"
+    )
+    java = java_path.read_text(encoding="utf-8")
+    match = re.search(r"private static String generalTip\(Verdict verdict\) \{(.*?)\n    \}", java, re.DOTALL)
+    assert match is not None, "generalTip(Verdict) not found in SavingsPlanService.java - moved/renamed?"
+    body = match.group(1)
+    cases = re.findall(r"case \w+ ->\s*((?:\"[^\"]*\"\s*\+?\s*)+);", body)
+    assert len(cases) == 4, f"expected exactly 4 Verdict cases, found {len(cases)} - Verdict enum changed?"
+    for case in cases:
+        java_sentence = "".join(re.findall(r'"([^"]*)"', case))
+        assert java_sentence in GENERAL_TIP_INFORMAL_LT, (
+            f"SavingsPlanService.generalTip() now returns a string with no informal-register "
+            f"rewrite in GENERAL_TIP_INFORMAL_LT: {java_sentence!r}"
+        )
+        # The rewrite must still be informal ("tu"/"tavo"), not an accidental no-op copy of the
+        # formal original (which would silently reintroduce the register clash this map exists
+        # to fix) - only assert this for the two sentences that actually use a 2nd-person form.
+        if "jūsų" in java_sentence or "apsvarstykite" in java_sentence:
+            assert GENERAL_TIP_INFORMAL_LT[java_sentence] != java_sentence
+            assert "jūsų" not in GENERAL_TIP_INFORMAL_LT[java_sentence]
+            assert "apsvarstykite" not in GENERAL_TIP_INFORMAL_LT[java_sentence]

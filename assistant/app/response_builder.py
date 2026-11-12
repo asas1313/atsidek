@@ -51,6 +51,38 @@ LOCKED_FEATURE_CTA = {
 }
 PREFERRED_CTA_FEATURE = "SAVINGS_IV_LINK"
 
+# Review round 1 SHOULD #2: `core["general_tip"]` (SavingsPlanService.generalTip(), Java) is
+# written in the formal "jūs" register - it has never actually been RENDERED to a user before
+# (taupymo-tikslai.html receives the field but doesn't display it), so this is the first time its
+# register is visible, landing right next to the informal "tu" CTA sentences above in the same
+# chat reply. The rest of this feature's established voice (the CTA text itself, confirmed by
+# taupymo-tikslai.html's own comment about deliberately adapting FROM formal TO informal for this
+# exact reason) is informal, so this map rewrites Java's 4 fixed strings into that register rather
+# than the other way around - changing Java's text is out of this Python-only phase's scope, and a
+# second, chat-specific formal CTA variant would just duplicate vocabulary. A test cross-checks
+# these 4 keys against SavingsPlanService.java's own literal strings, same pattern as the
+# LOCKED_FEATURE_CTA-vs-HTML regression test below.
+GENERAL_TIP_INFORMAL_LT = {
+    "Laisvų pinigų nėra arba jie neigiami – pirmiausia peržiūrėkite išlaidas, "
+    "kad atsirastų, iš ko taupyti.": (
+        "Laisvų pinigų nėra arba jie neigiami – pirmiausia peržiūrėk išlaidas, "
+        "kad atsirastų, iš ko taupyti."
+    ),
+    "Šis tikslas atrodo pasiekiamas – įmoka sudaro nedidelę dalį jūsų laisvų pinigų.": (
+        "Šis tikslas atrodo pasiekiamas – įmoka sudaro nedidelę dalį tavo laisvų pinigų."
+    ),
+    "Šis tikslas pasiekiamas, bet pareikalaus nemažos dalies laisvų pinigų – "
+    "apsvarstykite ilgesnį terminą arba mažesnę sumą.": (
+        "Šis tikslas pasiekiamas, bet pareikalaus nemažos dalies laisvų pinigų – "
+        "apsvarstyk ilgesnį terminą arba mažesnę sumą."
+    ),
+    "Reikalinga įmoka viršija pusę jūsų laisvų pinigų – su šiuo terminu tikslas "
+    "greičiausiai nerealus, apsvarstykite ilgesnį terminą arba mažesnę sumą.": (
+        "Reikalinga įmoka viršija pusę tavo laisvų pinigų – su šiuo terminu tikslas "
+        "greičiausiai nerealus, apsvarstyk ilgesnį terminą arba mažesnę sumą."
+    ),
+}
+
 
 def pick_cta_feature(locked_features: list[str]) -> Optional[str]:
     """AC-B4-2: single, specific CTA - ported verbatim from `pickCtaFeature` in
@@ -86,7 +118,7 @@ def _last_successful_result(tool_calls: list[dict], name: str) -> Optional[dict]
 def _build_taxes_section(tax_result: dict) -> str:
     method_label = EXPENSE_METHOD_LABELS_LT.get(tax_result["method"], tax_result["method"])
     return (
-        f"Pagal {method_label} metodą, metinis mokesčių suma yra {_eur(tax_result['total_tax_per_year'])}, "
+        f"Pagal {method_label} metodą, metinė mokesčių suma yra {_eur(tax_result['total_tax_per_year'])}, "
         f"mėnesiui verta atsidėti {_eur(tax_result['monthly_tax_setaside'])}, "
         f"o grynosios mėnesio pajamos - {_eur(tax_result['net_monthly_income'])}."
     )
@@ -101,7 +133,8 @@ def _build_goal_section(core: dict) -> str:
         f"Tikslui siūloma atsidėti {_eur(core['monthly_contribution'])} per mėnesį "
         f"({_pct(core['share_of_free_cash_pct'])} laisvų pinigų)."
     )
-    return f"{sentence} {core['general_tip']}"
+    general_tip = GENERAL_TIP_INFORMAL_LT.get(core["general_tip"], core["general_tip"])
+    return f"{sentence} {general_tip}"
 
 
 def _build_assumptions_section(assumptions: list[dict]) -> str:
