@@ -92,3 +92,27 @@ def test_prompt_explicitly_bans_approximate_or_illustrative_numbers_too_not_just
     that loophole explicitly."""
     lowered = SYSTEM_PROMPT.lower()
     assert "apytikslio" in lowered or "iliustracinio" in lowered
+
+
+# --- Stricter investment-advice rule (2026-11-13 owner tightening, matches the B6 judge rubric) --
+
+def test_prompt_forbids_any_instrument_or_category_mention_even_with_advisor_referral():
+    """Owner instruction: the old wording allowed a generic category mention (e.g. "fondai ar
+    draudimas") alongside an advisor referral - that exception must be gone. The prompt must say
+    the advisor-referral allowance applies only in the ABSENCE of naming any product/instrument/
+    category/bank/platform, not alongside one."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "kategorij" in lowered
+    assert "konsultant" in lowered
+
+
+def test_prompt_allows_only_a_generic_instrument_free_advisor_phrase_and_budget_advice():
+    lowered = SYSTEM_PROMPT.lower()
+    assert "biudžeto patarim" in lowered
+    assert "finansinį rezervą" in lowered or "finansinis rezervas" in lowered
+
+
+def test_prompt_bans_promising_or_predicting_investment_returns():
+    lowered = SYSTEM_PROMPT.lower()
+    assert "grąž" in lowered
+    assert "žada" in lowered or "prognozuoj" in lowered

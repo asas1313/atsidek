@@ -25,6 +25,16 @@ directly, not inside docker-compose.
 run) - see the loud warning this script prints when it is passed, and `judge_rubric.py`'s own
 module docstring: that rubric/threshold are a DRAFT, not owner-approved yet.
 
+Investment-advice reporting (owner instruction, 2026-11-13): the `no_banned_investment_terms`
+deterministic check and (when `--with-judge` is passed) the LLM-judge verdict are ZERO-TOLERANCE,
+reported separately from every other metric. ANY single FAIL across the 3 runs/case is collected
+verbatim (case id, the run's `final_text`, and the judge's own `reason` when present) into the
+summary's top-level `investment_advice_violations` list for manual review - never blended into a
+pass-rate percentage. `judge_rubric.DRAFT_PASS_RATE_THRESHOLD` (0.9) applies only to the
+OTHER metrics (tool_sequence, no_invented_numbers, anon_no_premium, missing_income_handled,
+tax_input_revenue_matches_expected): a case's own `pass_rate` and the `group_pass_rates`/
+`overall_pass_rate` aggregates are computed from those metrics only.
+
 Context-token judgment call: ADR-0003 context tokens are minted and signed by JAVA, not by this
 Python service - this script cannot mint a real signed FREE/PREMIUM token itself. For
 `variant="logged_in"` cases, it looks for a pre-minted token in `ATSIDEK_CONTEXT_TOKEN_FREE`/
@@ -66,6 +76,7 @@ from evals.agent.scoring import (  # noqa: E402
     score_missing_income_handled,
     score_no_banned_investment_terms,
     score_no_invented_numbers,
+    score_tax_input_revenue_matches_expected,
     score_tool_sequence,
 )
 
@@ -104,16 +115,27 @@ def _run_one(client, registry, tools, case, model: str) -> dict:
         model=model,
     )
 
-    checks = {
+    # "Rate" checks (owner instruction 2026-11-13): DRAFT_PASS_RATE_THRESHOLD (0.9) applies ONLY
+    # to these - tool sequence, number-leakage, anon-premium-gating, missing-income handling, and
+    # (monthly-income cases only) the tax-tool-input annualization check. The investment-advice
+    # check is deliberately NOT in this dict - see `no_banned_investment_terms` below and `run()`.
+    rate_checks = {
         "tool_sequence": score_tool_sequence(result.tool_calls, case.expected_tool_sequence),
         "no_invented_numbers": score_no_invented_numbers(result.final_text, result.tool_calls),
         "anon_no_premium": score_anon_no_premium(result.tool_calls, case.variant),
-        "no_banned_investment_terms": score_no_banned_investment_terms(result.final_text),
     }
     if case.expect_clarifying_question:
-        checks["missing_income_handled"] = score_missing_income_handled(result.tool_calls, result.final_text)
+        rate_checks["missing_income_handled"] = score_missing_income_handled(result.tool_calls, result.final_text)
+    if case.expected_annual_revenue is not None:
+        rate_checks["tax_input_revenue_matches_expected"] = score_tax_input_revenue_matches_expected(
+            result.tool_calls, case.expected_annual_revenue
+        )
 
-    passed = all(checks.values())
+    # Investment-advice check (owner instruction 2026-11-13): ZERO TOLERANCE - `run()` collects
+    # every FAIL verbatim into `investment_advice_violations` for manual review, never blending it
+    # into `rate_checks`/the pass-rate aggregate below.
+    no_banned_investment_terms = score_no_banned_investment_terms(result.final_text)
+
     reply = build_response(result.tool_calls, result.final_text)
     return {
         "status": result.status,
@@ -121,8 +143,9 @@ def _run_one(client, registry, tools, case, model: str) -> dict:
         "reply": reply,
         "tool_names_called": [c["name"] for c in result.tool_calls],
         "context_token_used": context_token is not None,
-        "checks": checks,
-        "passed": passed,
+        "checks": rate_checks,
+        "rate_checks_passed": all(rate_checks.values()),
+        "no_banned_investment_terms": no_banned_investment_terms,
     }
 
 
@@ -134,7 +157,7 @@ def _run_judge(client, case, run_record: dict) -> dict:
     try:
         verdict = json.loads(text)
     except json.JSONDecodeError:
-        return {"verdict": "FAIL", "reason": f"nevalidus judge JSON atsakymas: {text!r}"}
+        return {"reason": f"nevalidus judge JSON atsakymas: {text!r}", "verdict": "FAIL"}
     return verdict
 
 
@@ -149,16 +172,35 @@ def run(model: str, with_judge: bool) -> dict:
     registry, tools = _build_registry_and_tools(calculator)
 
     case_results = []
+    # Owner instruction 2026-11-13: zero-tolerance for investment-advice checks - every FAIL
+    # (deterministic noun scorer AND, when --with-judge, the LLM judge) collected here verbatim,
+    # never blended into a pass-rate. Manual review reads this list, not a percentage.
+    investment_advice_violations: list[dict] = []
     for case in CASES:
         runs = []
         for _ in range(RUNS_PER_CASE):
             run_record = _run_one(client, registry, tools, case, model)
+
+            if not run_record["no_banned_investment_terms"]:
+                investment_advice_violations.append({
+                    "case_id": case.id,
+                    "check": "no_banned_investment_terms",
+                    "final_text": run_record["final_text"],
+                })
+
             if with_judge:
                 judge_verdict = _run_judge(client, case, run_record)
                 run_record["judge_verdict"] = judge_verdict
-                run_record["passed"] = run_record["passed"] and judge_verdict.get("verdict") == "PASS"
+                if judge_verdict.get("verdict") == "FAIL":
+                    investment_advice_violations.append({
+                        "case_id": case.id,
+                        "check": "llm_judge",
+                        "final_text": run_record["final_text"],
+                        "reason": judge_verdict.get("reason"),
+                    })
+
             runs.append(run_record)
-        pass_rate = sum(1 for r in runs if r["passed"]) / len(runs)
+        pass_rate = sum(1 for r in runs if r["rate_checks_passed"]) / len(runs)
         case_results.append({
             "id": case.id,
             "group": case.group,
@@ -182,6 +224,7 @@ def run(model: str, with_judge: bool) -> dict:
         "overall_pass_rate": (
             sum(cr["pass_rate"] for cr in case_results) / len(case_results) if case_results else None
         ),
+        "investment_advice_violations": investment_advice_violations,
         "case_results": case_results,
     }
 
@@ -221,9 +264,27 @@ def main() -> None:
     out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
     overall = summary["overall_pass_rate"]
-    print(f"Bendras pass rate: {overall:.1%}" if overall is not None else "Bendras pass rate: n/a")
+    print(
+        f"Bendras pass rate (TIK ne-investavimo-patarimo matams): {overall:.1%}"
+        if overall is not None
+        else "Bendras pass rate: n/a"
+    )
     for group, rate in summary["group_pass_rates"].items():
         print(f"  {group}: {rate:.1%}" if rate is not None else f"  {group}: n/a")
+
+    violations = summary["investment_advice_violations"]
+    if violations:
+        print(
+            f"\n!!! {len(violations)} INVESTAVIMO PATARIMO PAŽEIDIMAI (0 FAIL slenkstis) - "
+            "RANKINEI PERŽIŪRAI: !!!",
+            file=sys.stderr,
+        )
+        for v in violations:
+            reason = f" | judge reason: {v['reason']}" if v.get("reason") else ""
+            print(f"  [{v['check']}] case={v['case_id']}: {v['final_text']!r}{reason}", file=sys.stderr)
+    else:
+        print("\nInvestavimo patarimo pažeidimų nerasta (0 FAIL).")
+
     print(f"Rezultatas įrašytas: {out_path}")
 
 

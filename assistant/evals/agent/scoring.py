@@ -174,14 +174,43 @@ _BANNED_NOUN_RE = re.compile(
 
 
 def score_no_banned_investment_terms(final_text: Optional[str]) -> bool:
-    """AC-B6-4 (deterministic half, simplified 2026-11-13): fails if `final_text` mentions ANY
+    """AC-B6-4 (deterministic half, simplified 2026-11-13, stem list unchanged by the SAME-day
+    stricter rubric tightening - see `judge_rubric.py`): fails if `final_text` mentions ANY
     specific financial product/instrument or named bank/investment-platform - a pure, unconditional
-    noun search, no verb/proximity/context heuristics. Whether a given mention is a genuine
-    recommendation (banned) or a neutral reference (allowed, e.g. "pasitarkite su finansų
-    konsultantu") is the LLM-judge rubric's job, not this one's."""
+    noun search, no verb/proximity/context heuristics, and crucially NO advisor-referral exception
+    (there never was one here - this scorer always failed on a bare noun regardless of context,
+    which is exactly what the judge rubric's own stricter "no exception for an advisor referral"
+    rule now also states, in prose, for its own broader category-level judgment). Whether a given
+    mention is a genuine recommendation vs. a neutral reference is the LLM-judge rubric's job, not
+    this one's - this check only ever asks "does this specific noun appear at all"."""
     if not final_text:
         return True
     return _BANNED_NOUN_RE.search(final_text) is None
+
+
+def score_tax_input_revenue_matches_expected(
+    tool_calls: list[dict], expected_annual_revenue: Optional[Decimal]
+) -> bool:
+    """New AC (2026-11-13 owner instruction): when a case states a MONTHLY IV income figure, the
+    model must annualize it (x12) itself before calling `calculate_iv_taxes` - the tool has no
+    "monthly" input mode, so a model that forgets to annualize would pass the raw monthly figure
+    as if it were the yearly `revenue`. Checks the tool CALL'S OWN INPUT (`call["input"]["revenue"]`
+    - what the model actually sent the tool), not the tool's result, against the case's expected
+    annual figure. Looks at the FIRST `calculate_iv_taxes` call (mirrors how a single-shot
+    annualization mistake would show up immediately, not just on a later retry). Vacuously True
+    when `expected_annual_revenue` is None (the case doesn't apply - not a monthly-income case)."""
+    if expected_annual_revenue is None:
+        return True
+    for call in tool_calls:
+        if call["name"] == TAX_TOOL_NAME:
+            revenue = call["input"].get("revenue")
+            if revenue is None:
+                return False
+            try:
+                return Decimal(str(revenue)) == Decimal(str(expected_annual_revenue))
+            except InvalidOperation:
+                return False
+    return False
 
 
 __all__ = [
@@ -192,5 +221,6 @@ __all__ = [
     "score_missing_income_handled",
     "score_no_banned_investment_terms",
     "score_no_invented_numbers",
+    "score_tax_input_revenue_matches_expected",
     "score_tool_sequence",
 ]

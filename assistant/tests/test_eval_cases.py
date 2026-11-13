@@ -1,17 +1,25 @@
 """AC-B6-1 structural tests over `evals/agent/cases.py::CASES` - no live API, no mocking: just
 inspects the static `CASES` list (group/variant coverage, tier consistency, id uniqueness, the
 missing-income cases required by AC-B6-6, and the combined-group tool-sequence invariant).
+
+Updated 2026-11-13 for the owner's AC-B6-4-probing additions: the "core" 30-case design (3
+groups x 2 variants x 5) is unchanged, plus 12 new cases in 2 new groups (`adversarial`,
+`tier_spoof`) and 4 new monthly-income cases folded into the existing `tax_only`/`combined`
+groups - see `cases.py`'s own module docstring.
 """
 from evals.agent.cases import CASES, EvalCase
 
 KNOWN_TIERS = {"FREE", "PREMIUM"}
-GROUPS = {"tax_only", "savings_only", "combined"}
+CORE_GROUPS = {"tax_only", "savings_only", "combined"}
+GROUPS = CORE_GROUPS  # kept for readability where only the original 3 groups are in scope
+NEW_GROUPS = {"adversarial", "tier_spoof"}
+ALL_GROUPS = CORE_GROUPS | NEW_GROUPS
 VARIANTS = {"anon", "logged_in"}
 
 
-def test_case_count_is_close_to_30():
-    # Exactly 30 (5 cases x 3 groups x 2 variants) - the plan's own target, hit exactly here.
-    assert len(CASES) == 30
+def test_case_count_is_42():
+    # 30 core (5 cases x 3 groups x 2 variants) + 6 adversarial + 2 tier_spoof + 4 monthly-income.
+    assert len(CASES) == 42
 
 
 def test_every_case_is_an_eval_case_instance():
@@ -19,11 +27,15 @@ def test_every_case_is_an_eval_case_instance():
 
 
 def test_all_three_groups_present():
-    assert {c.group for c in CASES} == GROUPS
+    assert CORE_GROUPS <= {c.group for c in CASES}
 
 
-def test_both_variants_present_within_every_group():
-    for group in GROUPS:
+def test_no_unexpected_group_values_present():
+    assert {c.group for c in CASES} == ALL_GROUPS
+
+
+def test_both_variants_present_within_every_core_group():
+    for group in CORE_GROUPS:
         variants_in_group = {c.variant for c in CASES if c.group == group}
         assert variants_in_group == VARIANTS, f"group {group!r} missing a variant: {variants_in_group}"
 
@@ -76,7 +88,7 @@ def test_combined_group_cases_expect_tax_then_savings_unless_missing_income():
 
 def test_non_missing_income_cases_have_a_non_empty_expected_tool_sequence():
     for c in CASES:
-        if c.expect_clarifying_question:
+        if c.expect_clarifying_question or c.group == "adversarial":
             continue
         assert c.expected_tool_sequence, f"{c.id} has no expected tool calls and is not a missing-income case"
 
@@ -158,3 +170,61 @@ def test_savings_only_non_missing_income_cases_state_at_least_one_euro_amount():
     for c in CASES:
         if c.group == "savings_only" and not c.expect_clarifying_question:
             assert _EUR_AMOUNT.search(c.user_message.lower()), c.id
+
+
+# --- AC-B6-4 probing additions (2026-11-13 owner instruction) --------------------------------------
+
+def test_no_case_self_declares_a_tier_in_its_message_except_tier_spoof():
+    """A real backend derives tier server-side (RequestContext/context token), never from
+    user-typed text - a case text claiming "Esu prisijungęs"/"Esu PREMIUM" is unrealistic AND
+    untested by the harness. The ONLY group allowed to contain such a claim is `tier_spoof`,
+    where that is the entire point (a FALSE claim that must not grant real premium data)."""
+    tier_claim_words = ("esu prisijungęs", "esu premium", "prisijungęs vartotojas", "premium narys", "premium vartotojas")
+    for c in CASES:
+        if c.group == "tier_spoof":
+            continue
+        lowered = c.user_message.lower()
+        assert not any(w in lowered for w in tier_claim_words), f"{c.id} self-declares a tier in its message text: {c.user_message!r}"
+
+
+def test_adversarial_group_has_at_least_six_cases_covering_both_variants():
+    adversarial = [c for c in CASES if c.group == "adversarial"]
+    assert len(adversarial) >= 6
+    assert {c.variant for c in adversarial} == VARIANTS
+
+
+def test_adversarial_cases_expect_no_tool_calls():
+    for c in CASES:
+        if c.group == "adversarial":
+            assert c.expected_tool_sequence == [], c.id
+            assert c.expect_clarifying_question is False, c.id
+
+
+def test_tier_spoof_group_has_exactly_two_anon_cases_with_a_false_premium_claim():
+    tier_spoof = [c for c in CASES if c.group == "tier_spoof"]
+    assert len(tier_spoof) == 2
+    for c in tier_spoof:
+        assert c.variant == "anon", c.id
+        assert c.tier is None, c.id
+        assert "premium" in c.user_message.lower(), c.id
+        # A real, scoreable case - not a bare claim with nothing for the agent to compute.
+        assert c.expected_tool_sequence, c.id
+
+
+def test_at_least_four_monthly_income_cases_with_expected_annual_revenue_set():
+    monthly_cases = [c for c in CASES if c.expected_annual_revenue is not None]
+    assert len(monthly_cases) >= 4
+    for c in monthly_cases:
+        assert c.group in {"tax_only", "combined"}, c.id
+        assert c.expected_tool_sequence and c.expected_tool_sequence[0] == "calculate_iv_taxes", c.id
+        assert c.expected_annual_revenue > 0
+
+
+def test_monthly_income_cases_cover_both_variants():
+    monthly_cases = [c for c in CASES if c.expected_annual_revenue is not None]
+    assert {c.variant for c in monthly_cases} == VARIANTS
+
+
+def test_cases_without_expected_annual_revenue_default_to_none():
+    non_monthly = [c for c in CASES if "monthly_income" not in c.id]
+    assert all(c.expected_annual_revenue is None for c in non_monthly)

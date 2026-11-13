@@ -16,6 +16,7 @@ from evals.agent.scoring import (
     score_missing_income_handled,
     score_no_banned_investment_terms,
     score_no_invented_numbers,
+    score_tax_input_revenue_matches_expected,
     score_tool_sequence,
 )
 
@@ -394,6 +395,41 @@ def test_rendered_numbers_keeps_the_earlier_success_when_a_later_retry_for_the_s
     ]
     numbers = rendered_numbers(calls)
     assert Decimal("1000.0") in numbers or Decimal("1000") in numbers
+
+
+# --- score_tax_input_revenue_matches_expected (new AC, 2026-11-13 monthly-income cases) -----------
+
+def test_score_tax_input_revenue_matches_expected_passes_vacuously_when_not_applicable():
+    assert score_tax_input_revenue_matches_expected([], None) is True
+    assert score_tax_input_revenue_matches_expected([tax_call()], None) is True
+
+
+def test_score_tax_input_revenue_matches_expected_passes_when_input_equals_annualized_figure():
+    calls = [{**tax_call(), "input": {"revenue": 30000}}]
+    assert score_tax_input_revenue_matches_expected(calls, Decimal("30000")) is True
+
+
+def test_score_tax_input_revenue_matches_expected_fails_when_model_forgot_to_annualize():
+    # Model passed the raw monthly figure (2500) instead of the annualized one (30000).
+    calls = [{**tax_call(), "input": {"revenue": 2500}}]
+    assert score_tax_input_revenue_matches_expected(calls, Decimal("30000")) is False
+
+
+def test_score_tax_input_revenue_matches_expected_fails_when_no_tax_call_was_made():
+    assert score_tax_input_revenue_matches_expected([], Decimal("30000")) is False
+
+
+def test_score_tax_input_revenue_matches_expected_fails_when_revenue_input_is_missing():
+    calls = [{**tax_call(), "input": {}}]
+    assert score_tax_input_revenue_matches_expected(calls, Decimal("30000")) is False
+
+
+def test_score_tax_input_revenue_matches_expected_uses_the_first_tax_call_not_the_last():
+    calls = [
+        {**tax_call(call_id="t1"), "input": {"revenue": 30000}},
+        {**tax_call(call_id="t2"), "input": {"revenue": 99999}},
+    ]
+    assert score_tax_input_revenue_matches_expected(calls, Decimal("30000")) is True
 
 
 def test_score_tool_sequence_fails_when_an_unknown_tool_name_appears():
