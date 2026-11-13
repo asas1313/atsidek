@@ -293,3 +293,55 @@ def test_run_judge_passes_through_a_real_fail_verdict_unchanged():
     verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
 
     assert verdict == {"verdict": "FAIL", "reason": "paminėjo konkretų fondą"}
+
+
+# --- Git provenance in the results JSON (owner instruction, second B6 live-eval round) ---------
+
+def test_git_info_prefers_github_actions_env_vars_over_local_git(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.setenv("GITHUB_SHA", "abc123")
+    monkeypatch.setenv("GITHUB_REF_NAME", "feat/taupymas-agentas-b6")
+    monkeypatch.setattr(
+        run_eval.subprocess, "run",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not call git locally")),
+    )
+
+    info = run_eval._git_info()
+
+    assert info == {"git_sha": "abc123", "git_branch": "feat/taupymas-agentas-b6"}
+
+
+def test_git_info_falls_back_to_local_git_rev_parse_when_env_vars_are_unset(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
+    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+
+    class _FakeCompletedProcess:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(cmd, **kwargs):
+        if "--abbrev-ref" in cmd:
+            return _FakeCompletedProcess("feat/taupymas-agentas-b6\n")
+        return _FakeCompletedProcess("deadbeef\n")
+
+    monkeypatch.setattr(run_eval.subprocess, "run", fake_run)
+
+    info = run_eval._git_info()
+
+    assert info == {"git_sha": "deadbeef", "git_branch": "feat/taupymas-agentas-b6"}
+
+
+def test_git_info_returns_none_fields_instead_of_raising_when_git_is_unavailable(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
+    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+
+    def fake_run(*a, **k):
+        raise FileNotFoundError("git not installed")
+
+    monkeypatch.setattr(run_eval.subprocess, "run", fake_run)
+
+    info = run_eval._git_info()
+
+    assert info == {"git_sha": None, "git_branch": None}

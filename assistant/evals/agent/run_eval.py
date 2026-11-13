@@ -81,6 +81,7 @@ Rezultatas (per-case/per-group pass rate) įrašomas į evals/results/<YYYY-MM-D
 import argparse
 import json
 import os
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -116,6 +117,34 @@ from evals.agent.scoring import (  # noqa: E402
 )
 
 RUNS_PER_CASE = 3  # owner decision 3: each case runs 3 times, reported as a pass RATE.
+
+
+def _git_info() -> dict[str, Optional[str]]:
+    """Owner instruction (second B6 live-eval round): record exactly which code a run tested, so
+    the results JSON is self-describing without cross-referencing the Actions run log. Prefers
+    `GITHUB_SHA`/`GITHUB_REF_NAME` (set by GitHub Actions for every job) - falls back to a local
+    `git rev-parse` for a manual/local invocation, where those env vars are unset. Never raises:
+    a git lookup failing (not a repo, no git binary) must not crash the whole eval run over a
+    metadata field."""
+    sha = os.getenv("GITHUB_SHA")
+    branch = os.getenv("GITHUB_REF_NAME")
+    if not sha:
+        try:
+            sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=ASSISTANT_DIR,
+                capture_output=True, text=True, check=True, timeout=5,
+            ).stdout.strip()
+        except Exception:
+            sha = None
+    if not branch:
+        try:
+            branch = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=ASSISTANT_DIR,
+                capture_output=True, text=True, check=True, timeout=5,
+            ).stdout.strip()
+        except Exception:
+            branch = None
+    return {"git_sha": sha, "git_branch": branch}
 
 
 def _build_registry_and_tools(calculator):
@@ -330,26 +359,48 @@ def run(model: str, with_judge: bool) -> dict:
 
             runs.append(run_record)
         pass_rate = sum(1 for r in runs if r["rate_checks_passed"]) / len(runs)
+        # Owner instruction (second B6 live-eval round): the blended per-case pass_rate above
+        # hides WHICH check is failing (e.g. missing_income_handled going 0/6 was invisible next
+        # to tool_sequence/no_invented_numbers passing fine). Compute a pass rate PER CHECK NAME
+        # too - a check's presence is constant across a case's RUNS_PER_CASE runs (it depends only
+        # on fixed case properties like expect_clarifying_question), never flaky per-run.
+        check_names = {name for r in runs for name in r["checks"]}
+        check_pass_rates = {
+            name: sum(1 for r in runs if r["checks"][name]) / len(runs) for name in check_names
+        }
         case_results.append({
             "id": case.id,
             "group": case.group,
             "variant": case.variant,
             "pass_rate": pass_rate,
+            "check_pass_rates": check_pass_rates,
             "runs": runs,
         })
 
-    group_pass_rates: dict[str, float] = {}
+    # Owner instruction: group_pass_rates is now PER CHECK, not one blended number - averaged
+    # across the cases in that group which actually have that check.
+    all_check_names = {name for cr in case_results for name in cr["check_pass_rates"]}
+
+    def _per_check_rates(cases_subset: list[dict]) -> dict[str, float]:
+        per_check = {}
+        for name in all_check_names:
+            rates = [cr["check_pass_rates"][name] for cr in cases_subset if name in cr["check_pass_rates"]]
+            per_check[name] = sum(rates) / len(rates) if rates else None
+        return per_check
+
+    group_pass_rates: dict[str, dict[str, float]] = {}
     for group in {c.group for c in CASES}:
-        rates = [cr["pass_rate"] for cr in case_results if cr["group"] == group]
-        group_pass_rates[group] = sum(rates) / len(rates) if rates else None
+        group_pass_rates[group] = _per_check_rates([cr for cr in case_results if cr["group"] == group])
 
     return {
         "model": model,
         "date": date.today().isoformat(),
+        **_git_info(),
         "runs_per_case": RUNS_PER_CASE,
         "with_judge": with_judge,
         "cases": len(CASES),
         "group_pass_rates": group_pass_rates,
+        "overall_check_pass_rates": _per_check_rates(case_results),
         "overall_pass_rate": (
             sum(cr["pass_rate"] for cr in case_results) / len(case_results) if case_results else None
         ),
@@ -400,8 +451,13 @@ def main() -> None:
         if overall is not None
         else "Bendras pass rate: n/a"
     )
-    for group, rate in summary["group_pass_rates"].items():
-        print(f"  {group}: {rate:.1%}" if rate is not None else f"  {group}: n/a")
+    # Owner instruction (second B6 live-eval round): group_pass_rates is now PER CHECK, so a
+    # single failing check (e.g. missing_income_handled) is visible by name, not hidden inside a
+    # blended group average.
+    for group, check_rates in summary["group_pass_rates"].items():
+        print(f"  {group}:")
+        for check, rate in check_rates.items():
+            print(f"    {check}: {rate:.1%}" if rate is not None else f"    {check}: n/a")
 
     violations = summary["investment_advice_violations"]
     if violations:
