@@ -27,6 +27,18 @@ def tool_use_block(block_id, name, tool_input):
     return SimpleNamespace(type="tool_use", id=block_id, name=name, input=tool_input)
 
 
+def thinking_block(thinking_text, signature):
+    return SimpleNamespace(type="thinking", thinking=thinking_text, signature=signature)
+
+
+def redacted_thinking_block(data):
+    return SimpleNamespace(type="redacted_thinking", data=data)
+
+
+def unknown_block(block_type, **fields):
+    return SimpleNamespace(type=block_type, **fields)
+
+
 class FakeResponse:
     def __init__(self, content):
         self.content = content
@@ -524,6 +536,101 @@ def test_max_iterations_boundary_one_means_exactly_one_model_call():
 
     assert len(client.calls) == 1
     assert result.status == "max_iterations_exceeded"
+
+
+# --- thinking/redacted_thinking/unknown content blocks (live eval crash fix) -------------------
+# `claude-haiku-5-5` has adaptive thinking ON BY DEFAULT (no `thinking` param is set anywhere in
+# this codebase) - a real response routinely carries a `thinking` block (or, on certain inputs, a
+# `redacted_thinking` block) alongside `text`/`tool_use`. The live B6 eval crashed the first time
+# this happened: `_content_block_to_dict` raised `ValueError` on any type it didn't recognize.
+
+def test_thinking_block_is_replayed_back_to_the_api_unmodified_with_its_signature_intact():
+    registry = ToolRegistry()
+    registry.register("noop", lambda tool_input, ctx, token=None: {"ok": True})
+    client = FakeClient([
+        FakeResponse([
+            thinking_block("galvoju apie atsakymą...", "sig-abc123"),
+            tool_use_block("tu1", "noop", {}),
+        ]),
+        FakeResponse([text_block("galutinis atsakymas")]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    assert result.status == "completed"
+    # The SECOND call's `messages` must carry the first turn's thinking block back to the API,
+    # signature byte-for-byte unchanged - not dropped, not re-derived.
+    second_call_messages = client.calls[1]["messages"]
+    first_assistant_turn = [m for m in second_call_messages if m["role"] == "assistant"][0]
+    thinking_blocks = [b for b in first_assistant_turn["content"] if b["type"] == "thinking"]
+    assert thinking_blocks == [{
+        "type": "thinking",
+        "thinking": "galvoju apie atsakymą...",
+        "signature": "sig-abc123",
+    }]
+
+
+def test_thinking_block_content_never_reaches_the_final_text():
+    registry = ToolRegistry()
+    client = FakeClient([
+        FakeResponse([
+            thinking_block("slapta samprotavimo grandinė", "sig-xyz"),
+            text_block("vartotojui rodomas atsakymas"),
+        ]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    assert result.status == "completed"
+    assert result.final_text == "vartotojui rodomas atsakymas"
+    assert "slapta samprotavimo grandinė" not in (result.final_text or "")
+
+
+def test_redacted_thinking_block_is_replayed_unmodified_and_never_reaches_final_text():
+    registry = ToolRegistry()
+    registry.register("noop", lambda tool_input, ctx, token=None: {"ok": True})
+    client = FakeClient([
+        FakeResponse([
+            redacted_thinking_block("encrypted-opaque-blob"),
+            tool_use_block("tu1", "noop", {}),
+        ]),
+        FakeResponse([text_block("galutinis atsakymas")]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    assert result.status == "completed"
+    assert result.final_text == "galutinis atsakymas"
+    second_call_messages = client.calls[1]["messages"]
+    first_assistant_turn = [m for m in second_call_messages if m["role"] == "assistant"][0]
+    assert {"type": "redacted_thinking", "data": "encrypted-opaque-blob"} in first_assistant_turn["content"]
+
+
+def test_unknown_block_type_is_preserved_and_passed_through_not_rejected():
+    """The actual B6 live-eval crash: an unrecognized block type must never raise - it is kept
+    in `messages` verbatim (future-proofing against new block types this codebase doesn't know
+    about yet) and simply never interpreted as text or a tool call."""
+    registry = ToolRegistry()
+    registry.register("noop", lambda tool_input, ctx, token=None: {"ok": True})
+    client = FakeClient([
+        FakeResponse([
+            unknown_block("some_future_block_type", payload="whatever"),
+            tool_use_block("tu1", "noop", {}),
+        ]),
+        FakeResponse([text_block("galutinis atsakymas")]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "hi")
+
+    assert result.status == "completed"
+    assert result.final_text == "galutinis atsakymas"
+    second_call_messages = client.calls[1]["messages"]
+    first_assistant_turn = [m for m in second_call_messages if m["role"] == "assistant"][0]
+    assert {"type": "some_future_block_type", "payload": "whatever"} in first_assistant_turn["content"]
 
 
 # --- Optional live-API round trip (owner-permitted costed exception for B3/B4/B6 only) ---------

@@ -78,12 +78,27 @@ class AgentLoopResult:
 def _content_block_to_dict(block: Any) -> dict[str, Any]:
     """Normalizes one Claude response content block (an SDK object OR a duck-typed fake in
     tests) into a plain dict, in the same shape the Messages API expects when it is replayed
-    back as conversation history on the next turn."""
-    if block.type == "text":
-        return {"type": "text", "text": block.text}
-    if block.type == "tool_use":
-        return {"type": "tool_use", "id": block.id, "name": block.name, "input": block.input}
-    raise ValueError(f"Nepalaikomas Claude atsakymo blokas: {block.type!r}")
+    back as conversation history on the next turn.
+
+    Deliberately GENERIC, not a per-type whitelist: Claude Haiku 5.5 has adaptive thinking on by
+    default (no `thinking` param is set anywhere in this codebase - `agent_client.py` never
+    passes one - this is the model's own default behavior, not something we requested), so a real
+    response routinely carries `thinking`/`redacted_thinking` blocks alongside `text`/`tool_use`
+    ones. Those blocks - `signature` included - MUST be replayed back to the API byte-for-byte on
+    the next turn's `messages` (the API needs the signature to validate the prior turn's
+    reasoning); re-deriving a hand-picked field list per type would silently drop that, and a
+    previous version of this function raised `ValueError` on any type it didn't recognize,
+    crashing the whole turn the first time the model actually used thinking.
+
+    Real Anthropic SDK content blocks are pydantic models, so `model_dump(exclude_none=True)`
+    round-trips ANY block type - including ones this codebase has never seen - without this
+    function needing to know its field names. Test fakes (`SimpleNamespace`, see
+    `test_agent_loop.py`) have no `model_dump`; `vars(block)` gives the same plain-dict shape for
+    those. Either way, an unknown block type is preserved and passed through, never rejected.
+    """
+    if hasattr(block, "model_dump"):
+        return block.model_dump(exclude_none=True)
+    return dict(vars(block))
 
 
 def _dispatch_tool_call(
@@ -240,6 +255,12 @@ def run_agent_loop(
             messages=messages,
             max_tokens=DEFAULT_MAX_TOKENS,
         )
+        # `assistant_content` is appended to `messages` AS-IS, full and unmodified (including any
+        # `thinking`/`redacted_thinking`/unrecognized block the model returned) - the API needs
+        # that exact history replayed back on the next turn. Only `tool_use` and `text` are ever
+        # INTERPRETED below; `thinking` content is never read into `tool_uses`/`texts`/
+        # `final_text`, so it can never reach the user-facing reply, `response_builder.py`, any
+        # scorer, or the judge input (all of which are built from `final_text`/`tool_calls` only).
         assistant_content = [_content_block_to_dict(b) for b in response.content]
         messages.append({"role": "assistant", "content": assistant_content})
 
