@@ -157,18 +157,33 @@ def _is_calendar_year_like(n: Decimal) -> bool:
     return n == n.to_integral_value() and _CALENDAR_YEAR_MIN <= n <= _CALENDAR_YEAR_MAX
 
 
-def score_missing_income_handled(tool_calls: list[dict], final_text: Optional[str]) -> bool:
+def score_missing_income_handled(
+    tool_calls: list[dict], final_text: Optional[str], user_message: str = ""
+) -> bool:
     """AC-B6-6: passes if no SUCCESSFUL `calculate_savings_plan` result exists (a failed attempt
     the model recovers from is tolerated) AND `final_text` is a genuine clarifying question - non-
-    empty, contains "?", and itself states no numbers (a referenced calendar year is exempted -
-    see `_is_calendar_year_like`)."""
+    empty, contains "?", and states no numbers OTHER than a referenced calendar year (see
+    `_is_calendar_year_like`) or a number the USER'S OWN message already stated.
+
+    Owner instruction (second B6 live-eval round): this check failed 6/6 even though the agent DID
+    ask for income every time - the missing-income cases' own user_message states a goal amount
+    and a term (e.g. "...20000 eurų per 10 metų...") that a legitimate clarifying question
+    naturally echoes back while confirming the goal ("Norėdamas sutaupyti 20 000 eurų per 10
+    metų..., kiek pajamų gaunate?") - the OLD calendar-year-only exemption didn't cover that, so
+    the echoed goal/term numbers alone were enough to fail every such question. Widened to also
+    exempt any number the user already stated, matching the same "may echo the user's own
+    numbers" principle `score_no_invented_numbers` now uses.
+    """
     if _last_successful_result(tool_calls, SAVINGS_TOOL_NAME) is not None:
         return False
     if not final_text:
         return False
     if "?" not in final_text:
         return False
-    if any(not _is_calendar_year_like(n) for n in extract_numbers(final_text)):
+    user_numbers = extract_numbers(user_message or "")
+    for n in extract_numbers(final_text):
+        if _is_calendar_year_like(n) or n in user_numbers:
+            continue
         return False
     return True
 

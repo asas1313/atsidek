@@ -239,7 +239,9 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
         "anon_no_premium": score_anon_no_premium(result.tool_calls, case.variant),
     }
     if case.expect_clarifying_question:
-        rate_checks["missing_income_handled"] = score_missing_income_handled(result.tool_calls, result.final_text)
+        rate_checks["missing_income_handled"] = score_missing_income_handled(
+            result.tool_calls, result.final_text, case.user_message
+        )
     if case.expected_annual_revenue is not None:
         rate_checks["tax_input_revenue_matches_expected"] = score_tax_input_revenue_matches_expected(
             result.tool_calls, case.expected_annual_revenue

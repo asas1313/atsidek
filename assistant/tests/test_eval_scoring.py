@@ -300,6 +300,30 @@ def test_score_missing_income_handled_fails_on_empty_text():
     assert score_missing_income_handled([], None) is False
 
 
+def test_score_missing_income_handled_tolerates_echoing_the_users_own_goal_amount_and_term():
+    """Owner instruction (second B6 live-eval round): this check failed 6/6 even though the agent
+    DID ask for income every time. Root cause - the real missing-income cases' own user_message
+    (`evals/agent/cases.py`, e.g. "Noriu sutaupyti vaikui 20000 eurų per 10 metų...") states a
+    goal amount and a term that a perfectly legitimate clarifying question naturally echoes back
+    while confirming the goal. The exact wording below is a RECONSTRUCTED, illustrative example
+    (no real run's output text was available to copy verbatim) built around that real case's own
+    numbers - not a literal captured transcript - but it reproduces the same shape of echo that
+    caused the 6/6 failure: numbers from the user's message, not a calendar year, previously
+    caused an automatic fail."""
+    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
+    final_text = (
+        "Norėdamas padėti apskaičiuoti, kiek atsidėti per mėnesį 20000 eurų tikslui per 10 metų, "
+        "turiu žinoti jūsų pajamas - kiek pajamų gaunate per mėnesį?"
+    )
+    assert score_missing_income_handled([], final_text, user_message) is True
+
+
+def test_score_missing_income_handled_still_fails_if_question_states_a_genuinely_invented_number():
+    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
+    final_text = "Apie 300 eurų per mėnesį turėtų pakakti - kokios jūsų pajamos?"
+    assert score_missing_income_handled([], final_text, user_message) is False
+
+
 # --- score_no_banned_investment_terms (AC-B6-4, deterministic half) ---------------------------------
 #
 # Simplified 2026-11-13 (owner decision, after 3 review rounds each found a new regex-edge-case
