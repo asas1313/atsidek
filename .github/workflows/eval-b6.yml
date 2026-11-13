@@ -1,10 +1,16 @@
 name: B6 agento eval (live, rankinis)
 
 # Rankinis, kainuojantis AI-agento eval'as (B6, owner decision 3/15): paleidžiamas TIK per
-# "Run workflow" bet kurioje šakoje, niekada automatiškai PR/push metu. Workflow pats pakelia
-# tikrą Spring Boot + PostgreSQL (service container) ir Python assistant servisą šiame runner'yje,
+# "Run workflow" (PASIRENKANT šaką feat/taupymas-agentas-b6 - žr. B6-live-eval-instrukcija.md),
+# niekada automatiškai PR/push metu. Workflow pats pakelia tikrą Spring Boot (su
+# SPRING_PROFILES_ACTIVE=eval-ci, kad /api/v1/eval/token - žr. src/main/java/eu/atsidek/evalci/ -
+# egzistuotų logged_in FREE/PREMIUM atvejams) + PostgreSQL (service container) šiame runner'yje,
 # tada paleidžia evals/agent/run_eval.py prieš juos. Reikalauja TIK ANTHROPIC_API_KEY secret - žr.
 # docs/specs/taupymo-tikslai/B6-live-eval-instrukcija.md.
+#
+# ŠIS WORKFLOW FAILAS turi egzistuoti main šakoje, kad "Run workflow" jį rastų (GitHub reikalavimas
+# workflow_dispatch'ui) - žr. atskirą, tik šį failą turinčią PR (B6 likęs kodas lieka tik
+# feat/taupymas-agentas-b6 šakoje, dar nesujungtas).
 on:
   workflow_dispatch:
     inputs:
@@ -53,14 +59,17 @@ jobs:
       - name: Build app
         run: mvn -B -ntp -DskipTests package
 
-      - name: Generate an ephemeral tool-callback API key for this run
+      - name: Generate ephemeral secrets for this run (API key, chat-token secret)
         id: api_key
         run: |
           key="ci-eval-$(openssl rand -hex 24)"
           hash="$(printf '%s' "$key" | sha256sum | cut -d' ' -f1)"
+          token_secret="ci-eval-token-secret-$(openssl rand -hex 24)"
           echo "::add-mask::$key"
+          echo "::add-mask::$token_secret"
           echo "key=$key" >> "$GITHUB_OUTPUT"
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "token_secret=$token_secret" >> "$GITHUB_OUTPUT"
 
       - name: Start Spring Boot in the background
         env:
@@ -68,6 +77,10 @@ jobs:
           SPRING_DATASOURCE_USERNAME: atsidek
           SPRING_DATASOURCE_PASSWORD: atsidek
           ATSIDEK_API_KEY_HASHES: ${{ steps.api_key.outputs.hash }}
+          ATSIDEK_CHAT_TOKEN_SECRET: ${{ steps.api_key.outputs.token_secret }}
+          # eval-ci profilis: aktyvuoja EvalTokenService/EvalTokenController (žr.
+          # src/main/java/eu/atsidek/evalci/) - TIK šiam CI paleidimui, niekada staging/production.
+          SPRING_PROFILES_ACTIVE: eval-ci
         run: |
           nohup java -jar target/*.jar > /tmp/app.log 2>&1 &
           for i in $(seq 1 60); do
@@ -90,6 +103,8 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ATSIDEK_API_URL: http://localhost:8080
+          # Taip pat naudojamas /api/v1/eval/token mintimui logged_in (FREE/PREMIUM) atvejams -
+          # žr. run_eval.py docstring "Context-token minting".
           ATSIDEK_API_KEY: ${{ steps.api_key.outputs.key }}
           AI_MODEL: ${{ inputs.model }}
         run: |

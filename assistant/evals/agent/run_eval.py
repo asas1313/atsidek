@@ -10,9 +10,14 @@ against fakes/mocks (see `tests/test_agent_loop.py` etc.) - zero live-LLM cost p
 Usage:
     cd assistant
     export ANTHROPIC_API_KEY=sk-...
-    export ATSIDEK_API_KEY=...            # Java tool-callback endpoints require this
+    export ATSIDEK_API_KEY=...            # Java tool-callback AND /api/v1/eval/token endpoints
     export ATSIDEK_API_URL=http://localhost:8080   # see judgment-call note below
     python evals/agent/run_eval.py [--model claude-haiku-5-5] [--with-judge]
+
+For `logged_in` cases, the Java backend this points at must either be running with
+`SPRING_PROFILES_ACTIVE=eval-ci` (so `/api/v1/eval/token` exists - see "Context-token minting"
+below) or have `ATSIDEK_CONTEXT_TOKEN_FREE`/`ATSIDEK_CONTEXT_TOKEN_PREMIUM` manually supplied -
+otherwise this script raises immediately rather than silently degrading those cases to anonymous.
 
 Judgment call on the Java base URL env var: `app/main.py`'s own default (`ATSIDEK_API_URL`,
 defaulting to `http://app:8080`) is the docker-compose-internal hostname, not reachable from a
@@ -35,13 +40,34 @@ OTHER metrics (tool_sequence, no_invented_numbers, anon_no_premium, missing_inco
 tax_input_revenue_matches_expected): a case's own `pass_rate` and the `group_pass_rates`/
 `overall_pass_rate` aggregates are computed from those metrics only.
 
-Context-token judgment call: ADR-0003 context tokens are minted and signed by JAVA, not by this
-Python service - this script cannot mint a real signed FREE/PREMIUM token itself. For
-`variant="logged_in"` cases, it looks for a pre-minted token in `ATSIDEK_CONTEXT_TOKEN_FREE`/
-`ATSIDEK_CONTEXT_TOKEN_PREMIUM` (the operator obtains these manually, e.g. via a real login,
-before running this script); if absent, the case still runs but with no context token (same as
-anon), so `score_anon_no_premium`-style premium-gating differences won't be exercised for that
-case until a real token is supplied - this is logged in the per-case result, not silently hidden.
+Context-token minting (owner instruction, 2026-11-13 - supersedes the earlier "operator obtains
+one manually" design below): ADR-0003 context tokens are minted and signed by JAVA, not by this
+Python service, so for `variant="logged_in"` cases this script needs a REAL Java-signed token,
+never a locally-fabricated one. For each such case it now:
+  1. Checks `ATSIDEK_CONTEXT_TOKEN_FREE`/`ATSIDEK_CONTEXT_TOKEN_PREMIUM` first (manual override -
+     e.g. a one-off run against a real staging backend with a token obtained via an actual login;
+     kept for that use case only).
+  2. Otherwise mints a FRESH token via `POST /api/v1/eval/token` (`EvalTokenController.java`,
+     `eval-ci`-profile-gated, same `ATSIDEK_API_KEY` as every other `/api/**` call) - the normal
+     CI path, see `.github/workflows/eval-b6.yml`, which starts Spring Boot with
+     `SPRING_PROFILES_ACTIVE=eval-ci` against an empty, ephemeral PostgreSQL. Minting creates (or
+     reuses) a fixed CI fixture `app_user` and, for PREMIUM, grants it every `Feature` - see
+     `EvalTokenService.java`'s javadoc for the full design/security argument.
+  3. A FRESH token is minted on EVERY logged_in run, never cached/reused across cases or runs -
+     the token's 5-minute TTL (ADR-0003) could otherwise expire partway through a long live-eval
+     session, which would make Java's own `ContextTokenService.verify()` silently treat the call
+     as anonymous - exactly the "logged_in quietly becomes anon" failure this design exists to
+     prevent. Minting has no live-LLM cost (pure Java/DB), so doing it per run is cheap.
+
+A logged_in case MUST NEVER silently fall back to anonymous behavior just because minting failed:
+`_mint_context_token` raises (network error, non-2xx, missing field) rather than returning `None`,
+which crashes the whole run loudly - see `_context_token_for`. Separately, `_run_one` also
+compares the ACTUAL tier Java reports back (from the last successful `calculate_savings_plan`
+result's own `"tier"` field) against the case's expected tier, for savings-involving logged_in
+cases, and raises if they disagree - catching a broken token pipeline even if minting itself
+"succeeded" but produced a token Java doesn't actually honor as expected (e.g. a secret
+mismatch). Every run's `actual_tier_seen`/`had_premium_section` fields are written to the result
+JSON regardless (`null` when no savings call was made, e.g. `tax_only` cases).
 
 Rezultatas (per-case/per-group pass rate) įrašomas į evals/results/<YYYY-MM-DD>_agent_<modelis>.json.
 """
@@ -53,6 +79,8 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+import httpx
+
 ASSISTANT_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ASSISTANT_DIR))  # kad veiktų "from app...." importai
 sys.path.insert(0, str(ASSISTANT_DIR.parent))  # kad veiktų "evals.agent...." importai
@@ -60,7 +88,7 @@ sys.path.insert(0, str(ASSISTANT_DIR.parent))  # kad veiktų "evals.agent...." i
 from app.agent_loop import run_agent_loop  # noqa: E402
 from app.calculator import AtsidekApi  # noqa: E402
 from app.request_context import RequestContext  # noqa: E402
-from app.response_builder import build_response  # noqa: E402
+from app.response_builder import _last_successful_result, build_response  # noqa: E402
 from app.savings_tool import TOOL_DEF as SAVINGS_TOOL_DEF  # noqa: E402
 from app.savings_tool import TOOL_NAME as SAVINGS_TOOL_NAME  # noqa: E402
 from app.savings_tool import make_calculate_savings_plan_tool  # noqa: E402
@@ -90,19 +118,45 @@ def _build_registry_and_tools(calculator):
     return registry, [TAX_TOOL_DEF, SAVINGS_TOOL_DEF]
 
 
-def _context_token_for(case) -> Optional[str]:
+_TEST_USER_KEY_FOR_TIER = {"FREE": "free", "PREMIUM": "premium"}
+
+
+def _mint_context_token(base_url: str, api_key: str, tier: str) -> str:
+    """Mints a FRESH, real Java-signed context token for the `tier` CI fixture user, via
+    `POST /api/v1/eval/token` (`eval-ci`-profile-gated `EvalTokenController.java`) - see this
+    module's docstring for the full design. Deliberately does NOT catch any failure (bad status,
+    network error, missing field): a logged_in case must never silently run as anonymous just
+    because minting failed - the caller (`_context_token_for`) lets this propagate and crash the
+    whole eval run."""
+    test_user_key = _TEST_USER_KEY_FOR_TIER[tier]
+    response = httpx.post(
+        f"{base_url.rstrip('/')}/api/v1/eval/token",
+        json={"testUserKey": test_user_key},
+        headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    token = response.json()["contextToken"]
+    if not token:
+        raise RuntimeError(f"/api/v1/eval/token grąžino tuščią contextToken tier'ui {tier!r}")
+    return token
+
+
+def _context_token_for(case, base_url: str, api_key: str) -> Optional[str]:
     if case.variant != "logged_in":
         return None
-    env_var = f"ATSIDEK_CONTEXT_TOKEN_{case.tier}"
-    return os.getenv(env_var)
+    manual = os.getenv(f"ATSIDEK_CONTEXT_TOKEN_{case.tier}")
+    if manual:
+        return manual
+    return _mint_context_token(base_url, api_key, case.tier)
 
 
-def _run_one(client, registry, tools, case, model: str) -> dict:
+def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: str) -> dict:
     request_context = RequestContext(
         user_id="eval-user" if case.variant == "logged_in" else None,
         tier=case.tier if case.variant == "logged_in" else "anonymous",
     )
-    context_token = _context_token_for(case)
+    context_token = _context_token_for(case, base_url, api_key)
 
     result = run_agent_loop(
         client,
@@ -136,6 +190,22 @@ def _run_one(client, registry, tools, case, model: str) -> dict:
     # into `rate_checks`/the pass-rate aggregate below.
     no_banned_investment_terms = score_no_banned_investment_terms(result.final_text)
 
+    # Owner instruction 2026-11-13: record the ACTUAL tier/premium-section Java reported, for
+    # every case (not just logged_in) - `null` when no successful calculate_savings_plan call was
+    # made (e.g. tax_only cases), since the tax tool's result carries no tier information at all.
+    savings_result = _last_successful_result(result.tool_calls, SAVINGS_TOOL_NAME)
+    actual_tier_seen = savings_result.get("tier") if savings_result is not None else None
+    had_premium_section = ("premium" in savings_result) if savings_result is not None else None
+
+    # A logged_in case whose savings call came back with a DIFFERENT tier than expected means the
+    # context-token pipeline is broken (e.g. minting "succeeded" but Java doesn't honor the token
+    # the way this harness assumes) - never let that pass silently as a mere scoring failure.
+    if case.variant == "logged_in" and actual_tier_seen is not None and actual_tier_seen != case.tier:
+        raise RuntimeError(
+            f"{case.id}: Java grąžino tier={actual_tier_seen!r}, bet tikėtasi {case.tier!r} "
+            "(logged_in atvejis) - kontekstinio žetono grandinė sugedusi, eval'as nestabdomas tyliai."
+        )
+
     reply = build_response(result.tool_calls, result.final_text)
     return {
         "status": result.status,
@@ -143,6 +213,8 @@ def _run_one(client, registry, tools, case, model: str) -> dict:
         "reply": reply,
         "tool_names_called": [c["name"] for c in result.tool_calls],
         "context_token_used": context_token is not None,
+        "actual_tier_seen": actual_tier_seen,
+        "had_premium_section": had_premium_section,
         "checks": rate_checks,
         "rate_checks_passed": all(rate_checks.values()),
         "no_banned_investment_terms": no_banned_investment_terms,
@@ -165,10 +237,9 @@ def run(model: str, with_judge: bool) -> dict:
     import anthropic
 
     client = anthropic.Anthropic()
-    calculator = AtsidekApi(
-        os.getenv("ATSIDEK_API_URL", "http://localhost:8080"),
-        os.getenv("ATSIDEK_API_KEY", ""),
-    )
+    base_url = os.getenv("ATSIDEK_API_URL", "http://localhost:8080")
+    api_key = os.getenv("ATSIDEK_API_KEY", "")
+    calculator = AtsidekApi(base_url, api_key)
     registry, tools = _build_registry_and_tools(calculator)
 
     case_results = []
@@ -179,7 +250,7 @@ def run(model: str, with_judge: bool) -> dict:
     for case in CASES:
         runs = []
         for _ in range(RUNS_PER_CASE):
-            run_record = _run_one(client, registry, tools, case, model)
+            run_record = _run_one(client, registry, tools, case, model, base_url, api_key)
 
             if not run_record["no_banned_investment_terms"]:
                 investment_advice_violations.append({

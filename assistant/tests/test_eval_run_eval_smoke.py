@@ -47,6 +47,14 @@ def test_build_judge_request_returns_a_messages_create_shaped_dict_without_calli
     assert "agento atsakymas" in request["messages"][0]["content"]
 
 
+def test_runs_per_case_is_three():
+    """Owner instruction 2026-11-13, point 4: confirm each case is run exactly 3 times (owner
+    decision 3 - reported as a pass RATE, not a single pass/fail)."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    assert run_eval.RUNS_PER_CASE == 3
+
+
 def test_cases_module_declares_exactly_the_expected_tool_name_strings():
     """Not tautological: hardcodes the real tool names independently of any implementation
     import, then checks cases.py's CASES only ever reference those two."""
