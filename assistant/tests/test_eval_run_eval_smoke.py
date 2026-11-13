@@ -63,3 +63,89 @@ def test_cases_module_declares_exactly_the_expected_tool_name_strings():
     known_tool_names = {"calculate_iv_taxes", "calculate_savings_plan"}
     for case in CASES:
         assert set(case.expected_tool_sequence) <= known_tool_names, case.id
+
+
+# --- Context-token minting (owner instruction, 2026-11-13, point 2) --------------------------------
+#
+# These exercise _context_token_for/_mint_context_token's LOGIC only - no real network call, no
+# real Java backend. `httpx.post` is monkeypatched module-wide in `run_eval`.
+
+class _FakeResponse:
+    def __init__(self, status_code: int, json_body: dict):
+        self.status_code = status_code
+        self._json_body = json_body
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import httpx
+            raise httpx.HTTPStatusError("boom", request=None, response=self)
+
+    def json(self):
+        return self._json_body
+
+
+def _anon_case():
+    from evals.agent.cases import EvalCase
+    return EvalCase(id="x", group="tax_only", variant="anon", tier=None, user_message="m",
+                     expected_tool_sequence=["calculate_iv_taxes"])
+
+
+def _logged_in_case(tier):
+    from evals.agent.cases import EvalCase
+    return EvalCase(id="x", group="tax_only", variant="logged_in", tier=tier, user_message="m",
+                     expected_tool_sequence=["calculate_iv_taxes"])
+
+
+def test_context_token_for_returns_none_for_anon_without_calling_mint(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.setattr(run_eval.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not call")))
+
+    assert run_eval._context_token_for(_anon_case(), "http://x", "key") is None
+
+
+def test_context_token_for_uses_manual_env_override_without_calling_mint(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.setenv("ATSIDEK_CONTEXT_TOKEN_FREE", "manually-obtained-token")
+    monkeypatch.setattr(run_eval.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not call")))
+
+    token = run_eval._context_token_for(_logged_in_case("FREE"), "http://x", "key")
+    assert token == "manually-obtained-token"
+
+
+def test_context_token_for_mints_via_the_endpoint_when_no_manual_override(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.delenv("ATSIDEK_CONTEXT_TOKEN_PREMIUM", raising=False)
+    calls = []
+
+    def fake_post(url, json, headers, timeout):
+        calls.append((url, json, headers))
+        return _FakeResponse(200, {"contextToken": "minted-token", "derivedTier": "PREMIUM"})
+
+    monkeypatch.setattr(run_eval.httpx, "post", fake_post)
+
+    token = run_eval._context_token_for(_logged_in_case("PREMIUM"), "http://x:8080/", "the-key")
+
+    assert token == "minted-token"
+    assert len(calls) == 1
+    url, body, headers = calls[0]
+    assert url == "http://x:8080/api/v1/eval/token"
+    assert body == {"testUserKey": "premium"}
+    assert headers["X-API-Key"] == "the-key"
+
+
+def test_mint_context_token_raises_on_non_2xx_instead_of_returning_none(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.setattr(run_eval.httpx, "post", lambda *a, **k: _FakeResponse(404, {}))
+
+    import pytest
+    with pytest.raises(Exception):
+        run_eval._mint_context_token("http://x", "key", "FREE")
+
+
+def test_mint_context_token_raises_on_empty_token_in_response(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.setattr(run_eval.httpx, "post", lambda *a, **k: _FakeResponse(200, {"contextToken": ""}))
+
+    import pytest
+    with pytest.raises(RuntimeError):
+        run_eval._mint_context_token("http://x", "key", "FREE")

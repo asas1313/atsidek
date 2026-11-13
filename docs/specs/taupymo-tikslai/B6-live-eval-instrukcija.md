@@ -4,10 +4,22 @@ Trumpa instrukcija savininkui (ne agentui) - kas vieną kartą nustatoma GitHub'
 `.github/workflows/eval-b6.yml`. Workflow pats pakelia tikrą Spring Boot + PostgreSQL (service
 container) runner'yje - jums nereikia nieko paleisti lokaliai ar serveryje.
 
+## 0. Būtina tvarka: workflow failas pirma turi būti `main`'e
+
+`workflow_dispatch` GitHub'e matomas/paleidžiamas TIK jei workflow failas egzistuoja
+**numatytojoje (`main`) šakoje** - net jei norite jį paleisti prieš KITOS šakos kodą. Dėl to:
+
+- Workflow failas (`.github/workflows/eval-b6.yml`) pateiktas ATSKIRA, maža PR į `main`
+  (**PR #48**, tik šis vienas failas, be likusio B6 kodo) - sujunkite PIRMA ją.
+- Likęs B6 kodas (eval harness, `scoring.py`, `judge_rubric.py`, naujas Java
+  `eu.atsidek.evalci` paketas, kurį workflow kviečia) lieka **PR #47**
+  (`feat/taupymas-agentas-b6`), kol jis pats bus apžvelgtas/sujungtas - workflow JAME TURI
+  vykdyti bet kokiu atveju, žr. žingsnį 3 žemiau.
+
 ## 1. Vienkartinis nustatymas GitHub'e
 
-Reikalingas TIK vienas repo secret (workflow pats generuoja ir naudoja ekonominį, vienkartinį
-`ATSIDEK_API_KEY` kiekvienam paleidimui - nereikia jo nustatyti jums):
+Reikalingas TIK vienas repo secret (workflow pats generuoja ir naudoja ekonominius, vienkartinius
+`ATSIDEK_API_KEY`/`ATSIDEK_CHAT_TOKEN_SECRET` kiekvienam paleidimui - nereikia jų nustatyti jums):
 
 1. GitHub → repo → **Settings → Secrets and variables → Actions → New repository secret**.
 2. Name: `ANTHROPIC_API_KEY`
@@ -15,14 +27,19 @@ Reikalingas TIK vienas repo secret (workflow pats generuoja ir naudoja ekonomin�
    `claude-sonnet-5-5`).
 4. **Save**.
 
-Tai viskas - PostgreSQL, Spring Boot aplikacija ir Python assistant servisas startuoja patys
-workflow viduje, naudojant ephemeral (vienkartinius, tik šiam paleidimui) duomenis/raktus.
+Tai viskas - PostgreSQL, Spring Boot aplikacija (su `SPRING_PROFILES_ACTIVE=eval-ci`, kad
+`/api/v1/eval/token` logged_in FREE/PREMIUM atvejams egzistuotų) ir Python assistant servisas
+startuoja patys workflow viduje, naudojant ephemeral (vienkartinius, tik šiam paleidimui)
+duomenis/raktus.
 
 ## 2. Kaip paleisti
 
 1. GitHub → repo → **Actions** → kairėje sąraše pasirinkite **"B6 agento eval (live, rankinis)"**.
 2. **Run workflow** (dešinėje).
-3. Pasirinkite šaką (pvz. šią B6 PR šaką - workflow veikia bet kurioje šakoje, ne tik `main`).
+3. **SVARBU - šakos pasirinkimas**: lauke "Use workflow from" pasirinkite
+   **`feat/taupymas-agentas-b6`**, NE `main` - `main` dar neturi paties eval kodo
+   (`assistant/evals/agent/`, `eu.atsidek.evalci`), tik šį workflow failą (žr. žingsnį 0). Jei
+   paleisite nuo `main`, žingsnis "Run live agent eval" tiesiog nerastų ko paleisti.
 4. Du pasirenkami laukai:
    - `with_judge` - `true`, jei norite TAIP PAT kviesti DRAFT LLM-judge (`claude-sonnet-5-5`,
      papildoma kaina). Rubrika/slenkstis šiuo metu NEPATVIRTINTI (žr. `judge_rubric.py`) - pirmas
@@ -44,6 +61,11 @@ workflow viduje, naudojant ephemeral (vienkartinius, tik šiam paleidimui) duome
   slenkstis**: kiekvienas pažeidimas atsispindi atskirame JSON lauke
   `investment_advice_violations` (su pilnu tekstu) IR workflow log'e (stderr, raudonu įspėjimu),
   jei bent vienas pasitaiko - patikrinkite jį rankiniu būdu prieš tvirtindami rubriką/slenkstį.
+- Kiekvienas atskiras paleidimas (`case_results[*].runs[*]`) dabar neša `actual_tier_seen`
+  (`"FREE"`/`"PREMIUM"`/`null`, jei tam atvejui taupymo plano įrankis net nebuvo kviečiamas) ir
+  `had_premium_section` (`true`/`false`/`null`) - tikrasis Java atsakymas, ne tik tikėtasi. Jei
+  `logged_in` atvejo tikrasis tier'as nesutampa su tikėtuoju, workflow'as PATS NUKRENTA (ne tik
+  pažymi scoring klaidą) - žr. `run_eval.py`'s `_run_one`.
 
 ## 4. Kaina
 
