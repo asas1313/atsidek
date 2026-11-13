@@ -35,6 +35,21 @@ def test_judge_rubric_module_imports_and_exposes_draft_contract():
     assert "owner" in judge_rubric.__doc__.lower()
 
 
+def test_judge_rubric_exempts_pension_tier_mentions_as_a_tax_parameter_not_investment_advice():
+    """Owner instruction (second B6 live-eval round), item 6a: II/III pillar pension-accumulation
+    vocabulary must be an explicit exception in the rubric prompt itself, not just the
+    deterministic noun scorer's own exclusion list."""
+    judge_rubric = importlib.import_module("evals.agent.judge_rubric")
+
+    lowered = judge_rubric.DRAFT_JUDGE_RUBRIC_PROMPT.lower()
+    assert "pakopos" in lowered or "pakopa" in lowered
+    assert "pension_accumulation" in judge_rubric.DRAFT_JUDGE_RUBRIC_PROMPT or "mokesč" in lowered
+
+    pension_examples = [ex for ex in judge_rubric.ILLUSTRATIVE_EXAMPLES if "pakop" in ex["text"].lower()]
+    assert pension_examples
+    assert all(ex["expected_verdict"] == "PASS" for ex in pension_examples)
+
+
 def test_build_judge_request_returns_a_messages_create_shaped_dict_without_calling_anthropic():
     judge_rubric = importlib.import_module("evals.agent.judge_rubric")
 
