@@ -348,6 +348,52 @@ def test_negative_free_cash_monthly_renders_as_sane_negative_money_string():
     assert "0,00 €" in text
 
 
+def test_zero_or_negative_free_cash_never_renders_a_misleading_zero_percent_share():
+    """Owner instruction (2026-11-13, second B6 live-eval round): "0,0% laisvų pinigų" reads as
+    "a comfortable 0% share of your free cash", not "there is no free cash at all" - must say
+    plainly that there is no free cash and the contribution does not fit, for BOTH the exact-zero
+    and negative free_cash_monthly cases."""
+    for free_cash in ("0.0", "-50.5"):
+        result = {
+            "core": {
+                "monthly_contribution": 0.0,
+                "free_cash_monthly": float(free_cash),
+                "share_of_free_cash_pct": 0.0,
+                "fits": False,
+                "general_tip": "Pagal nurodytas pajamas ir išlaidas laisvų pinigų nelieka.",
+                "assumptions": [],
+                "disclaimer": "Šis skaičiavimas yra informacinio pobūdžio ir nėra finansinė konsultacija.",
+            },
+            "locked_features": [],
+        }
+
+        text = build_response([savings_call(result=result)], None)
+
+        assert "0,0% laisvų pinigų" not in text, free_cash
+        assert "Laisvų pinigų nėra" in text, free_cash
+        assert "netelpa" in text, free_cash
+
+
+def test_positive_free_cash_still_renders_the_normal_percent_share_sentence():
+    result = {
+        "core": {
+            "monthly_contribution": 100.0,
+            "free_cash_monthly": 400.0,
+            "share_of_free_cash_pct": 25.0,
+            "fits": True,
+            "general_tip": "Šis tikslas atrodo pasiekiamas.",
+            "assumptions": [],
+            "disclaimer": "disclaimer",
+        },
+        "locked_features": [],
+    }
+
+    text = build_response([savings_call(result=result)], None)
+
+    assert "25,0% laisvų pinigų" in text
+    assert "Laisvų pinigų nėra" not in text
+
+
 def test_assumptions_section_handles_unmapped_field_and_origin_gracefully():
     """Defensive design: an unexpected `field`/`origin` string (not one of the 3/4 known values)
     must degrade to the raw string, not crash and not produce a blank/ugly fallback."""

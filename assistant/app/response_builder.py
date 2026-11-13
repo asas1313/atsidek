@@ -129,10 +129,21 @@ def _build_free_cash_section(core: dict) -> str:
 
 
 def _build_goal_section(core: dict) -> str:
-    sentence = (
-        f"Tikslui siūloma atsidėti {_eur(core['monthly_contribution'])} per mėnesį "
-        f"({_pct(core['share_of_free_cash_pct'])} laisvų pinigų)."
-    )
+    """Owner instruction (2026-11-13, second B6 live-eval round): when there is no free cash at
+    all (`free_cash_monthly <= 0`, Java's `GoalsEngine.verdict()` NO_FREE_CASH branch), showing
+    "0,0% laisvų pinigų" is misleading - it reads as "the contribution is a comfortable 0% share",
+    not "there is nothing to share at all". Say plainly that there is no free cash and the
+    contribution does not fit, instead of rendering a percentage of zero."""
+    if Decimal(str(core["free_cash_monthly"])) <= 0:
+        sentence = (
+            f"Laisvų pinigų nėra - siūloma {_eur(core['monthly_contribution'])} per mėnesį įmoka "
+            "į tikslą netelpa."
+        )
+    else:
+        sentence = (
+            f"Tikslui siūloma atsidėti {_eur(core['monthly_contribution'])} per mėnesį "
+            f"({_pct(core['share_of_free_cash_pct'])} laisvų pinigų)."
+        )
     general_tip = GENERAL_TIP_INFORMAL_LT.get(core["general_tip"], core["general_tip"])
     return f"{sentence} {general_tip}"
 
