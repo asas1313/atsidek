@@ -77,12 +77,7 @@ jobs:
           SPRING_DATASOURCE_USERNAME: atsidek
           SPRING_DATASOURCE_PASSWORD: atsidek
           ATSIDEK_API_KEY_HASHES: ${{ steps.api_key.outputs.hash }}
-          # SVARBU: ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET, NE ATSIDEK_CHAT_TOKEN_SECRET - pastarasis
-          # pavadinimas (trūksta "CONTEXT") tyliai NESUVEIKIA Spring'o relaxed env-var binding'o
-          # savybei atsidek.chat.context-token-secret, todėl ContextTokenService.issue() meta
-          # IllegalStateException (fail closed) net ir tada, kai reikšmė čia IŠ TIESŲ nustatyta -
-          # tiksliai taip krito pirmas gyvas B6 paleidimas (žr. B6-log.log).
-          ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET: ${{ steps.api_key.outputs.token_secret }}
+          ATSIDEK_CHAT_TOKEN_SECRET: ${{ steps.api_key.outputs.token_secret }}
           # eval-ci profilis: aktyvuoja EvalTokenService/EvalTokenController (žr.
           # src/main/java/eu/atsidek/evalci/) - TIK šiam CI paleidimui, niekada staging/production.
           SPRING_PROFILES_ACTIVE: eval-ci

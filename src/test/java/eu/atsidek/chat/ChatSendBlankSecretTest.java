@@ -41,6 +41,6 @@ class ChatSendBlankSecretTest {
 
         String body = result.getResponse().getContentAsString();
         assertThat(body).doesNotContain("IllegalStateException", "eu.atsidek", "\tat ",
-                "context-token-secret (ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET)");
+                "context-token-secret (ATSIDEK_CHAT_TOKEN_SECRET)");
     }
 }

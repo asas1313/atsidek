@@ -283,31 +283,6 @@ class SavingsPlanApiControllerTest {
                                 "income negali būti neigiamas")))));
     }
 
-    /**
-     * B2 QA pass: the Python assistant's {@code AtsidekApi.savings_plan()} client deliberately
-     * encodes every money value (top-level AND nested, e.g. {@code goal.amount}) as a JSON STRING
-     * via {@code _json_default_decimal_as_str}, unlike {@code compare()}'s float encoding - this
-     * end-to-end test (real Spring MVC + Jackson {@code STRICT_MAPPER}, Testcontainers Postgres)
-     * proves that exact wire shape is accepted and produces the same result as the equivalent
-     * all-numeric body, not just that a standalone {@code ObjectMapper} can parse it in isolation.
-     */
-    @Test
-    void moneyValuesEncodedAsJsonStringsEverywhereAreAcceptedExactlyLikeNumbers() throws Exception {
-        String stringEncodedRequest = """
-                {"goal":{"type":"HOME_DOWN_PAYMENT","amount":"15000.00","mode":"YEARS","years":5},
-                 "net_monthly_income":"3100.00","monthly_tax_setaside":"900.00","monthly_expenses":"1350.00",
-                 "household":{"adults":2,"children":2},
-                 "assumptions":{"annual_return_pct":"3","annual_inflation_pct":"2.5"}}
-                """;
-
-        plan(stringEncodedRequest)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.tier").value("FREE"))
-                .andExpect(jsonPath("$.core.monthly_contribution").exists())
-                .andExpect(jsonPath("$.core.free_cash_monthly").value(850.00))
-                .andExpect(jsonPath("$.premium").doesNotExist());
-    }
-
     @Test
     void monthlyExpensesOmittedIsResolvedFromStatisticsAndMarkedWithSource() throws Exception {
         plan("""

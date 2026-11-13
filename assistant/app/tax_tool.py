@@ -12,60 +12,12 @@ Wraps the EXISTING `AtsidekApi.compare()` (calculator.py) - no second HTTP clien
 from decimal import Decimal
 from typing import Callable, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from .calculator import Calculator
 from .request_context import RequestContext
 
 TOOL_NAME = "calculate_iv_taxes"
-
-
-def _nullable(t: str, description: str) -> dict:
-    return {"type": [t, "null"], "description": description}
-
-
-# Hand-written, not auto-generated from the Pydantic model below (B3 task notes): Pydantic's
-# model_json_schema() would be fine here since this model has no nested sub-models, but every
-# tool's input_schema in this codebase is hand-written (extractor.py's SCHEMA/TOOL_DEF precedent)
-# for consistency with savings_tool.py's TOOL_DEF, which DOES need hand-writing (nested models
-# produce $defs/$ref Claude's tool-calling API doesn't reliably accept). Field names/types/
-# required-ness are cross-checked against CalculateIvTaxesInput by test_tax_tool.py.
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "revenue": {
-            "type": "number",
-            "description": "Numatomos metinės individualios veiklos (IV) pajamos eurais. Privaloma.",
-        },
-        "actual_expenses": _nullable(
-            "number",
-            "Faktinės metinės IV išlaidos eurais. null, jei taikoma 30 % išlaidų norma arba nežinoma.",
-        ),
-        "other_income": _nullable(
-            "number", "Kitos metinės pajamos ne iš IV (darbo užmokestis, nuoma) eurais. null, jei nėra."),
-        "pension_accumulation": {
-            "type": "boolean",
-            "description": "Ar vartotojas dalyvauja II pakopos pensijų kaupime. Numatytoji reikšmė false.",
-        },
-        "psd_min_months": {
-            "type": "integer",
-            "description": (
-                "Kiek mėnesių per metus pats moka PSD (0-12); kitus mėnesius PSD moka darbdavys. "
-                "Numatytoji reikšmė 12."
-            ),
-        },
-    },
-    "required": ["revenue"],
-}
-
-TOOL_DEF = {
-    "name": TOOL_NAME,
-    "description": (
-        "Paskaičiuoja individualios veiklos (IV) mokesčius ir grynąsias mėnesio pajamas pagal "
-        "numatomas metines pajamas. Mokesčius skaičiuoja TIK šis įrankis - niekada nespėliok."
-    ),
-    "input_schema": SCHEMA,
-}
 
 
 class CalculateIvTaxesInput(BaseModel):
@@ -80,11 +32,7 @@ class CalculateIvTaxesInput(BaseModel):
     actual_expenses: Optional[Decimal] = None
     other_income: Optional[Decimal] = None
     pension_accumulation: bool = False
-    # Review round 1 NIT #6: the schema description text above already promises "(0-12)" - this
-    # constraint makes that true locally (fails fast with a Pydantic ValidationError) instead of
-    # relying solely on Java's double guard (TaxApiController's 400 + TaxInput's defensive
-    # clamp), which still exists and is why this was a NIT, not a correctness gap.
-    psd_min_months: int = Field(default=12, ge=0, le=12)
+    psd_min_months: int = 12
 
 
 def make_calculate_iv_taxes_tool(

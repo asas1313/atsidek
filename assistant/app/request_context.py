@@ -9,13 +9,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from .errors import UnknownResultError
-
-# UnknownResultError is imported here purely to re-export it (review round 1 NIT #9) so existing
-# test call sites (`from app.request_context import RequestContext, UnknownResultError`) keep
-# working unchanged. `errors.py` is the canonical home for the class itself.
-__all__ = ["RequestContext", "UnknownResultError"]
-
 
 @dataclass
 class RequestContext:
@@ -29,8 +22,9 @@ class RequestContext:
         self.results[result_id] = value
         return result_id
 
+    # TODO(B2, AC-B2-2): an unknown id must become a defined tool error (not an exception that
+    # kills the turn), mirroring ToolRegistry.dispatch's UnknownToolError. Bare KeyError is fine
+    # for B0 (no consumer needs a defined error type yet) but must be replaced before B2 relies
+    # on this.
     def get_result(self, result_id: str) -> Any:
-        try:
-            return self.results[result_id]
-        except KeyError:
-            raise UnknownResultError(f"Nežinomas rezultato id: {result_id}") from None
+        return self.results[result_id]

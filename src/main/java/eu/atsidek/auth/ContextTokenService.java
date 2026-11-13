@@ -35,9 +35,7 @@ import org.springframework.stereotype.Component;
  * raštas kaip {@link ApiKeyFilter#matches}), o galiojimo laiką - su įpurškiamu {@link Clock} (ADR-0002).
  * <p>
  * Fail-closed, tiksliai kaip {@link ApiKeyFilter} ("Jei maišų nenurodyta - API uždarytas"): jei
- * {@code atsidek.chat.context-token-secret} (env {@code ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET} - NE
- * {@code ATSIDEK_CHAT_TOKEN_SECRET}; ankstesnė pavadinimo klaida, dėl kurios Spring'o relaxed
- * env-var binding šiai savybei tyliai nesuveikia - žr. B6 gyvo eval'o incidento logą) nenurodyta ar
+ * {@code atsidek.chat.context-token-secret} (env {@code ATSIDEK_CHAT_TOKEN_SECRET}) nenurodyta ar
  * tuščia - {@link #issue} garsiai meta {@link IllegalStateException} (žetonas niekada neišduodamas
  * su tuščia/numatytąja paslaptimi), o {@link #verify} visada grąžina {@code Optional.empty()}
  * (žetonas niekada nepriimamas, net jei jis realiai buvo pasirašytas kažkada veikiančia paslaptimi) -
@@ -129,8 +127,8 @@ public class ContextTokenService {
     private void requireSecret() {
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException(
-                    "atsidek.chat.context-token-secret (ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET) "
-                            + "nenurodyta - kontekstinio žetono neišduodu (fail closed)");
+                    "atsidek.chat.context-token-secret (ATSIDEK_CHAT_TOKEN_SECRET) nenurodyta - "
+                            + "kontekstinio žetono neišduodu (fail closed)");
         }
     }
 

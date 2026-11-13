@@ -22,9 +22,9 @@ must resolve a real, currently-unsolved problem (how Python asserts "this messag
 logged-in user X" to Java); B2 adds the savings tool on top of the existing, already-tier-aware
 `/api/v1/savings/plan`; B3 introduces the first true multi-turn tool-calling loop this codebase
 has ever had (today's AI calls are single forced-tool, non-agentic); B4–B7 shape the response,
-add cost/limit controls, evaluate behaviour, and ship to staging. All eight phases are executed
-autonomously, each its own branch/tests/PR, per owner decision (2026-11-12, superseding the
-spec's original "Mokymosi pastaba" framing of B2/B3/B6 as owner/agent pairing sessions).
+add cost/limit controls, evaluate behaviour, and ship to staging. B2, B3 and B6 are explicitly
+owner-and-agent pairing sessions, not autonomous implementation, per the spec's "Mokymosi
+pastaba".
 
 All open questions were resolved by the owner on 2026-11-12 — see **Owner decisions (2026-11-12)**
 below and the now-**Accepted** `docs/adr/0003-ai-agent-python-java-service-identity.md`. B0 starts
@@ -62,7 +62,7 @@ phase (B1+) actually needs it enforced for real traffic.
 | AC-B1-3 | Result is stored in `RequestContext` and returned to the model only as an opaque `tax_calc_id`. | `test_tax_tool.py`: tool's returned payload to the model contains `tax_calc_id` and the disclosed numbers, but the raw `RequestContext` entry (and any internal Java field names) does not leak into the tool-result text; a second call with the same `tax_calc_id` string resolves to the same stored entry. |
 | AC-B1-4 | New Java-fronted chat endpoint mints a short-lived signed context token `{user_id, tier, exp}` per ADR-0003; Python relays it unverified; Java verifies it on every tool-callback request. | Java: `ChatControllerTest`/`ContextTokenTest` — token round-trips (issue → verify → claims match); a forged-signature token and an expired token are both rejected with the same negative test. Python: `test_tax_tool.py`/`test_savings_tool.py` assert the tool handler forwards the token string unchanged, performing no verification/decoding of its own. |
 
-### B2 — `calculate_savings_plan` tool
+### B2 — `calculate_savings_plan` tool (owner/agent pairing — see "Collaborative phases")
 
 | AC | Criterion | Test(s) |
 |----|-----------|---------|
@@ -71,7 +71,7 @@ phase (B1+) actually needs it enforced for real traffic.
 | AC-B2-3 | Savings-only query: model may pass a user-stated net income (`origin: USER`); missing income with no `tax_calc_id` → tool error "need income", not a guess. | `test_savings_tool.py`: income supplied directly → `/api/v1/savings/plan` called with it, origin tagged `USER` in the narrated response (B4); income absent and no `tax_calc_id` → tool error, and a corresponding B3/B6 test that the agent asks the user rather than calling the tool with a fabricated number. |
 | AC-B2-4 | API is called with the user's id so the model only ever receives its own tier's data. | `test_savings_tool.py` with a fake Java client: asserts the identity established in B1 is forwarded unchanged; anonymous user → no `premium` key ever reaches the model (reuses A4's existing anon/premium contract test style). |
 
-### B3 — agent loop
+### B3 — agent loop (owner/agent pairing)
 
 | AC | Criterion | Test(s) |
 |----|-----------|---------|
@@ -95,19 +95,12 @@ phase (B1+) actually needs it enforced for real traffic.
 | AC-B5-1 | One user message = one limit unit, regardless of tool-call count; **anonymous users get a daily message cap, logged-in users get a larger daily cap sized per tier** (owner decision 6 — `Feature.AI_PLAN_CHAT` stays unwired, this is a quota, not an entitlement gate). | `test_limiter.py` (extends existing `RateLimiter`/`GoalsAiLimiter` pattern): N tool calls within one handled message consume exactly 1 unit; anon vs. logged-in vs. tier-specific daily caps enforced distinctly; cap exceeded → defined rejection, not a crash. |
 | AC-B5-2 | Per-request log: tokens (input/cache/output), tool-call count, duration, cost. | `test_usage_logging.py`: a fake agent run with known token counts produces a single structured log/record with all five fields; cost computed in integer cents, not float (per CLAUDE.md money rule). |
 
-### B6 — evals
+### B6 — evals (owner/agent pairing — see "Collaborative phases")
 
-**Cadence (owner decision 3, narrowed 2026-11-12):** every B-dalis PR runs only unit tests
-against a fake/mocked model — zero live-LLM cost per PR. The live-LLM eval suite below runs
-manually via `workflow_dispatch` only, and only on the B3, B4, and B6 PRs (not B7 — B7's own
-job is attaching B6's already-produced eval output/cost figures to the PR and to
-`STATUS-taupymas.md`, not running a new live pass). Each case runs 3 times; the report is a
-**pass rate** per case/group, not a single pass/fail.
-
-**Owner gate (2026-11-12):** B6 is otherwise executed autonomously like every other phase, but
-the LLM-judge rubric prompt and its pass/fail threshold (AC-B6-4) are not finalized unilaterally
-— present a draft rubric plus the first live `workflow_dispatch` run's results, and wait for
-explicit owner confirmation before locking them in.
+**Cadence (owner decision 3):** every B-dalis PR runs only unit tests against a fake/mocked
+model — zero live-LLM cost per PR. The live-LLM eval suite below runs manually via
+`workflow_dispatch` only, and only on the B3, B4, B6, and B7 PRs. Each case runs 3 times; the
+report is a **pass rate** per case/group, not a single pass/fail.
 
 | AC | Criterion | Test(s) |
 |----|-----------|---------|
@@ -174,11 +167,11 @@ issuing/verification classes (per ADR-0003), `assistant/app/tax_tool.py` (new),
 **Depends on:** B0 approved (explicit owner instruction — the Java chat-endpoint/token part of
 B1 starts only once B0 is reviewed). **Blocks:** B2.
 
-### B2 — `feat/taupymas-agentas-b2` (autonomous) — **DONE**
+### B2 — `feat/taupymas-agentas-b2` (**collaborative pairing**, see below)
 
 **Depends on:** B1. **Blocks:** B3's combined-query paths.
 
-### B3 — `feat/taupymas-agentas-b3` (autonomous)
+### B3 — `feat/taupymas-agentas-b3` (**collaborative pairing**, see below)
 
 **Depends on:** B0, B1, B2. **Blocks:** B4–B7.
 
@@ -212,8 +205,7 @@ B1 starts only once B0 is reviewed). **Blocks:** B2.
 
 **Depends on:** B3 (needs real tool-call counts/durations to log).
 
-### B6 — `feat/taupymas-agentas-b6` (autonomous, except the LLM-judge rubric/threshold gate — see
-owner gate note under the AC-B6 table)
+### B6 — `feat/taupymas-agentas-b6` (**collaborative pairing**, see below)
 
 **Depends on:** B4, B5 (evals should measure the shaped, logged, cost-aware agent, not an
 intermediate one).
@@ -229,6 +221,41 @@ intermediate one).
 `docs/specs/taupymo-tikslai/STATUS-taupymas.md` (update).
 
 **Depends on:** B6.
+
+---
+
+## Collaborative phases (B2, B3, B6) — what pairing looks like
+
+Per the spec's "Mokymosi pastaba", these three phases are the most valuable AI-engineering
+learning and are done **with** the owner writing/reviewing code line-by-line, not delegated.
+For each, the agent's job going in is preparation and explanation, not a finished PR:
+
+**B2 (savings tool).** Agent prepares: the Pydantic input schema draft (goal/tax_calc_id
+mutual-exclusivity, per AC-B2-1), a short written explanation of exactly how
+`/api/v1/savings/plan`'s existing `net_monthly_income`-required contract interacts with the new
+optional-`tax_calc_id` tool input (this is the trickiest part — the Java endpoint still demands
+`net_monthly_income` in the body; the tool handler, not Java, must always resolve and inject a
+concrete value before calling it), and a failing-test skeleton for each AC-B2 row. Owner writes
+the handler body and the resolution logic itself, with the agent reviewing diffs and explaining
+Java-side consequences as they come up.
+
+**B3 (agent loop).** Agent prepares: a short written comparison of loop-control shapes (recursive
+vs. explicit `while` with a step counter; how Anthropic's `tool_use`/`tool_result` content
+blocks map to Python control flow; concretely how `ThreadPoolExecutor` dispatches independent
+calls over the existing synchronous `httpx.Client` — owner decision 12 already settles the
+parallelism mechanism, so this is explanation, not an open design choice), plus failing tests for
+AC-B3-1..3. Owner writes the loop itself; agent reviews for the iteration-limit edge case and the
+`is_error` propagation path specifically (both are easy to get subtly wrong and are exactly what
+the tests above are meant to catch).
+
+**B6 (evals).** Agent prepares: the ~30 case skeletons (text, expected tool sequence, expected
+numeric fields, expected-missing-income cases, anon/logged-in pairs) as data, and the
+*deterministic* half of the scorer (tool-sequence match, number extraction/comparison, banned-
+term check) as a starting point, explaining the design trade-offs (why number-extraction-from-
+text is brittle, why the banned-term check alone is insufficient for B6-4 hence the LLM-judge).
+Owner writes (or substantially rewrites) the LLM-judge rubric prompt and decides the pass/fail
+threshold, since that is a judgement call about what "sounds like investment advice" means for
+this product, not a mechanical check.
 
 ---
 
@@ -290,9 +317,8 @@ intermediate one).
 
 - **Eval cost/flakiness vs. "runs on every B-dalis PR."** Resolved by owner decision 3: every PR
   runs only unit tests against a fake model; the live-LLM suite runs manually via
-  `workflow_dispatch` on B3/B4/B6 only (narrowed 2026-11-12; B7 attaches B6's results rather than
-  running a new live pass), 3 runs per case, reported as a pass rate — accepting model variance
-  explicitly rather than treating any single run as ground truth.
+  `workflow_dispatch` on B3/B4/B6/B7 only, 3 runs per case, reported as a pass rate — accepting
+  model variance explicitly rather than treating any single run as ground truth.
 - **Prompt injection / expanded attack surface in B3.** Today's AI calls are forced single-tool
   extractions with no model-chosen branching. B3 introduces the first genuine multi-step loop
   where the model chooses which (paid) tools to call and in what order from free user text. The
@@ -335,13 +361,12 @@ resolved. Nothing in this section was guessed at — every line is the owner's l
    solve different problems. `monetizacija`'s `ai_usage_event` table design stays reserved for
    `monetizacija` itself; B5 does not adopt it (see decision 9 below).
 
-3. **B6 eval cadence (narrowed 2026-11-12).** Every B-dalis PR runs only **unit tests against a
-   fake/mocked model** — no live-LLM cost on every PR. The full live-LLM eval suite (B6's ~30
-   cases, real Claude calls) runs **manually via `workflow_dispatch`**, and only on the B3, B4,
-   and B6 PRs specifically (not B0/B1/B2/B5/B7 — B7 attaches B6's already-produced output rather
-   than running a new live pass). Each eval case is run **3 times**, and the eval report shows a
-   **pass rate** per case/group, not a single pass/fail — acknowledging real model variance
-   rather than papering over it.
+3. **B6 eval cadence.** Every B-dalis PR runs only **unit tests against a fake/mocked model** —
+   no live-LLM cost on every PR. The full live-LLM eval suite (B6's ~30 cases, real Claude calls)
+   runs **manually via `workflow_dispatch`**, and only on the B3, B4, B6, and B7 PRs specifically
+   (not B0/B1/B2/B5). Each eval case is run **3 times**, and the eval report shows a **pass rate**
+   per case/group, not a single pass/fail — acknowledging real model variance rather than
+   papering over it.
 
 4. **LLM-judge model for B6-4: `claude-sonnet-5-5`.** Stronger than the agent's own
    `claude-haiku-5-5` (decision 8), accepted as an additional per-eval-run cost, specifically for
@@ -392,24 +417,3 @@ resolved. Nothing in this section was guessed at — every line is the owner's l
     tool calls run in parallel" (AC-B3-3) is implemented by dispatching independent calls to a
     `ThreadPoolExecutor` and joining the futures, not by introducing an async runtime into a
     codebase that doesn't have one today.
-
-### Policy change (owner, 2026-11-12, after B2's handler was implemented)
-
-13. **B2, B3, and B6 are no longer owner/agent pairing phases.** All eight B-dalis phases are
-    executed autonomously (branch → implement → test → review → PR), same as B0/B1/B4/B5/B7
-    always were. The spec's "Mokymosi pastaba" framing and this plan's former "Collaborative
-    phases" section are superseded; removed from this document rather than left as dead text.
-    B2 itself was already implemented under this decision, per the owner's own exact design
-    (income resolution from `tax_calc_id`'s stored `better.netMonthlyIncome`/`monthlyReserve` or
-    a user-stated figure, `ToolError`/`MissingIncomeError`/`UnknownResultError` hierarchy in a
-    new `errors.py`, a pure `resolve_income` function returning a frozen dataclass, thin handler)
-    — see `feat/taupymas-agentas-b2`'s commits.
-14. **Two explicit stop gates remain, nothing else.** B6: before finalizing the LLM-judge rubric
-    prompt and its pass/fail threshold (AC-B6-4), present a draft plus the first live
-    `workflow_dispatch` run's results and wait for confirmation. B7: before deploying to staging.
-    Every other phase proceeds without waiting for owner merge/review in between — each new
-    phase branches from the previous phase's branch regardless of merge status.
-15. **Live-LLM (costed) runs are permitted only during B3, B4, and B6's own implementation/
-    testing — not B0/B1/B2/B5/B7.** This narrows decision 3 above (which originally also named
-    B7): B7 attaches B6's already-produced eval output and B5-derived cost/duration figures to
-    the PR and to `STATUS-taupymas.md`, it does not run a new live eval pass of its own.

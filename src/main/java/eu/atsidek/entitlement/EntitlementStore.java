@@ -3,7 +3,6 @@ package eu.atsidek.entitlement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,22 +34,6 @@ public class EntitlementStore {
                 "SELECT setting_value FROM app_setting WHERE setting_key = ?",
                 rs -> rs.next() ? Optional.of(rs.getString(1)) : Optional.empty(),
                 settingKey);
-    }
-
-    /**
-     * Įrašo naują {@code entitlement} eilutę - šiuo metu naudoja TIK {@code eu.atsidek.evalci}
-     * (B6 gyvo eval'o CI testiniai vartotojai, žr. {@code EvalTokenService}); nė vienas tikro
-     * srauto kelias (OAuth/mokėjimas) šiandien entitlement'ų neišduoda (žr.
-     * {@code EntitlementService}'o klasės javadoc). Nėra unikalaus apribojimo
-     * {@code (user_id, feature)} lentelėje - kartotinis kvietimas tai pačiai porai sukurtų antrą
-     * eilutę (nekenksminga {@link EntitlementService#hasFeature} patikrai, kuri tik ieško BET
-     * KOKIOS galiojančios eilutės, bet kviečiantis kodas (žr. {@code EvalTokenService}) pirma
-     * patikrina {@link #findByUserAndFeature}, kad jos nedubliuotų).
-     */
-    public void grant(UUID userId, Feature feature, String source, Instant validFrom) {
-        jdbc.update(
-                "INSERT INTO entitlement (user_id, feature, source, valid_from) VALUES (?, ?, ?, ?)",
-                userId, feature.name(), source, Timestamp.from(validFrom));
     }
 
     private static Entitlement map(ResultSet rs, int rowNum) throws SQLException {
