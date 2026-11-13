@@ -200,3 +200,125 @@ def test_api_client_errors():
         assert False
     except CalculatorError as e:
         assert "ATSIDEK_API_KEY" in str(e)
+
+
+def test_savings_plan_client_sends_money_as_strings_not_floats():
+    """B2 mechanical part: unlike compare()'s _json_default (float), savings_plan() must encode
+    Decimal money as JSON strings - avoids float round-trip precision loss, and Jackson's
+    BigDecimalDeserializer accepts a JSON string for a declared BigDecimal field just fine."""
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        seen["headers"] = request.headers
+        return httpx.Response(200, text='{"tier":"FREE","core":{},"locked_features":[]}')
+
+    api = AtsidekApi("http://app:8080", "atsk_x", httpx.MockTransport(handler))
+    goal = {"type": "OTHER", "mode": "YEARS", "amount": "50000", "years": 10}
+    out = api.savings_plan(goal, Decimal("1500.50"), Decimal("200.25"), None, None, None)
+
+    assert seen["path"] == "/api/v1/savings/plan"
+    assert seen["body"] == {
+        "goal": goal, "net_monthly_income": "1500.50", "monthly_tax_setaside": "200.25",
+        "monthly_expenses": None, "household": None, "assumptions": None,
+    }
+    assert out["tier"] == "FREE"
+    assert "x-atsidek-context-token" not in seen["headers"]
+
+
+def test_savings_plan_client_does_not_substitute_zero_for_missing_tax_setaside_or_expenses():
+    """monthly_tax_setaside/monthly_expenses have DIFFERENT Java-side null semantics (nz()->0 vs.
+    stat_defaults resolution, SavingsPlanRequest javadoc) - this client must pass None through
+    unchanged, never invent a 0 itself (that decision belongs to Java, not this client)."""
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, text='{"tier":"FREE","core":{},"locked_features":[]}')
+
+    api = AtsidekApi("http://app:8080", "atsk_x", httpx.MockTransport(handler))
+    api.savings_plan({"type": "OTHER", "mode": "YEARS", "amount": "1"}, Decimal("1000"),
+                      None, None, None, None)
+
+    assert seen["body"]["monthly_tax_setaside"] is None
+    assert seen["body"]["monthly_expenses"] is None
+
+
+def test_savings_plan_client_forwards_context_token_unmodified_when_given():
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["token_header"] = request.headers.get("x-atsidek-context-token")
+        return httpx.Response(200, text='{"tier":"FREE","core":{},"locked_features":[]}')
+
+    api = AtsidekApi("http://app:8080", "atsk_x", httpx.MockTransport(handler))
+    token = "eyJhbGciOi.somesignature"
+    api.savings_plan({"type": "OTHER", "mode": "YEARS", "amount": "1"}, Decimal("1000"),
+                      None, None, None, None, context_token=token)
+    assert seen["token_header"] == token
+
+
+def test_savings_plan_client_sends_full_nested_body_with_java_matching_field_names():
+    """Cross-checks the FULL request shape (goal/household/assumptions all populated, not just the
+    minimal cases the other savings_plan client tests use) against SavingsPlanRequest.java's exact
+    field names, including the nested GoalRequest/HouseholdRequest/AssumptionsRequest records."""
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, text='{"tier":"FREE","core":{},"locked_features":[]}')
+
+    api = AtsidekApi("http://app:8080", "atsk_x", httpx.MockTransport(handler))
+    goal = {
+        "type": "HOME_DOWN_PAYMENT", "mode": "YEARS", "amount": "15000", "years": 5,
+        "target_year": None, "target_month": None, "child_current_age": None,
+        "child_target_age": None, "monthly_contribution": None,
+    }
+    household = {"adults": 2, "children": 2}
+    assumptions = {"annual_return_pct": Decimal("3"), "annual_inflation_pct": Decimal("2.5")}
+
+    api.savings_plan(goal, Decimal("3100"), Decimal("900"), Decimal("1350"), household, assumptions)
+
+    assert seen["body"] == {
+        "goal": goal,
+        "net_monthly_income": "3100",
+        "monthly_tax_setaside": "900",
+        "monthly_expenses": "1350",
+        "household": {"adults": 2, "children": 2},
+        "assumptions": {"annual_return_pct": "3", "annual_inflation_pct": "2.5"},
+    }
+
+
+def test_savings_plan_client_400_message_is_generic_not_numbers_specific():
+    """Review round 1 SHOULD #2: savings_plan()'s body also carries goal.type/goal.mode (free-form
+    strings, not just numbers like compare()'s body) - its own 400 message must not claim
+    "skaičius" (numbers) were rejected, unlike compare()'s message which fits its purely numeric
+    body."""
+    api = AtsidekApi("http://x", "k", httpx.MockTransport(lambda r: httpx.Response(400, text="{}")))
+    goal = {"type": "OTHER", "mode": "YEARS", "amount": "1"}
+
+    try:
+        api.savings_plan(goal, Decimal(1000), None, None, None, None)
+        assert False
+    except CalculatorError as e:
+        assert "skaičius" not in str(e)
+        assert "atmetė" in str(e)
+
+
+def test_savings_plan_client_errors():
+    def api(status):
+        return AtsidekApi("http://x", "k", httpx.MockTransport(lambda r: httpx.Response(status, text="{}")))
+
+    goal = {"type": "OTHER", "mode": "YEARS", "amount": "1"}
+    for status, text in [(400, "atmetė"), (401, "HTTP 401"), (500, "HTTP 500")]:
+        try:
+            api(status).savings_plan(goal, Decimal(1000), None, None, None, None)
+            assert False
+        except CalculatorError as e:
+            assert text in str(e)
+    try:
+        AtsidekApi("http://x", "").savings_plan(goal, Decimal(1000), None, None, None, None)
+        assert False
+    except CalculatorError as e:
+        assert "ATSIDEK_API_KEY" in str(e)

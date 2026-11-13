@@ -5,8 +5,10 @@ from typing import Optional, Protocol
 
 import httpx
 
+from .errors import ToolError
 
-class CalculatorError(Exception):
+
+class CalculatorError(ToolError):
     """Žinutė rodoma vartotojui.
 
     `status_code` (review round 1 SHOULD #2) nešioja Java pusės HTTP statusą, KAI jis žinomas -
@@ -14,21 +16,65 @@ class CalculatorError(Exception):
     reikšmę kitiems ne-200 atsakymams. `None` reiškia "Java nepasiekiama" (tinklo klaida) arba
     "paslauga nesukonfigūruota" - šiais atvejais skambinantis kodas (žr. `main.py`
     `/internal/chat`) tai laiko upstream klaida (502), NE kliento klaida.
+
+    Subclasses `ToolError` (review round 1 SHOULD #1): a Java-side 400/5xx or a misconfigured
+    client is model-recoverable (B3's agent loop is meant to catch it and produce an `is_error`
+    tool_result block), not a bug that should crash the turn.
+
+    `tool_message` (review round 2, B3 round-1 SHOULD #2) overrides the base class: `message`
+    above was written B1-era for a human reading `/asistentas`'s free-text result after typing a
+    bad number ("patikslink tekstą") - that framing doesn't fit a model that constructed the
+    tool call itself from structured arguments. The model-facing override below is actionable
+    instead: it tells the model what Java's response means and what to do next, without
+    changing `message`/`str(self)`, which `main.py`'s direct human-facing path still relies on.
     """
 
     def __init__(self, message: str, status_code: Optional[int] = None):
         super().__init__(message)
         self.status_code = status_code
 
+    @property
+    def tool_message(self) -> str:
+        if self.status_code == 400:
+            return (
+                "Skaičiuoklė atmetė užklausos duomenis. Patikrink, ar teisingai supratai "
+                "vartotojo pateiktus skaičius ir tikslo parametrus; jei reikia, paklausk "
+                "vartotojo patikslinti. Nebandyk paskaičiuoti pats."
+            )
+        return (
+            "Skaičiuoklės paslauga šiuo metu nepasiekiama arba nesukonfigūruota. Informuok "
+            "vartotoją, kad reikės pabandyti vėliau. Nebandyk paskaičiuoti pats."
+        )
+
 
 class Calculator(Protocol):
     def compare(self, revenue: Decimal, actual_expenses: Optional[Decimal], other_income: Optional[Decimal],
                 pension_accumulation: bool, psd_min_months: int, context_token: Optional[str] = None) -> dict: ...
 
+    def savings_plan(self, goal: dict, net_monthly_income: Optional[Decimal],
+                      monthly_tax_setaside: Optional[Decimal], monthly_expenses: Optional[Decimal],
+                      household: Optional[dict], assumptions: Optional[dict],
+                      context_token: Optional[str] = None) -> dict: ...
+
 
 def _json_default(o):
+    """compare()'s Decimal encoder - float, NOT string. Review round 1 NIT #7: this is the
+    LEGACY encoding, kept only for compare()'s existing wire compatibility; it is deliberately
+    NOT the pattern to copy for new client methods - see `_json_default_decimal_as_str` below,
+    which savings_plan() uses instead and documents why string encoding is now preferred."""
     if isinstance(o, Decimal):
         return float(o)
+    raise TypeError(type(o))
+
+
+def _json_default_decimal_as_str(o):
+    """B2: tik SIAI savings_plan() kūno serializavimui - pinigų Decimal -> str, NE float (kaip
+    compare()'o _json_default aukščiau), kad išvengtų float apvalinimo paklaidos keliaujant per
+    JSON. Jackson'o BigDecimalDeserializer korektiškai priima tiek JSON skaičių, tiek JSON
+    eilutę deklaruotam BigDecimal laukui (SavingsPlanRequest), tad eilutė čia yra saugus,
+    tikslus pasirinkimas - vienoje vietoje, ne išskirstyta po kelis kvietimo taškus."""
+    if isinstance(o, Decimal):
+        return str(o)
     raise TypeError(type(o))
 
 
@@ -64,6 +110,56 @@ class AtsidekApi:
             raise CalculatorError("Nepavyko pasiekti skaičiuoklės paslaugos.") from e
         if resp.status_code == 400:
             raise CalculatorError("Skaičiuoklė atmetė skaičius. Patikslink tekstą.", status_code=400)
+        if resp.status_code != 200:
+            raise CalculatorError(f"Skaičiuoklės paslauga grąžino klaidą (HTTP {resp.status_code}).",
+                                  status_code=resp.status_code)
+        return json.loads(resp.text, parse_float=Decimal)
+
+    def savings_plan(self, goal: dict, net_monthly_income: Optional[Decimal],
+                      monthly_tax_setaside: Optional[Decimal], monthly_expenses: Optional[Decimal],
+                      household: Optional[dict], assumptions: Optional[dict],
+                      context_token: Optional[str] = None) -> dict:
+        """B2 (AC-B2-2..4): compare()'o šablono atkartojimas kitam Java endpoint'ui
+        (`POST /api/v1/savings/plan`, A3/ADR-0003). Skirtumai nuo compare():
+          * `goal`/`household`/`assumptions` siunčiami TIESIAI, kaip gauti - jau snake_case
+            žodynai (žr. B2 Pydantic schemą `savings_tool.py`), šis metodas jų TURINIO neliečia.
+          * `monthly_tax_setaside`/`monthly_expenses` NĖRA keičiami į 0, kai `None` - Java pati
+            žino, ką daryti su trūkstama reikšme (`SavingsPlanService.nz()` → 0 mokesčių
+            atidėjimui, `resolveMonthlyExpenses()` → iš `stat_defaults` išlaidoms; šis klientas
+            NEI vieno iš tų sprendimų neturi daryti pats, kad neuzurpuotų Java pusės logikos).
+          * `net_monthly_income` TURI būti privalomas pagal Java kontraktą (trūkstamas → 400) -
+            tai handler'io (ne šio klientų sluoksnio) atsakomybė visada jį rezultatyviai
+            nustatyti PRIEŠ šio metodo kvietimą (žr. B2-pairing-notes.md).
+          * pinigų reikšmės JSON kūne - eilutės, ne float (`_json_default_decimal_as_str`).
+        """
+        if not self.api_key:
+            raise CalculatorError("Skaičiuoklės paslauga nesukonfigūruota (trūksta ATSIDEK_API_KEY).")
+        body = {
+            "goal": goal,
+            "net_monthly_income": net_monthly_income,
+            "monthly_tax_setaside": monthly_tax_setaside,
+            "monthly_expenses": monthly_expenses,
+            "household": household,
+            "assumptions": assumptions,
+        }
+        # ADR-0003: tas pats elgesys kaip compare() - žetonas (jei yra) perduodamas NEPAKEISTAS;
+        # jo nebuvimas → antraštė visiškai nesiunčiama.
+        headers = {"X-API-Key": self.api_key, "Content-Type": "application/json"}
+        if context_token:
+            headers["X-Atsidek-Context-Token"] = context_token
+        try:
+            resp = self._client.post(
+                "/api/v1/savings/plan",
+                content=json.dumps(body, default=_json_default_decimal_as_str),
+                headers=headers,
+            )
+        except httpx.HTTPError as e:
+            raise CalculatorError("Nepavyko pasiekti skaičiuoklės paslaugos.") from e
+        if resp.status_code == 400:
+            # Review round 1 SHOULD #2: NOT compare()'s "skaičius" (numbers) wording - this body
+            # also carries goal.type/goal.mode (free-form strings, finding 3) and nested shape, so
+            # a 400 here may be a bad enum/shape, not just a bad number.
+            raise CalculatorError("Skaičiuoklė atmetė užklausą. Patikslink duomenis.", status_code=400)
         if resp.status_code != 200:
             raise CalculatorError(f"Skaičiuoklės paslauga grąžino klaidą (HTTP {resp.status_code}).",
                                   status_code=resp.status_code)
