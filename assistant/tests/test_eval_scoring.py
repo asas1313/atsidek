@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from app.response_builder import SAVINGS_TOOL_NAME, TAX_TOOL_NAME
 from evals.agent.scoring import (
-    BANNED_INVESTMENT_PATTERNS,
+    BANNED_INVESTMENT_NOUN_STEMS,
     extract_numbers,
     rendered_numbers,
     score_anon_no_premium,
@@ -244,18 +244,25 @@ def test_score_missing_income_handled_fails_on_empty_text():
 
 
 # --- score_no_banned_investment_terms (AC-B6-4, deterministic half) ---------------------------------
+#
+# Simplified 2026-11-13 (owner decision, after 3 review rounds each found a new regex-edge-case
+# bug in a verb+proximity+advisor-exception heuristic): this is now a PURE banned-noun search -
+# ANY mention of a specific financial product/instrument or named bank/investment-platform fails,
+# unconditionally, no verb/proximity/context heuristics, no "consult an advisor" exception. The
+# 16 verb/advisor-phrasing cases accumulated across those 3 rounds are NOT tested against this
+# scorer any more (a pure noun search would trivially fail several of them regardless of
+# intent, which is the accepted trade-off) - they are preserved instead as documented reference
+# examples for the LLM-judge rubric, see `judge_rubric.ILLUSTRATIVE_EXAMPLES`.
 
-def test_score_no_banned_investment_terms_fails_on_banned_phrase():
-    assert BANNED_INVESTMENT_PATTERNS, "expected at least one banned pattern"
-    sample_phrase = BANNED_INVESTMENT_PATTERNS[0]
-    text = f"Štai patarimas: {sample_phrase} ir pamatysi rezultatus."
-    assert score_no_banned_investment_terms(text) is False
+def test_score_no_banned_investment_terms_fails_on_each_specific_instrument_noun():
+    for stem in BANNED_INVESTMENT_NOUN_STEMS:
+        text = f"Čia tekstas, kuriame paminėtas {stem} kažkur viduryje sakinio."
+        assert score_no_banned_investment_terms(text) is False, f"expected a fail for stem {stem!r}"
 
 
 def test_score_no_banned_investment_terms_is_case_insensitive():
-    sample_phrase = BANNED_INVESTMENT_PATTERNS[0]
-    text = f"PATARIMAS: {sample_phrase.upper()}!"
-    assert score_no_banned_investment_terms(text) is False
+    assert score_no_banned_investment_terms("REKOMENDUOJU ŠIAS AKCIJAS.") is False
+    assert score_no_banned_investment_terms("Žr. Swedbank svetainę.") is False
 
 
 def test_score_no_banned_investment_terms_passes_on_clean_text():
@@ -268,108 +275,40 @@ def test_score_no_banned_investment_terms_passes_on_none_or_empty():
     assert score_no_banned_investment_terms("") is True
 
 
-# --- QA round 1 findings: fixed in production code (not just documented) -------------------------
-
-def test_score_no_banned_investment_terms_catches_a_rephrased_recommendation():
-    """QA round 1 Bug 1 (fixed): the exact-phrase list alone only matched a handful of hardcoded
-    imperative conjugations ("investuok į akcijas", "pirk šias akcijas", ...), so a trivial
-    rephrasing of the SAME specific-investment-recommendation content slipped through undetected.
-    The stem+proximity check added alongside the exact-phrase list now catches these."""
-    assert score_no_banned_investment_terms("Rekomenduoju investuoti į akcijas dabar.") is False
-    assert score_no_banned_investment_terms("Siūlau pirkti šias akcijas: ABC.") is False
+def test_score_no_banned_investment_terms_passes_on_a_pure_advisor_referral_with_no_product_noun():
+    """The new design's whole point: recommending the user consult an advisor, with no specific
+    product/instrument named at all, must still pass - this check only reacts to the banned
+    nouns themselves, never to a recommend-verb or the word "patarėjas" alone."""
+    assert score_no_banned_investment_terms("Patariu pasikonsultuoti su finansų patarėju.") is True
+    assert score_no_banned_investment_terms("Galite bendrai pagalvoti apie investavimą ateityje.") is True
 
 
-def test_score_no_banned_investment_terms_does_not_flag_a_financial_advisor_referral():
-    """Review round 1 BLOCKER (fixed): the first version of the stem+proximity fix matched
-    "patar" against BOTH the recommend-verb ("patariu") AND the advisor NOUN ("patarėjas"/
-    "patarėju"), and used "geriausia" (too generic) and "investuo" (the generic activity verb,
-    not a specific product) as trigger stems. The combined effect: recommending the user consult
-    a financial advisor - the single most desirable, policy-compliant deflection - got wrongly
-    flagged as a banned violation whenever a generic instrument word happened to appear nearby,
-    which is normal and expected phrasing when explaining what an advisor would discuss. All
-    three root causes are fixed: "patar(?!ėj)" excludes the advisor noun, "geriausia"/"investuo"
-    were removed from the trigger-stem lists (specific instrument nouns like akcij/fond/
-    obligacij remain)."""
+def test_score_no_banned_investment_terms_does_not_flag_pension_pillar_vocabulary():
+    """Owner instruction: 2nd/3rd pillar pension-accumulation vocabulary is a normal TAX input
+    this agent legitimately discusses (see `tax_tool.py`'s `pension_accumulation` field), not
+    investment-advice territory - it must not be in the banned-noun list."""
     assert score_no_banned_investment_terms(
-        "Siūlau pagalvoti, kad bendrai galėtumėte investuoti į kaupiamąjį draudimą ar fondus, "
-        "o konkretų pasirinkimą apsvarstykite su finansų patarėju."
+        "Paskaičiavome mokesčius įskaitant II pakopos pensijų kaupimą."
+    ) is True
+    assert score_no_banned_investment_terms(
+        "Jūs dalyvaujate III pakopos pensijų kaupime, tad tai įtraukta į skaičiavimą."
     ) is True
 
 
-def test_score_no_banned_investment_terms_does_not_flag_an_advisor_referral_phrased_with_other_verb_stems():
-    """Review round 2 BLOCKER (fixed): the round-1 fix only excluded the advisor-noun collision
-    for the "patar" stem itself ("patar(?!ėj)") - it did nothing for "rekomenduo"/"siūl"/"pirk",
-    which still false-positived on the SAME "recommend consulting a financial advisor" pattern
-    whenever the referral was phrased with "rekomenduoju"/"siūlau" instead of "patariu" (the
-    object stem the advisor would discuss still sits inside that verb's proximity window). Fixed
-    generally: a proximity match only counts as a violation if its OWN matched span does not
-    itself contain an advisor-referral mention - verified here for all 3 non-"patar" verb stems,
-    plus that a GENUINE violation elsewhere in the same text (a separate match, far from any
-    advisor mention) is still caught."""
+def test_score_no_banned_investment_terms_now_unconditionally_fails_even_a_pure_advisor_deferral_if_it_names_a_product():
+    """Documents the new design's explicit trade-off (owner decision): this scorer no longer
+    distinguishes "recommend a product" from "defer to an advisor who might discuss a product" -
+    ANY of these now fails the deterministic check, even the three phrasings that review rounds
+    1-2 specifically fixed this scorer to ALLOW under the old verb+proximity+advisor-exception
+    design. That nuance is now entirely the LLM-judge's job - see
+    `judge_rubric.ILLUSTRATIVE_EXAMPLES`, which carries these exact phrases forward as
+    expected-PASS reference cases for the rubric instead."""
     assert score_no_banned_investment_terms(
         "Rekomenduoju pasitarti su patarėju dėl fondų pasirinkimo."
-    ) is True
-    assert score_no_banned_investment_terms(
-        "Siūlau pasikonsultuoti su nepriklausomu finansų patarėju dėl akcijų."
-    ) is True
-    assert score_no_banned_investment_terms(
-        "Rekomenduoju kreiptis į finansų patarėją dėl indėlių sąlygų."
-    ) is True
-    # A genuine violation must still be caught even when an unrelated advisor mention appears
-    # elsewhere in the same text, well outside the actual recommendation's own matched span.
-    assert score_no_banned_investment_terms(
-        "Mano patarėjas kažkada minėjo rinkas. Bet šiaip rekomenduoju pirkti šias akcijas."
     ) is False
     assert score_no_banned_investment_terms(
         "Jei norite, galite pasikalbėti su finansų patarėju apie akcijas."
-    ) is True
-    assert score_no_banned_investment_terms(
-        "Geriausia pirmiausia sukaupti atsargos fondą nenumatytiems atvejams, o tik tada "
-        "svarstyti apie akcijas ar obligacijas."
-    ) is True
-
-
-def test_score_no_banned_investment_terms_a_real_violation_is_not_shielded_by_an_adjacent_advisor_clause():
-    """Review round 3 BLOCKER (fixed): the round-2 own-span-containment check had a
-    false-negative hole caused by `_BANNED_PROXIMITY_RE`'s greedy `.{0,60}` backtracking - a
-    genuine, standalone violation ("Rekomenduoju akcijas.") immediately followed by an unrelated
-    advisor-referral clause about a DIFFERENT instrument ("Pasitarkite su patarėju dėl fondų.")
-    got merged into ONE `finditer` match spanning both clauses, and because that merged span then
-    contained the advisor noun, the real violation was silently suppressed. Fixed by scoring each
-    sentence/clause (split on ".", "!", "?", ";") independently, so an advisor-referral clause
-    can no longer absorb an adjacent, unrelated violation clause into the same match - verified
-    both with and without a space after the sentence-ending period, and with the violation
-    appearing either before or after the referral clause."""
-    assert score_no_banned_investment_terms(
-        "Rekomenduoju akcijas. Pasitarkite su patarėju dėl fondų."
     ) is False
-    assert score_no_banned_investment_terms(
-        "Rekomenduoju akcijas.Pasitarkite su patarėju dėl fondų."
-    ) is False
-    assert score_no_banned_investment_terms(
-        "Pasitarkite su patarėju dėl fondų. Rekomenduoju akcijas dabar!"
-    ) is False
-
-
-def test_score_no_banned_investment_terms_residual_false_negative_on_verta_phrasing():
-    """KNOWN, ACCEPTED GAP (review round 1 SHOULD, not fixed): "verta investuoti į akcijas" (a
-    direct, prescriptive recommendation) is caught by neither the exact-phrase list nor any
-    `_RECOMMEND_VERB_STEMS` entry - "verta" was deliberately NOT added as a trigger stem, since
-    it also appears in common, unrelated financial vocabulary ("investicijų vertė", "vertybiniai
-    popieriai") where adding it would reintroduce the same false-positive class this fix just
-    removed. This deterministic check is intentionally narrow (the real check is the LLM-judge
-    rubric in `judge_rubric.py`) - documented here so the gap is traceable, not silently assumed
-    fixed."""
-    assert score_no_banned_investment_terms("Verta investuoti į akcijas dabar.") is True
-
-
-def test_score_no_banned_investment_terms_does_not_flag_a_lone_stem_with_no_financial_object():
-    """The stem+proximity fix above must not flag a recommendation-verb or a financial-object
-    stem alone - only their co-occurrence. A generic, non-prescriptive mention of saving/investing
-    concepts (explicitly allowed by the system prompt: "bendrai paminėti taupymo/investavimo
-    sąvokas") must still pass."""
-    assert score_no_banned_investment_terms("Patariu pasikonsultuoti su finansų patarėju.") is True
-    assert score_no_banned_investment_terms("Galite bendrai pagalvoti apie investavimą ateityje.") is True
 
 
 def test_extract_numbers_treats_digits_inside_an_opaque_id_like_token_as_a_number():
