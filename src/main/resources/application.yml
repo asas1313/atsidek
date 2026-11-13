@@ -35,7 +35,7 @@ atsidek:
   api:
     key-hashes: ""       # ATSIDEK_API_KEY_HASHES – API raktų SHA-256 (hex), kableliais; tuščia = /api/** uždarytas
   chat:
-    # ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET – HMAC-SHA256 paslaptis AI pokalbio kontekstiniam žetonui (ADR-0003);
+    # ATSIDEK_CHAT_TOKEN_SECRET – HMAC-SHA256 paslaptis AI pokalbio kontekstiniam žetonui (ADR-0003);
     # tuščia = žetonų neišduoda (ContextTokenService#issue meta klaidą) ir nieko nepriima
     # (ContextTokenService#verify visada Optional.empty()) - fail closed, kaip ir API raktas aukščiau.
     context-token-secret: ""

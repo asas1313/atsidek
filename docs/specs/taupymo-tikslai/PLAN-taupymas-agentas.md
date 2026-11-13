@@ -186,8 +186,6 @@ Eval'ai paleidžiami kiekviename B dalies PR.
 
 B2, B3 ir B6 yra vertingiausia AI engineering dalis. Šias fazes savininkas daro kartu su agentu: agentas siūlo, paaiškina, savininkas rašo arba peržiūri kodą eilutė po eilutės. Kitas fazes agentas gali vykdyti savarankiškai.
 
-Pastaba: šis sprendimas pakeistas — žr. PLAN-taupymas-agentas.B.plan.md "Owner decisions" #13 (2026-11-12): B2/B3/B6 vykdomi savarankiškai.
-
 ## Ko agentai patys nesprendžia
 
 - Diegimas į produkciją.

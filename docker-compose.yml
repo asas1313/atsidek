@@ -25,7 +25,7 @@ services:
       # neišduoda/nepriima, žr. ContextTokenService). Ši paslaptis egzistuoja TIK čia (app servise) -
       # Python assistant servisas žetono nei tikrina, nei dekoduoja, tik relėja jį nepakeistą, ir
       # šios paslapties NIEKADA neturi.
-      ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET: ${CHAT_TOKEN_SECRET:-}
+      ATSIDEK_CHAT_TOKEN_SECRET: ${CHAT_TOKEN_SECRET:-}
       ATSIDEK_ASSISTANT_BASE_URL: http://assistant:8000
       # Numatytosios reikšmės taiko TIK šio compose "postgres" servisą (žemiau) – tik lokaliam dev.
       # Staging/prod SPRING_DATASOURCE_* ateina iš deploy aplinkos (atskiras Postgres LXC 192.168.68.106),
