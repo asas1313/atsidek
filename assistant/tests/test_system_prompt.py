@@ -116,3 +116,13 @@ def test_prompt_bans_promising_or_predicting_investment_returns():
     lowered = SYSTEM_PROMPT.lower()
     assert "grąž" in lowered
     assert "žada" in lowered or "prognozuoj" in lowered
+
+
+# --- Second B6 live-eval round (2026-11-13 owner instruction): item 5 ---------------------------
+
+def test_prompt_explicitly_forbids_repeating_tool_result_numbers_after_the_call():
+    """Item 5: the live run showed the model's free text duplicating every number the template
+    then also shows. The original wording only said the model "never" states a number - this adds
+    an explicit, unambiguous clause that the restriction also applies AFTER a tool call returns."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "nekartok" in lowered
