@@ -95,6 +95,12 @@ Išvestis:
 }
 ```
 
+- **Laisvų pinigų formulė** (B6 incident fix, 2026-11-13, žr. B6-log.log): `free_cash_monthly =
+  net_monthly_income - monthly_expenses`. `monthly_tax_setaside` į šią formulę NIEKADA
+  neįeina - jis TIK rodymui (vartotojas jį jau matė mokesčių skaičiavimo žingsnyje). Priežastis:
+  `net_monthly_income` (B1, `TaxResult.netMonthlyIncome = (revenue - total) / 12`) JAU yra
+  grynosios pajamos PO mokesčių; `monthly_tax_setaside` (`TaxResult.monthlyReserve = total / 12`)
+  yra TA PATI mokesčių suma - atimant abu, mokesčiai būtų atimami du kartus.
 - `premium` sekcija grąžinama tik turint teises; anonimui jos nėra.
 - `locked_features` – sąrašas, iš kurio agentas ir UI formuoja kvietimą prisijungti. Naudoti tik esamas `Feature` enum reikšmes (`SAVINGS_IV_LINK`, ne naują `SAVINGS_IRREGULAR_INCOME` — sprendimas #4).
 - `general_tip` – deterministinis šablonas pagal `share_of_free_cash_pct` ribas, ne AI tekstas.

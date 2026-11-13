@@ -123,7 +123,8 @@ class SavingsPlanApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tier").value("FREE"))
                 .andExpect(jsonPath("$.core.monthly_contribution").exists())
-                .andExpect(jsonPath("$.core.free_cash_monthly").value(850.00))
+                // B6 incident fix: 3100 - 1350 = 1750 (monthly_tax_setaside=900 is display-only).
+                .andExpect(jsonPath("$.core.free_cash_monthly").value(1750.00))
                 .andExpect(jsonPath("$.core.disclaimer")
                         .value("Skaičiavimai informaciniai, tai nėra finansinis ar investavimo patarimas."))
                 .andExpect(jsonPath("$.locked_features", org.hamcrest.Matchers.containsInAnyOrder(
@@ -270,17 +271,18 @@ class SavingsPlanApiControllerTest {
     }
 
     @Test
-    void negativeDerivedIncomeIsRejectedNamingRealRequestFields() throws Exception {
+    void netMonthlyIncomeSmallerThanTaxSetasideIsNoLongerAnErrorSinceTaxSetasideIsDisplayOnly() throws Exception {
+        // B6 incident fix: monthly_tax_setaside no longer enters the free-cash calculation, so
+        // net_monthly_income < monthly_tax_setaside is a legitimate NO_FREE_CASH result, not 400.
         plan("""
                 {"goal":{"type":"CAR","amount":1200,"mode":"YEARS","years":5},
                  "net_monthly_income":500,"monthly_tax_setaside":900,"monthly_expenses":100}
                 """)
-                .andExpect(status().isBadRequest())
-                .andExpect(status().reason(org.hamcrest.Matchers.allOf(
-                        org.hamcrest.Matchers.containsString("net_monthly_income"),
-                        org.hamcrest.Matchers.containsString("monthly_tax_setaside"),
-                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(
-                                "income negali būti neigiamas")))));
+                .andExpect(status().isOk())
+                // laisvi pinigai = 500 - 100 = 400 (still positive - fits, since this goal's
+                // required monthly contribution is small relative to it).
+                .andExpect(jsonPath("$.core.free_cash_monthly").value(400.00))
+                .andExpect(jsonPath("$.core.fits").value(true));
     }
 
     /**
@@ -304,7 +306,8 @@ class SavingsPlanApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tier").value("FREE"))
                 .andExpect(jsonPath("$.core.monthly_contribution").exists())
-                .andExpect(jsonPath("$.core.free_cash_monthly").value(850.00))
+                // B6 incident fix: 3100 - 1350 = 1750 (monthly_tax_setaside=900 is display-only).
+                .andExpect(jsonPath("$.core.free_cash_monthly").value(1750.00))
                 .andExpect(jsonPath("$.premium").doesNotExist());
     }
 

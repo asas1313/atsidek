@@ -132,8 +132,9 @@ class SavingsPlanServiceTest {
         assertThat(expensesEntry.source()).isEqualTo("VDA namų ūkių biudžetų tyrimas");
         assertThat(expensesEntry.sourceDate()).isEqualTo("2026-01-01");
         assertThat(expensesEntry.isIllustrative()).isTrue();
-        // laisvi pinigai = 3100 - 900 - 1350 = 850
-        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("850.00");
+        // B6 incident fix: laisvi pinigai = net_monthly_income - monthly_expenses = 3100 - 1350 =
+        // 1750 (monthly_tax_setaside yra TIK rodymui - net_monthly_income JAU yra po mokesčių).
+        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("1750.00");
     }
 
     @Test
@@ -145,7 +146,23 @@ class SavingsPlanServiceTest {
                 request(yearsGoal("15000", 5), "3100", "900", "1350"), null);
 
         assertThat(response.core().assumptions()).noneMatch(e -> e.field().equals("monthly_expenses"));
-        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("850.00");
+        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("1750.00");
+    }
+
+    @Test
+    void freeCashNeverSubtractsMonthlyTaxSetasideOnlyNetIncomeMinusExpenses() {
+        // B6 live-eval incident (2026-11-13, docs/specs/taupymo-tikslai/B6-log.log), owner-supplied
+        // real numbers from the actually-failing case: net_monthly_income=2215.87,
+        // monthly_expenses=1400, monthly_tax_setaside=450.80. Correct laisvi pinigai = 2215.87 -
+        // 1400 = 815.87. The pre-fix bug additionally subtracted monthly_tax_setaside, producing
+        // 2215.87 - 450.80 - 1400 = 365.07 - the incident's own observed (wrong) output.
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+
+        SavingsPlanResponse response = service.plan(
+                request(yearsGoal("15000", 5), "2215.87", "450.80", "1400"), null);
+
+        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("815.87");
     }
 
     @Test
@@ -198,19 +215,21 @@ class SavingsPlanServiceTest {
     }
 
     @Test
-    void negativeDerivedIncomeIsRejectedNamingRealRequestFieldsNotInternalIncome() {
+    void netMonthlyIncomeSmallerThanTaxSetasideIsNoLongerAValidationErrorSinceTaxSetasideIsDisplayOnly() {
+        // B6 incident fix removed the old cross-field check here: net_monthly_income (500) <
+        // monthly_tax_setaside (900) used to 400 because the OLD buggy formula would have derived
+        // a negative internal "income". monthly_tax_setaside is now display-only and never enters
+        // the free-cash calculation, so this combination is just a (perfectly legitimate, if high
+        // effective tax rate) NO_FREE_CASH result, not a validation error.
         SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
                 statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
-        // net_monthly_income (500) - monthly_tax_setaside (900) = -400: vidinis "income" laukas taptų
-        // neigiamas, bet klientas niekada nerašė lauko pavadinimu "income" - klaida turi įvardinti
-        // tikruosius SavingsPlanRequest laukus, ne GoalInput.household().income().
         SavingsPlanRequest req = request(yearsGoal("15000", 5), "500", "900", "1350");
 
-        assertThatThrownBy(() -> service.plan(req, null))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("net_monthly_income")
-                .hasMessageContaining("monthly_tax_setaside")
-                .hasMessageNotContaining("income negali būti neigiamas");
+        SavingsPlanResponse response = service.plan(req, null);
+
+        // laisvi pinigai = 500 - 1350 = -850 (monthly_tax_setaside=900 plays no part at all).
+        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("-850.00");
+        assertThat(response.core().fits()).isFalse();
     }
 
     @Test

@@ -56,10 +56,12 @@ public class SavingsPlanService {
      * dubliuoti visą {@code GoalsService.validate()} logiką čia (su savo ribomis, pvz. {@code
      * MAX_YEARS}/{@code MAX_AGE}) sukurtų antrą tiesos šaltinį, kurį reikėtų sinchronizuoti ranka -
      * vertimo lentelė yra siauresnė, lengviau peržiūrima pokyčio rizika (tik pavadinimai, ne ribos).
-     * {@code income} čia defensyviai įtrauktas, nors praktiškai nepasiekiamas - {@link #validate}
-     * patikrina {@code net_monthly_income - monthly_tax_setaside} PRIEŠ delegavimą, todėl neigiamas
-     * {@code income} niekada nenukeliauja iki {@code GoalsService.validate()}; įrašas paliktas, kad
-     * naujas patikrinimas tyliai nenutekėtų, jei šis defensyvus apribojimas kada pasikeistų.
+     * {@code income} čia defensyviai įtrauktas, nors nepasiekiamas - B6 incident pataisa (žr.
+     * {@link #plan}) pašalino ankstesnį kryžminį {@code net_monthly_income}/
+     * {@code monthly_tax_setaside} patikrinimą, nes {@code income} DABAR yra tiesiog
+     * {@code request.netMonthlyIncome()} (privalomas ir jau patikrintas {@link #checkAmount}, kad
+     * nebūtų neigiamas) - niekada nenukeliauja neigiamas iki {@code GoalsService.validate()}; įrašas
+     * paliktas, kad naujas patikrinimas tyliai nenutekėtų, jei šis apribojimas kada pasikeistų.
      * {@code expenses} TAI PRIEŠINGAI YRA REALIAI PASIEKIAMAS (review finding, round 2): kai
      * {@code monthly_expenses} praleistas, reikšmę skaičiuoja {@link #resolveMonthlyExpenses} per
      * {@code StatDefaultsService.resolve()} (statistika) - ta reikšmė NEIŠVENGIA {@link #checkAmount}
@@ -109,7 +111,15 @@ public class SavingsPlanService {
 
         List<AssumptionEntry> assumptions = new ArrayList<>();
         BigDecimal monthlyExpenses = resolveMonthlyExpenses(request, assumptions);
-        BigDecimal income = nz(request.netMonthlyIncome()).subtract(nz(request.monthlyTaxSetaside()));
+        // B6 live-eval incident (2026-11-13, žr. docs/specs/taupymo-tikslai/B6-log.log): ANKSČIAU
+        // čia buvo `.subtract(nz(request.monthlyTaxSetaside()))` - bet `net_monthly_income` (B1,
+        // TaxResult.netMonthlyIncome = (revenue - total) / 12) JAU yra grynosios pajamos PO
+        // mokesčių, o `monthly_tax_setaside` (TaxResult.monthlyReserve = total / 12) yra TA PATI
+        // mokesčių suma - atimant abu, mokesčiai buvo atimami du kartus (pvz. real case
+        // combined_logged_in_02: 365,07 vietoj teisingo 815,87). `monthly_tax_setaside` yra TIK
+        // rodymui (jau parodyta vartotojui per mokesčių skaičiavimo žingsnį) - laisviems pinigams
+        // niekada nenaudojamas. Žr. A3 kontrakto aprašą (PLAN-taupymas-agentas.md) dėl formulės.
+        BigDecimal income = nz(request.netMonthlyIncome());
 
         GoalInput goalInput = toGoalInput(request, income, monthlyExpenses);
         GoalResult result = calculate(goalInput);
@@ -190,17 +200,12 @@ public class SavingsPlanService {
         checkAmount("net_monthly_income", request.netMonthlyIncome(), errors);
         checkAmount("monthly_tax_setaside", request.monthlyTaxSetaside(), errors);
         checkAmount("monthly_expenses", request.monthlyExpenses(), errors);
-        // Patikrinta PRIEŠ delegavimą į GoalsService.calculate() (review rastas bug'as): income =
-        // net_monthly_income - monthly_tax_setaside yra VIDINIS laukas, kurio GoalsService.validate()
-        // nežino nieko apie SavingsPlanRequest schemą - jei šis skirtumas neigiamas, GoalsService
-        // grąžintų "income negali būti neigiamas", o "income" NĖRA viešos užklausos lauko vardas
-        // (tikrieji laukai - net_monthly_income/monthly_tax_setaside), todėl klientas negalėtų
-        // suprasti, kurį iš jų taisyti. Tikrinama ČIA, PRIEŠ skaičiavimą, kad klaida įvardintų
-        // tikruosius laukus.
-        if (request.netMonthlyIncome() != null && request.monthlyTaxSetaside() != null
-                && nz(request.netMonthlyIncome()).subtract(nz(request.monthlyTaxSetaside())).signum() < 0) {
-            errors.add("net_monthly_income turi būti bent lygus monthly_tax_setaside");
-        }
+        // B6 incident pataisa pašalino ankstesnį "net_monthly_income turi būti bent lygus
+        // monthly_tax_setaside" kryžminį patikrinimą - jis gynė VIDINĮ income = net_monthly_income
+        // - monthly_tax_setaside skaičiavimą, kurio DABAR nebėra (monthly_tax_setaside tik
+        // rodymui, žr. #plan). Tas patikrinimas pats savaime neturėjo prasmės: TaxResult'e
+        // netMonthlyIncome + monthlyReserve = revenue/12, todėl netMonthlyIncome < monthlyReserve
+        // yra visiškai normalus atvejis (efektyvus mokesčių tarifas > 50 %), ne klaida.
     }
 
     private static void checkAmount(String name, BigDecimal v, List<String> errors) {
