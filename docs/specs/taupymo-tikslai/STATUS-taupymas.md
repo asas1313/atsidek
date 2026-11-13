@@ -223,3 +223,57 @@ pristatyta:
 - Testai: Python 237 / 0 nepavyko, 1 skip. Java nekeista šioje fazėje (patvirtinta per
   `git diff feat/taupymas-agentas-b4..feat/taupymas-agentas-b5 --stat` — tik 2 nauji app failai
   + 2 nauji testų failai).
+
+## B6 dalis — kodas pabaigtas, LLM-judge gate'as LAUKIA savininko patvirtinimo (branch `feat/taupymas-agentas-b6`, PR pending)
+
+Šaka `feat/taupymas-agentas-b6` (nuo b5), **NEPATVIRTINTA formaliai review'o** — žr. žemiau,
+kodėl. Kas pristatyta:
+
+- `assistant/evals/agent/cases.py` — 30 eval atvejų (AC-B6-1): 3 grupės (`tax_only`,
+  `savings_only`, `combined`) × 2 variantai (`anon`, `logged_in`) × 5 kiekvienas; 2 atvejai su
+  trūkstamomis pajamomis (AC-B6-6, `expected_tool_sequence=[]`, `expect_clarifying_question=True`).
+- `assistant/evals/agent/scoring.py` — deterministiniai scoreriai: `score_tool_sequence`
+  (AC-B6-2), `score_no_invented_numbers`/`extract_numbers`/`rendered_numbers` (AC-B6-3, griežtas
+  poaibio patikrinimas — modelio laisvas tekstas negali minėti NĖ VIENO skaičiaus, kurio nėra
+  įrankių rezultatuose), `score_anon_no_premium` (AC-B6-5), `score_missing_income_handled`
+  (AC-B6-6, su kalendorinių metų išimtimi klausiant pajamų).
+- `assistant/evals/agent/judge_rubric.py` — LLM-judge rubrikos JUODRAŠTIS (AC-B6-4's antra
+  pusė, `claude-sonnet-5-5`, owner sprendimas #4) — **NEPATVIRTINTA**, žr. "Owner gate" žemiau.
+- `assistant/evals/agent/run_eval.py` — rankinis/kaina kainuojantis paleidimo skriptas
+  (owner sprendimas #3: tik `workflow_dispatch`, niekada automatiškai per `pytest`/CI).
+
+**AC-B6-4 deterministinės pusės (`score_no_banned_investment_terms`) istorija — savininko
+sprendimas 2026-11-13:** trys review raundai paeiliui rado NAUJĄ regex "edge case" klaidą TOJE
+PAČIOJE veiksmažodis+artumas+konsultanto-išimtis euristikoje, bandančioje atskirti "rekomenduoja
+konkretų produktą" nuo "siūlo pasitarti su konsultantu" (leidžiama):
+  - Round 1 BLOCKER: klaidingai pažymėjo tekstą, kuris siūlo pasitarti su finansų patarėju.
+  - Round 2 BLOCKER: ta pati klaida pasikartojo su kitais veiksmažodžiais (rekomenduoju/siūlau).
+  - Round 3 BLOCKER: regex "greedy backtracking" sujungė du atskirus sakinius į vieną atitikmenį,
+    todėl TIKRAS pažeidimas liko nepastebėtas, kai šalia (kitame sakinyje) buvo konsultanto
+    paminėjimas.
+  Po trijų raundų savininkas nusprendė **nebesiekti šios niuanso regex'u**: `score_no_
+  banned_investment_terms` dabar yra GRYNA draudžiamų daiktavardžių paieška (konkretūs finansiniai
+  produktai/instrumentai: fondai, akcijos, obligacijos, ETF, kriptovaliutos, indėliai, investicinis
+  gyvybės draudimas; pavadinti bankai/platformos) — BE veiksmažodžių, artumo ar konsultanto
+  išimties, bet koks atitikmuo = fail. Rekomendacijos-vs-paminėjimo niuansas visiškai perkeltas
+  LLM-judge'o atsakomybei (rubrikos juodraštis atnaujintas aiškiai įvardyti, kad nukreipimas pas
+  konsultantą YRA leidžiamas). 16 su veiksmažodžiais/konsultantu susijusių atvejų, sukauptų per 3
+  review raundus, perkelti į `judge_rubric.ILLUSTRATIVE_EXAMPLES` kaip dokumentuoti pavyzdžiai
+  rubrikai, ne į deterministinio scorerio testus. Ketvirto review raundo šiam pakeitimui NEBUVO
+  prašoma (tai savininko sprendimas, ne klaidos taisymas; procesas riboja review iki ~3 raundų
+  vienai fazei).
+- II/III pakopos pensijų kaupimo žodynas SĄMONINGAI NEĮTRAUKTAS į draudžiamą sąrašą — tai
+  normalus mokesčių skaičiavimo įvestis (`tax_tool.py`'s `pension_accumulation`), ne investavimo
+  patarimas.
+
+**Owner gate (dar neperžengtas, pagal PLAN-taupymas-agentas.B.plan.md B6 skyrių):** LLM-judge
+rubrikos tekstas ir slenkstis (`DRAFT_PASS_RATE_THRESHOLD`) lieka NEPATVIRTINTI. Pagal susitarimą,
+prieš patvirtinant, savininkui turi būti pateiktas juodraštis PLIUS pirmo gyvo
+`workflow_dispatch` paleidimo rezultatai. **Šis sandbox'as neturi `ANTHROPIC_API_KEY` nei
+pasiekiamo Java backend'o, todėl tikro gyvo paleidimo rezultatų pateikti negalima iš čia** —
+juodraštis pateiktas, bet gyvo paleidimo dalis lieka atlikti savininkui/CI per tikrą
+`workflow_dispatch`.
+- Sąmoningai NEBŪVO sujungta su `main.py` — B6 vertina agento komponentus, jų nekeičia.
+- Testai: Python 303 / 0 nepavyko, 1 skip. Java nekeista šioje fazėje (patvirtinta per
+  `git diff feat/taupymas-agentas-b5..feat/taupymas-agentas-b6 --stat` — tik 7 nauji Python
+  failai `assistant/evals/agent/` ir `assistant/tests/`).
