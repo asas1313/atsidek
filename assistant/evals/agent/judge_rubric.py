@@ -173,10 +173,19 @@ DRAFT_PASS_RATE_THRESHOLD = 0.9
 
 def build_judge_request(user_message: str, agent_reply: str) -> dict[str, Any]:
     """Builds the `messages.create`-style kwargs for one judge call - does NOT call any
-    Anthropic client. For manual/`--with-judge`-gated use from `run_eval.py` only."""
+    Anthropic client. For manual/`--with-judge`-gated use from `run_eval.py` only.
+
+    `max_tokens=1024` (owner instruction, second B6 live-eval round; was 256): `JUDGE_MODEL`
+    (claude-sonnet-5-5) has adaptive thinking on by default, same as the agent's own
+    claude-haiku-5-5 (see `app/agent_loop.py`'s docstring) - thinking tokens count against
+    `max_tokens` same as output text, so a too-small budget can leave nothing left for the actual
+    JSON answer, producing an empty/truncated response. 256 was observed doing exactly that in the
+    second live run (empty/truncated JSON, surfaced as a judge technical error - see
+    `run_eval.py`'s `_run_judge`, which now distinguishes that from a real FAIL verdict).
+    """
     return {
         "model": JUDGE_MODEL,
-        "max_tokens": 256,
+        "max_tokens": 1024,
         "system": DRAFT_JUDGE_RUBRIC_PROMPT,
         "messages": [
             {

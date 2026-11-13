@@ -250,15 +250,31 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
     }
 
 
+_VALID_JUDGE_VERDICTS = ("PASS", "FAIL")
+
+
 def _run_judge(client, case, run_record: dict) -> dict:
-    """Owner-gated, DRAFT (see judge_rubric.py) - only called when --with-judge is passed."""
+    """Owner-gated, DRAFT (see judge_rubric.py) - only called when --with-judge is passed.
+
+    Owner instruction (second B6 live-eval round): a judge TECHNICAL failure (empty/truncated/
+    invalid JSON, or valid JSON missing a recognized "verdict") is a distinct {"verdict": "ERROR"}
+    - it must NEVER be reported as {"verdict": "FAIL"} (a real investment-advice violation) and
+    must NEVER land in `investment_advice_violations` (that list is for actual content
+    violations, read verbatim for manual review - mixing in infra noise would defeat its point).
+    `run()` collects ERRORs separately and marks the whole run as broken (`main()` exits non-zero)
+    - a judge technical error means the CHECK didn't run, not that the agent's reply passed.
+    """
     request = build_judge_request(case.user_message, run_record["reply"])
     response = client.messages.create(**request)
     text = "".join(block.text for block in response.content if block.type == "text")
+    if not text.strip():
+        return {"reason": "judge grąžino tuščią text bloką (žr. max_tokens/thinking)", "verdict": "ERROR"}
     try:
         verdict = json.loads(text)
     except json.JSONDecodeError:
-        return {"reason": f"nevalidus judge JSON atsakymas: {text!r}", "verdict": "FAIL"}
+        return {"reason": f"nevalidus judge JSON atsakymas: {text!r}", "verdict": "ERROR"}
+    if not isinstance(verdict, dict) or verdict.get("verdict") not in _VALID_JUDGE_VERDICTS:
+        return {"reason": f"judge JSON neturi atpažinto 'verdict' lauko: {text!r}", "verdict": "ERROR"}
     return verdict
 
 
@@ -278,6 +294,11 @@ def run(model: str, with_judge: bool) -> dict:
     # (deterministic noun scorer AND, when --with-judge, the LLM judge) collected here verbatim,
     # never blended into a pass-rate. Manual review reads this list, not a percentage.
     investment_advice_violations: list[dict] = []
+    # Owner instruction (second B6 live-eval round): judge TECHNICAL errors (empty/invalid JSON)
+    # are collected separately from `investment_advice_violations` - they mean the check didn't
+    # run, not that it passed or failed. Any entry here marks the whole run as broken (see
+    # `main()`'s exit code).
+    judge_errors: list[dict] = []
     for case in CASES:
         runs = []
         for _ in range(RUNS_PER_CASE):
@@ -297,6 +318,12 @@ def run(model: str, with_judge: bool) -> dict:
                     investment_advice_violations.append({
                         "case_id": case.id,
                         "check": "llm_judge",
+                        "final_text": run_record["final_text"],
+                        "reason": judge_verdict.get("reason"),
+                    })
+                elif judge_verdict.get("verdict") == "ERROR":
+                    judge_errors.append({
+                        "case_id": case.id,
                         "final_text": run_record["final_text"],
                         "reason": judge_verdict.get("reason"),
                     })
@@ -327,6 +354,8 @@ def run(model: str, with_judge: bool) -> dict:
             sum(cr["pass_rate"] for cr in case_results) / len(case_results) if case_results else None
         ),
         "investment_advice_violations": investment_advice_violations,
+        "judge_errors": judge_errors,
+        "run_broken": bool(judge_errors),
         "case_results": case_results,
     }
 
@@ -387,7 +416,22 @@ def main() -> None:
     else:
         print("\nInvestavimo patarimo pažeidimų nerasta (0 FAIL).")
 
+    # Owner instruction (second B6 live-eval round): a judge TECHNICAL error (empty/invalid JSON)
+    # must mark the whole run as broken, distinct from a real content violation above.
+    judge_errors = summary["judge_errors"]
+    if judge_errors:
+        print(
+            f"\n!!! {len(judge_errors)} JUDGE TECHNINĖS KLAIDOS (tuščias/nevalidus JSON, NE "
+            "turinio pažeidimas) - PALEIDIMAS SUGEDĘS: !!!",
+            file=sys.stderr,
+        )
+        for e in judge_errors:
+            print(f"  case={e['case_id']}: {e['reason']}", file=sys.stderr)
+
     print(f"Rezultatas įrašytas: {out_path}")
+
+    if summary["run_broken"]:
+        sys.exit(2)
 
 
 if __name__ == "__main__":

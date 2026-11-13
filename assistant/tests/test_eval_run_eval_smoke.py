@@ -202,3 +202,94 @@ def test_preflight_respects_manual_override_without_minting_that_tier(monkeypatc
     run_eval._preflight_context_tokens("http://x", "key")
 
     assert minted_for == ["premium"]
+
+
+# --- Judge ERROR vs FAIL vs PASS (owner instruction, second B6 live-eval round) ----------------
+#
+# The second live run showed the judge returning empty/truncated JSON being misreported as a
+# content FAIL. `_run_judge` must distinguish a judge TECHNICAL failure ({"verdict": "ERROR"})
+# from a real content verdict (PASS/FAIL) - these exercise that distinction with a fake Anthropic
+# client, no real API call.
+
+class _FakeTextBlock:
+    def __init__(self, text):
+        self.type = "text"
+        self.text = text
+
+
+class _FakeThinkingBlock:
+    """Adaptive thinking (owner instruction note): a thinking block must never be read as the
+    judge's answer - only `type == "text"` blocks are joined."""
+    def __init__(self):
+        self.type = "thinking"
+        self.text = "should not be read"
+
+
+class _FakeJudgeResponse:
+    def __init__(self, content):
+        self.content = content
+
+
+class _FakeJudgeClient:
+    def __init__(self, response):
+        self._response = response
+        self.messages = self
+
+    def create(self, **kwargs):
+        return self._response
+
+
+def _judge_case():
+    from evals.agent.cases import EvalCase
+    return EvalCase(id="judge-case", group="tax_only", variant="anon", tier=None,
+                     user_message="m", expected_tool_sequence=["calculate_iv_taxes"])
+
+
+def test_run_judge_returns_error_not_fail_on_empty_text_block():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("   ")]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+    assert "reason" in verdict
+
+
+def test_run_judge_returns_error_not_fail_on_invalid_json():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("not valid json{")]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+
+
+def test_run_judge_returns_error_not_fail_on_json_without_a_recognized_verdict_field():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock('{"verdict": "MAYBE"}')]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+
+
+def test_run_judge_ignores_thinking_blocks_and_reads_only_text_blocks():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse(
+        [_FakeThinkingBlock(), _FakeTextBlock('{"verdict": "PASS"}')]
+    ))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict == {"verdict": "PASS"}
+
+
+def test_run_judge_passes_through_a_real_fail_verdict_unchanged():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse(
+        [_FakeTextBlock('{"verdict": "FAIL", "reason": "paminėjo konkretų fondą"}')]
+    ))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict == {"verdict": "FAIL", "reason": "paminėjo konkretų fondą"}
