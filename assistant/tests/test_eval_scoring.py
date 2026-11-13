@@ -18,6 +18,7 @@ from evals.agent.scoring import (
     score_no_invented_numbers,
     score_tax_input_revenue_matches_expected,
     score_tool_sequence,
+    tool_input_numbers,
 )
 
 
@@ -132,6 +133,24 @@ def test_extract_numbers_text_with_no_numbers_returns_empty_set():
     assert extract_numbers("Sveika, kuo galiu padėti?") == set()
 
 
+def test_extract_numbers_parses_a_thousands_grouped_whole_number_without_decimals():
+    """Owner instruction (second B6 live-eval round): the second live run's no_invented_numbers
+    check failed 119/126 - traced to this exact gap. The OLD regex's thousands-grouped
+    alternative required a trailing comma+decimal part ("1 234,56"), so a round whole-euro figure
+    the model writes WITHOUT decimals ("20 000 €" - a very common way to state a round sum) fell
+    through to the bare `\\d+` alternative and was split into TWO separate numbers (20 and 000=0),
+    neither of which is the real value 20000."""
+    assert extract_numbers("Tikslas yra 20 000 € per 10 metų.") == {Decimal("20000"), Decimal("10")}
+
+
+def test_extract_numbers_treats_a_non_breaking_and_narrow_non_breaking_space_as_a_thousands_separator():
+    """Same gap, non-ASCII-whitespace variant: some rendered/generated text uses U+00A0 (non-
+    breaking space) or U+202F (narrow no-break space) instead of a plain space for thousands
+    grouping - both must parse identically to the plain-space form."""
+    assert extract_numbers("Suma: 20 000 €.") == {Decimal("20000")}
+    assert extract_numbers("Suma: 20 000 €.") == {Decimal("20000")}
+
+
 # --- rendered_numbers ------------------------------------------------------------------------------
 
 def test_rendered_numbers_collects_numeric_leaves_from_last_successful_tax_result():
@@ -187,6 +206,43 @@ def test_score_no_invented_numbers_passes_trivially_on_empty_text():
 def test_score_no_invented_numbers_passes_when_free_text_has_no_numbers_at_all():
     calls = [tax_call(result=TAX_RESULT)]
     assert score_no_invented_numbers("Štai tavo suvestinė, kaip paprašei.", calls) is True
+
+
+def test_score_no_invented_numbers_passes_when_free_text_echoes_a_tool_call_input():
+    """Owner instruction (second B6 live-eval round): allowed numbers = tool RESULTS union tool
+    INPUTS union user-message numbers union a small constants list. A number the model itself
+    just sent as a tool input (e.g. the revenue it passed to calculate_iv_taxes) is not invented,
+    even before that tool's result comes back."""
+    calls = [{**tax_call(), "input": {"revenue": 24000}}]
+    assert score_no_invented_numbers("Paskaičiuosiu nuo 24000 eurų pajamų.", calls) is True
+
+
+def test_score_no_invented_numbers_passes_when_free_text_echoes_the_users_own_message():
+    final_text = "Norite sutaupyti 20000 eurų per 10 metų - kiek pajamų gaunate per mėnesį?"
+    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
+    assert score_no_invented_numbers(final_text, [], user_message) is True
+
+
+def test_score_no_invented_numbers_still_fails_on_a_number_absent_from_every_allowed_source():
+    final_text = "Norite sutaupyti 20000 eurų, bet manau pakaks vos 50 eurų per mėnesį."
+    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
+    assert score_no_invented_numbers(final_text, [], user_message) is False
+
+
+def test_score_no_invented_numbers_passes_on_small_allowed_constants_without_any_tool_or_user_number():
+    """A model stating a trivial general-knowledge constant (12 months/year, a 30% flat-rate
+    fact) on its own, with no tool call and no user-stated figure, must not be flagged - this is
+    the deliberately tiny allowlist, not a loophole for real money figures."""
+    assert score_no_invented_numbers("Metuose yra 12 mėnesių.", []) is True
+    assert score_no_invented_numbers("Taikoma 30 % išlaidų norma.", []) is True
+
+
+def test_tool_input_numbers_collects_numeric_leaves_from_every_calls_input():
+    calls = [
+        {**tax_call(call_id="t1"), "input": {"revenue": 24000}},
+        {**savings_call(call_id="s1"), "input": {"monthly_expenses": 850}},
+    ]
+    assert tool_input_numbers(calls) == {Decimal("24000"), Decimal("850")}
 
 
 # --- score_anon_no_premium (AC-B6-5) ---------------------------------------------------------------

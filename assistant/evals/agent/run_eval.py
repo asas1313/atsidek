@@ -233,7 +233,9 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
     # check is deliberately NOT in this dict - see `no_banned_investment_terms` below and `run()`.
     rate_checks = {
         "tool_sequence": score_tool_sequence(result.tool_calls, case.expected_tool_sequence),
-        "no_invented_numbers": score_no_invented_numbers(result.final_text, result.tool_calls),
+        "no_invented_numbers": score_no_invented_numbers(
+            result.final_text, result.tool_calls, case.user_message
+        ),
         "anon_no_premium": score_anon_no_premium(result.tool_calls, case.variant),
     }
     if case.expect_clarifying_question:

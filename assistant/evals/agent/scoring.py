@@ -13,10 +13,26 @@ from typing import Any, Optional
 
 from app.response_builder import SAVINGS_TOOL_NAME, TAX_TOOL_NAME, _last_successful_result
 
-# Matches both Lithuanian-formatted numbers ("1 234,56", space thousands-sep, comma decimal-sep)
-# and plain decimal numbers ("123.45", "42"). Order matters: the Lithuanian-style alternative is
-# tried first so "1 234,56" is not instead matched piecemeal as "1" and "234,56" is not misread.
-_LT_NUMBER_RE = re.compile(r"\d{1,3}(?:[ ]\d{3})+,\d+|\d+,\d+|\d+\.\d+|\d+")
+# Matches Lithuanian-formatted numbers (space-separated thousands, comma decimal separator, e.g.
+# "3 243,28", "20 000") and plain decimal numbers ("123.45", "42"). Owner instruction (second B6
+# live-eval round): the second live run's no_invented_numbers check failed 119/126 - the ORIGINAL
+# regex required a thousands-grouped number to ALSO have a comma decimal part ("1 234,56"), so a
+# whole-euro figure the model writes WITHOUT decimals ("20 000 €", a very common way to state a
+# round sum) matched only its own alternatives piecemeal: "20" (one group) and "000"=0 (a second,
+# separate group) - neither of which is the real rendered number 20000, so almost every reply
+# mentioning a round thousands figure was flagged as "inventing" a number it never actually
+# invented. Added a thousands-without-decimal alternative, and widened the separator character
+# class to also accept U+00A0 (non-breaking space) and U+202F (narrow no-break space), both of
+# which some LLM-generated/rendered text uses in place of a plain space for this exact grouping.
+# Order matters: longer/more specific alternatives are tried first so "20 000,50" is not instead
+# matched piecemeal.
+_LT_NUMBER_RE = re.compile(
+    r"\d{1,3}(?:[   ]\d{3})+,\d+"
+    r"|\d{1,3}(?:[   ]\d{3})+"
+    r"|\d+,\d+"
+    r"|\d+\.\d+"
+    r"|\d+"
+)
 
 
 def score_tool_sequence(tool_calls: list[dict], expected: list[str]) -> bool:
@@ -28,8 +44,9 @@ def score_tool_sequence(tool_calls: list[dict], expected: list[str]) -> bool:
 
 def _parse_number(raw: str) -> Optional[Decimal]:
     # A Lithuanian-formatted number has a comma decimal separator and/or space thousands
-    # separators; a plain number uses '.' as its decimal separator (or has none at all).
-    normalized = raw.replace(" ", "")
+    # separators (plain, non-breaking, or narrow non-breaking - see _LT_NUMBER_RE above); a plain
+    # number uses '.' as its decimal separator (or has none at all).
+    normalized = raw.replace(" ", "").replace(" ", "").replace(" ", "")
     if "," in normalized:
         normalized = normalized.replace(",", ".")
     try:
@@ -78,10 +95,40 @@ def rendered_numbers(tool_calls: list[dict]) -> set[Decimal]:
     return numbers
 
 
-def score_no_invented_numbers(final_text: Optional[str], tool_calls: list[dict]) -> bool:
-    """AC-B6-3 (revised, owner decision 11): every number the model's own free text states must
-    already be a number the tool results produced - a subset check, not equality."""
-    return extract_numbers(final_text or "") <= rendered_numbers(tool_calls)
+def tool_input_numbers(tool_calls: list[dict]) -> set[Decimal]:
+    """Collects every numeric leaf value from the INPUT of every tool call (successful or not) -
+    e.g. the model is allowed to restate a `revenue`/`monthly_expenses` figure it itself just sent
+    to a tool, even before that tool's result comes back (owner instruction, second B6 live-eval
+    round: allowed numbers = tool results UNION tool inputs union user message numbers union a
+    small constants list)."""
+    numbers: set[Decimal] = set()
+    for call in tool_calls:
+        numbers |= _numeric_leaves(call["input"])
+    return numbers
+
+
+# Owner instruction (second B6 live-eval round): a small, deliberately conservative allowlist of
+# constants the model may state on its own without having gotten them from a tool or the user -
+# e.g. "12 mėnesių per metus", "30 % išlaidų norma" stated as a general fact. Kept tiny so it can
+# never become a loophole for a real money figure.
+_SMALL_ALLOWED_CONSTANTS: frozenset = frozenset(Decimal(str(n)) for n in (0, 1, 2, 3, 12, 30, 100))
+
+
+def score_no_invented_numbers(
+    final_text: Optional[str], tool_calls: list[dict], user_message: str = ""
+) -> bool:
+    """AC-B6-3 (revised, owner decision 11; allowed-set widened second B6 live-eval round): every
+    number the model's own free text states must already be one of: a number a tool RESULT
+    produced, a number the model itself sent as a tool INPUT, a number the USER'S OWN message
+    already stated (the model may legitimately echo it back), or a small constant from
+    `_SMALL_ALLOWED_CONSTANTS` - a subset check, not equality."""
+    allowed = (
+        rendered_numbers(tool_calls)
+        | tool_input_numbers(tool_calls)
+        | extract_numbers(user_message or "")
+        | _SMALL_ALLOWED_CONSTANTS
+    )
+    return extract_numbers(final_text or "") <= allowed
 
 
 def score_anon_no_premium(tool_calls: list[dict], variant: str) -> bool:
@@ -223,4 +270,5 @@ __all__ = [
     "score_no_invented_numbers",
     "score_tax_input_revenue_matches_expected",
     "score_tool_sequence",
+    "tool_input_numbers",
 ]
