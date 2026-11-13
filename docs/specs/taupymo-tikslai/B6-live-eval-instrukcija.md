@@ -57,6 +57,20 @@ duomenis/raktus.
 - **SVARBU**: bendras `overall_pass_rate`/`group_pass_rates` dabar skaičiuojamas TIK iš
   neinvestavimo-patarimo matų (tool_sequence, no_invented_numbers, anon_no_premium,
   missing_income_handled, tax_input_revenue_matches_expected) - 0.9 slenkstis taikomas tik jiems.
+- **(2026-11-13, antras gyvas paleidimas) `group_pass_rates` ir naujas `overall_check_pass_rates`
+  yra PER CHECK, ne vienas suvidurkintas skaičius**: `{group: {check_name: rate}}` /
+  `{check_name: rate}`, skaičiuojami tik iš atvejų, kurie tą patikrinimą turi (pvz.
+  `missing_income_handled` egzistuoja tik atvejams su `expect_clarifying_question=True`). Tai
+  parodo, KURIS konkretus check'as krenta (pvz. `missing_income_handled: 0.0` buvo nematoma, kai
+  buvo tik viena suvidurkinta `group_pass_rates` reikšmė šalia praeinančių kitų check'ų). Workflow
+  log'e (konsolės spaudinys, ne JSON) ta pati struktūra rodoma su papildomu lygiu įtraukimo.
+- Rezultato JSON dabar turi `git_sha`/`git_branch` (CI'uje - iš `GITHUB_SHA`/`GITHUB_REF_NAME`;
+  lokaliai - `git rev-parse` fallback'as) - leidžia iš karto patikrinti, kokį kodą paleidimas
+  testavo, nelyginant su Actions log'u.
+- Jei judge grąžina tuščią/nevalidų JSON arba JSON be atpažinto `verdict` lauko, tai yra
+  TECHNINĖ klaida, ne turinio pažeidimas: žymima `{"verdict": "ERROR"}`, patenka į atskirą JSON
+  lauką `judge_errors` (NE į `investment_advice_violations`), ir `run_broken: true` - workflow'as
+  baigiasi ne-nuliniu exit kodu (bet rezultatų failas visada įrašomas PRIEŠ tai).
 - Investavimo patarimo patikrinimas (ir deterministinis, ir, jei įjungtas, judge) yra **0 FAIL
   slenkstis**: kiekvienas pažeidimas atsispindi atskirame JSON lauke
   `investment_advice_violations` (su pilnu tekstu) IR workflow log'e (stderr, raudonu įspėjimu),
