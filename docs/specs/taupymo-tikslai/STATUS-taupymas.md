@@ -93,8 +93,14 @@ dalis (kontekstinis token'as, chat endpoint'as) pradedama tik po B0 patvirtinimo
   atsakyme (savininko sprendimas #5).
 - `ContextTokenService` (`eu.atsidek.auth`) — JDK-only HMAC-SHA256 pasirašytas kontekstinis
   token'as pagal ADR-0003, 5 min. TTL, fail-closed, jei paslaptis tuščia. Naujas konfigūracijos
-  kintamasis `atsidek.chat.context-token-secret` / `ATSIDEK_CHAT_TOKEN_SECRET` (būtinas, kad
-  `/chat/send` veiktų; dokumentuota `DEPLOY.md`).
+  kintamasis `atsidek.chat.context-token-secret` / `ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET` (būtinas,
+  kad `/chat/send` veiktų; dokumentuota `DEPLOY.md`). **2026-11-13 pataisa**: šis env kintamasis
+  iki B6 gyvo eval'o buvo klaidingai vadintas (ir dokumentuotas, ir realiai naudotas
+  `docker-compose.yml`) `ATSIDEK_CHAT_TOKEN_SECRET` (be "CONTEXT") - Spring'o relaxed env-var
+  binding tyliai nesuveikia su šiuo pavadinimu, todėl ši paslaptis buvo fail-closed neveikianti
+  VISUR, kur buvo nustatyta tik per šį kintamąjį (galimai įskaitant staging/production, jei jie
+  taip pat priklausė nuo `docker-compose.yml`'o env mapping'o) - žr.
+  `docs/specs/taupymo-tikslai/B6-log.log`.
 - `/api/v1/compare` ir `/api/v1/savings/plan` priima nebūtiną antraštę
   `X-Atsidek-Context-Token`: nesant jos — senas elgesys nesikeičia; esant galiojančiai — tapatybė
   priimama, bet `tier` visada iš naujo nustatomas serveryje per `EntitlementService` (niekada ne

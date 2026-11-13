@@ -149,3 +149,56 @@ def test_mint_context_token_raises_on_empty_token_in_response(monkeypatch):
     import pytest
     with pytest.raises(RuntimeError):
         run_eval._mint_context_token("http://x", "key", "FREE")
+
+
+# --- Preflight context-token check (owner instruction, B6-log.log incident, point 3) ----------
+# The B6 live-eval incident crashed on the FIRST logged_in case - but only after every anon case
+# ahead of it in CASES order had already spent real LLM calls. The preflight must mint/verify a
+# token for every distinct tier BEFORE any of that, so a config error (like the incident's wrong
+# env var name) is free to detect.
+
+def test_preflight_mints_a_token_for_every_distinct_tier_used_by_logged_in_cases(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.delenv("ATSIDEK_CONTEXT_TOKEN_FREE", raising=False)
+    monkeypatch.delenv("ATSIDEK_CONTEXT_TOKEN_PREMIUM", raising=False)
+    minted_for = []
+
+    def fake_post(url, json, headers, timeout):
+        minted_for.append(json["testUserKey"])
+        return _FakeResponse(200, {"contextToken": f"token-{json['testUserKey']}"})
+
+    monkeypatch.setattr(run_eval.httpx, "post", fake_post)
+
+    run_eval._preflight_context_tokens("http://x", "key")
+
+    # Real CASES use both FREE and PREMIUM logged_in cases - both must have been minted exactly
+    # once each (not once per case - a distinct-tier preflight, not a per-case one).
+    assert sorted(minted_for) == ["free", "premium"]
+
+
+def test_preflight_raises_immediately_if_minting_fails_for_any_tier(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.delenv("ATSIDEK_CONTEXT_TOKEN_FREE", raising=False)
+    monkeypatch.delenv("ATSIDEK_CONTEXT_TOKEN_PREMIUM", raising=False)
+    monkeypatch.setattr(run_eval.httpx, "post", lambda *a, **k: _FakeResponse(500, {}))
+
+    import pytest
+    with pytest.raises(Exception):
+        run_eval._preflight_context_tokens("http://x", "key")
+
+
+def test_preflight_respects_manual_override_without_minting_that_tier(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.setenv("ATSIDEK_CONTEXT_TOKEN_FREE", "manual-free-token")
+    monkeypatch.delenv("ATSIDEK_CONTEXT_TOKEN_PREMIUM", raising=False)
+    minted_for = []
+
+    def fake_post(url, json, headers, timeout):
+        minted_for.append(json["testUserKey"])
+        return _FakeResponse(200, {"contextToken": f"token-{json['testUserKey']}"})
+
+    monkeypatch.setattr(run_eval.httpx, "post", fake_post)
+
+    run_eval._preflight_context_tokens("http://x", "key")
+
+    assert minted_for == ["premium"]

@@ -19,7 +19,7 @@ container) runner'yje - jums nereikia nieko paleisti lokaliai ar serveryje.
 ## 1. Vienkartinis nustatymas GitHub'e
 
 Reikalingas TIK vienas repo secret (workflow pats generuoja ir naudoja ekonominius, vienkartinius
-`ATSIDEK_API_KEY`/`ATSIDEK_CHAT_TOKEN_SECRET` kiekvienam paleidimui - nereikia jų nustatyti jums):
+`ATSIDEK_API_KEY`/`ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET` kiekvienam paleidimui - nereikia jų nustatyti jums):
 
 1. GitHub → repo → **Settings → Secrets and variables → Actions → New repository secret**.
 2. Name: `ANTHROPIC_API_KEY`
@@ -71,3 +71,16 @@ duomenis/raktus.
 
 Kiekvienas paleidimas: 42 atvejai × 3 kartojimai = 126 `claude-haiku-5-5` (ar pasirinkto modelio)
 kvietimai, plius (jei `with_judge=true`) papildomai 126 `claude-sonnet-5-5` kvietimai judge'ui.
+
+## 5. Žinomi incidentai
+
+- **2026-11-13**: pirmas gyvas paleidimas krito - `POST /api/v1/eval/token` grąžino 500
+  (`ContextTokenService` fail-closed), nes workflow'o env kintamojo pavadinimas buvo
+  `ATSIDEK_CHAT_TOKEN_SECRET` (trūko "CONTEXT") - Spring'o relaxed env-var binding savybei
+  `atsidek.chat.context-token-secret` tyliai NESUVEIKIA su šiuo pavadinimu, nepaisant to, kad
+  pati reikšmė buvo generuojama teisingai (`openssl rand` + `add-mask`, ne hardcode'inta). Taisyta
+  visur (`eval-b6.yml`, `docker-compose.yml`, `application.yml`, `ContextTokenService.java`, šis
+  failas) - teisingas pavadinimas yra `ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET`. Žr.
+  `docs/specs/taupymo-tikslai/B6-log.log` (pilnas stacktrace) ir
+  `src/test/java/eu/atsidek/auth/ContextTokenSecretEnvBindingTest.java` (regresinis testas, kuris
+  būtų pagavęs šią klaidą be gyvo paleidimo).

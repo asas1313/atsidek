@@ -31,8 +31,9 @@ Lokaliai: `cd assistant && python -m venv .venv && .venv/Scripts/pip install -r 
 Naujas Java endpoint'as `POST /chat/send` (`eu.atsidek.chat`) kviečia asistento servisą viduje
 (`assistant`'s `POST /internal/chat`), tapatybę perduodamas trumpai galiojančiu, Java pasirašytu
 kontekstiniu token'u pagal ADR-0003 (`docs/adr/0003-ai-agent-python-java-service-identity.md`) –
-Python jo niekada neverifikuoja, tik relay'ina atgal į Java. Reikalingas `ATSIDEK_CHAT_TOKEN_SECRET`
-aplinkos kintamasis (be jo token'o issue/verify fail-closed uždaro endpoint'ą); žr. DEPLOY.md.
+Python jo niekada neverifikuoja, tik relay'ina atgal į Java. Reikalingas
+`ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET` aplinkos kintamasis (be jo token'o issue/verify fail-closed
+uždaro endpoint'ą); žr. DEPLOY.md.
 
 Vartotojas savais žodžiais aprašo situaciją (pvz. „Gavau 2400 € už projektą, išlaidų turėjau apie 300“) ir be registracijos gauna rezultatą tokio paties stiliaus kortelėmis kaip skaičiuoklėje: „Ką supratau“ (ištraukti duomenys ir ko trūksta), „Rezultatas“ (GPM, VSD, PSD, kiek atsidėti per mėnesį, 30 % ir faktinių išlaidų palyginimas). Senoji skaičiuoklė su laukais perkelta į `/skaiciuokle`.
 

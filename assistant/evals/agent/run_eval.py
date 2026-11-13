@@ -58,6 +58,13 @@ never a locally-fabricated one. For each such case it now:
      session, which would make Java's own `ContextTokenService.verify()` silently treat the call
      as anonymous - exactly the "logged_in quietly becomes anon" failure this design exists to
      prevent. Minting has no live-LLM cost (pure Java/DB), so doing it per run is cheap.
+  4. Before ANY of that - before the first (costed) LLM call at all - `run()` calls
+     `_preflight_context_tokens`, which mints/verifies a token for every distinct tier any
+     logged_in case needs. B6-log.log's incident (`ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET` misnamed
+     `ATSIDEK_CHAT_TOKEN_SECRET`, so the Java side fail-closed 500'd) only crashed on the FIRST
+     logged_in case in `CASES` order - every anon case ahead of it in the list had already spent
+     real `claude-haiku-5-5` calls by then. The preflight makes any such configuration error fail
+     for free, before a single dollar is spent.
 
 A logged_in case MUST NEVER silently fall back to anonymous behavior just because minting failed:
 `_mint_context_token` raises (network error, non-2xx, missing field) rather than returning `None`,
@@ -142,13 +149,35 @@ def _mint_context_token(base_url: str, api_key: str, tier: str) -> str:
     return token
 
 
+def _obtain_context_token(tier: str, base_url: str, api_key: str) -> str:
+    """Manual override first (see this module's docstring), otherwise a fresh mint - shared by
+    `_context_token_for` (per case, during the real run) and `_preflight_context_tokens` (per
+    distinct tier, before any LLM call)."""
+    manual = os.getenv(f"ATSIDEK_CONTEXT_TOKEN_{tier}")
+    if manual:
+        return manual
+    return _mint_context_token(base_url, api_key, tier)
+
+
 def _context_token_for(case, base_url: str, api_key: str) -> Optional[str]:
     if case.variant != "logged_in":
         return None
-    manual = os.getenv(f"ATSIDEK_CONTEXT_TOKEN_{case.tier}")
-    if manual:
-        return manual
-    return _mint_context_token(base_url, api_key, case.tier)
+    return _obtain_context_token(case.tier, base_url, api_key)
+
+
+def _preflight_context_tokens(base_url: str, api_key: str) -> None:
+    """Owner instruction 2026-11-13 (B6-log.log incident): mint/verify a context token for EVERY
+    tier any `logged_in` case needs, BEFORE the first (costed) LLM call. The B6 live-eval
+    incident this guards against crashed on the FIRST logged_in case - but only after whichever
+    anon cases happened to run before it in `CASES` order already spent real LLM calls. A
+    configuration error (wrong env var name, missing secret, wrong API key, ...) must fail here,
+    for free, not partway through an already-costed run."""
+    needed_tiers = sorted({c.tier for c in CASES if c.variant == "logged_in"})
+    for tier in needed_tiers:
+        token = _obtain_context_token(tier, base_url, api_key)
+        if not token:
+            raise RuntimeError(f"Preflight: tuščias kontekstinis žetonas tier'ui {tier!r}")
+    print(f"Preflight OK: kontekstiniai žetonai veikia tier'ams {needed_tiers}", file=sys.stderr)
 
 
 def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: str) -> dict:
@@ -241,6 +270,8 @@ def run(model: str, with_judge: bool) -> dict:
     api_key = os.getenv("ATSIDEK_API_KEY", "")
     calculator = AtsidekApi(base_url, api_key)
     registry, tools = _build_registry_and_tools(calculator)
+
+    _preflight_context_tokens(base_url, api_key)
 
     case_results = []
     # Owner instruction 2026-11-13: zero-tolerance for investment-advice checks - every FAIL
