@@ -141,6 +141,40 @@ class SavingsPlanApiControllerTest {
     }
 
     @Test
+    void whenModeCoreReportsReachableAndAReachDate() throws Exception {
+        // Owner instruction (2026-11-16, after B6 eval #11): WHEN mode must surface the goal-reach
+        // date as a core (free) field - amount 1200, 100/month, 2.5% default inflation reaches the
+        // target a bit after month 12 (inflation keeps nudging the target up).
+        plan(WHEN_REQUEST)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.core.reachable").value(true))
+                .andExpect(jsonPath("$.core.reach_date").exists())
+                .andExpect(jsonPath("$.core.reach_date").value(java.time.LocalDate.now().plusMonths(13).toString()));
+    }
+
+    @Test
+    void whenModeUnreachableWithin50YearsReportsReachableFalseAndNullReachDate() throws Exception {
+        // Owner instruction: "arba nepasiekiama per 50 m." - a tiny contribution against a huge
+        // goal never catches up (GoalsEngine caps the search at 600 months).
+        String unreachable = """
+                {"goal":{"type":"CAR","amount":1000000,"mode":"WHEN","monthly_contribution":1},
+                 "net_monthly_income":3100,"monthly_expenses":1000}
+                """;
+        plan(unreachable)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.core.reachable").value(false))
+                .andExpect(jsonPath("$.core.reach_date").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void yearsModeCoreIsAlwaysReachableWithNullReachDateSinceTermIsAnInputThere() throws Exception {
+        plan(YEARS_REQUEST)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.core.reachable").value(true))
+                .andExpect(jsonPath("$.core.reach_date").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
     void loggedInUserWithAllGatedFeaturesGetsPremiumTierAndPremiumKey() throws Exception {
         AppOidcUser user = userWithFullAccess("full-access");
 

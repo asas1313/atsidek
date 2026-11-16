@@ -272,7 +272,7 @@ public class SavingsPlanService {
         boolean fits = result.verdict() != Verdict.UNREALISTIC && result.verdict() != Verdict.NO_FREE_CASH;
         BigDecimal sharePct = result.share().multiply(PERCENT_SCALE).setScale(2, RoundingMode.HALF_UP);
         return new Core(result.monthly(), result.freeCash(), sharePct, fits, generalTip(result.verdict()),
-                List.copyOf(assumptions), DISCLAIMER);
+                List.copyOf(assumptions), DISCLAIMER, result.reachable(), result.reachDate());
     }
 
     /** Deterministiniai šablonai pagal {@code GoalsEngine.Verdict} ribas (NE AI tekstas, žr. PLAN.md A3). */

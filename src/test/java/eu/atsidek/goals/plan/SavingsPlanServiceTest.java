@@ -419,6 +419,45 @@ class SavingsPlanServiceTest {
     }
 
     @Test
+    void whenModeCorePropagatesReachableAndReachDateFromGoalsEngine() {
+        // Owner instruction (2026-11-16, after B6 eval #11): the core (free) response must surface
+        // the WHEN-mode reach date (the fix wires GoalResult.reachable()/reachDate() into Core,
+        // which SavingsPlanService.buildCore previously dropped entirely).
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+
+        SavingsPlanResponse response = service.plan(
+                request(whenGoal("1200", "100"), "3100", "0", "1000"), null);
+
+        assertThat(response.core().reachable()).isTrue();
+        assertThat(response.core().reachDate()).isEqualTo(LocalDate.now().plusMonths(13));
+    }
+
+    @Test
+    void whenModeUnreachableWithin50YearsHasFalseReachableAndNullReachDate() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+
+        SavingsPlanResponse response = service.plan(
+                request(whenGoal("1000000", "1"), "3100", "0", "1000"), null);
+
+        assertThat(response.core().reachable()).isFalse();
+        assertThat(response.core().reachDate()).isNull();
+    }
+
+    @Test
+    void yearsModeCoreIsAlwaysReachableWithNullReachDate() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+
+        SavingsPlanResponse response = service.plan(
+                request(yearsGoal("15000", 5), "3100", "900", "1350"), null);
+
+        assertThat(response.core().reachable()).isTrue();
+        assertThat(response.core().reachDate()).isNull();
+    }
+
+    @Test
     void noFreeCashMeansDoesNotFitAndShareIsZero() {
         SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
                 statsResolvingExpensesTo(BigDecimal.ZERO, false));
