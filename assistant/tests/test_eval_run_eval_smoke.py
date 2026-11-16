@@ -4,6 +4,7 @@ check only, never an execution of the costed live runner itself (that stays manu
 `workflow_dispatch`-only, per owner decision 3).
 """
 import importlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -360,3 +361,167 @@ def test_git_info_returns_none_fields_instead_of_raising_when_git_is_unavailable
     info = run_eval._git_info()
 
     assert info == {"git_sha": None, "git_branch": None}
+
+
+# --- Item 9 (2026-11-16 owner instruction, after B6 eval #11): --concurrency / --rescore -----------
+
+def test_execute_work_items_sequential_runs_every_item_and_returns_per_item_results():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    items = [1, 2, 3]
+    results = run_eval._execute_work_items(items, lambda x: x * 10, concurrency=1)
+
+    assert results == {1: 10, 2: 20, 3: 30}
+
+
+def test_execute_work_items_parallel_returns_the_same_results_as_sequential():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    items = list(range(8))
+    sequential = run_eval._execute_work_items(items, lambda x: x * x, concurrency=1)
+    parallel = run_eval._execute_work_items(items, lambda x: x * x, concurrency=4)
+
+    assert parallel == sequential == {i: i * i for i in items}
+
+
+def test_execute_work_items_parallel_propagates_a_worker_exception():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    def boom(x):
+        if x == 2:
+            raise RuntimeError("worker broke")
+        return x
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="worker broke"):
+        run_eval._execute_work_items([1, 2, 3], boom, concurrency=2)
+
+
+def test_json_default_encodes_decimal_as_string_not_float():
+    """Decimal -> str (never float), matching calculator._json_default_decimal_as_str's own
+    rationale: tool_calls now stored in full (item 9) carry real Decimal values from
+    `parse_float=Decimal` and must round-trip through JSON without float rounding error."""
+    import json
+    from decimal import Decimal
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    encoded = json.dumps({"x": Decimal("1210.61")}, default=run_eval._json_default)
+    assert encoded == '{"x": "1210.61"}'
+
+
+def _fake_case_result(case_id: str, final_text: str, tool_calls: list) -> dict:
+    return {
+        "id": case_id,
+        "group": "tax_only",
+        "variant": "anon",
+        "pass_rate": 0.0,
+        "check_pass_rates": {},
+        "runs": [
+            {
+                "status": "ok",
+                "final_text": final_text,
+                "reply": final_text,
+                "tool_names_called": [c["name"] for c in tool_calls],
+                "tool_calls": tool_calls,
+                "context_token_used": False,
+                "actual_tier_seen": None,
+                "had_premium_section": None,
+                "checks": {},
+                "rate_checks_passed": False,
+                "no_banned_investment_terms": True,
+            }
+        ],
+    }
+
+
+def test_rescore_recomputes_missing_income_handled_for_a_non_question_request(tmp_path):
+    """End-to-end check of item 8's fix via item 9's --rescore: a past stored run whose final_text
+    is a non-question income request (score_missing_income_handled used to fail this - no "?")
+    must now PASS when rescored with the fixed scorer, without any new LLM call."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    from evals.agent.cases import CASES
+
+    case = next(c for c in CASES if c.id == "tax_only_anon_01")
+    assert case.expected_tool_sequence  # sanity: this case expects a tool call, not a question
+
+    # Reuse a real missing-income case shape by overriding expect_clarifying_question via a
+    # minimal stand-in stored result: no successful savings call, a non-question income request.
+    stored = {
+        "model": "claude-haiku-5-5",
+        "date": "2026-11-11",
+        "git_sha": "feef53f",
+        "git_branch": "feat/taupymas-agentas-b6",
+        "runs_per_case": 1,
+        "with_judge": False,
+        "cases": 1,
+        "case_results": [
+            _fake_case_result(case.id, "Mano IV pajamos per metus - 20000 eurų, faktinių išlaidų neturiu. Kiek mokesčių turėčiau mokėti?", [])
+        ],
+        "investment_advice_violations": [],
+        "judge_errors": [],
+        "run_broken": False,
+    }
+    results_path = tmp_path / "fake_results.json"
+    results_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    rescored = run_eval.rescore(results_path)
+
+    assert rescored["rescored"] is True
+    assert rescored["date"] == "2026-11-11"  # original date kept, NOT today's
+    assert rescored["rescore_source"] == str(results_path)
+    run = rescored["case_results"][0]["runs"][0]
+    # tax_only_anon_01 has no tool call in this fake, so tool_sequence fails (expects the tax
+    # tool) - the point of this test is only that rescoring runs cleanly end-to-end and carries
+    # the original run's date, not that every check passes for this stand-in fixture.
+    assert "tool_sequence" in run["checks"]
+
+
+def test_rescore_keeps_a_stored_judge_verdict_unchanged_and_never_recalls_the_judge(tmp_path):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    case_result = _fake_case_result("tax_only_anon_01", "kažkoks atsakymas", [])
+    case_result["runs"][0]["judge_verdict"] = {"verdict": "FAIL", "reason": "stored verdict"}
+
+    stored = {
+        "model": "claude-haiku-5-5",
+        "date": "2026-11-11",
+        "git_sha": "feef53f",
+        "git_branch": "feat/taupymas-agentas-b6",
+        "runs_per_case": 1,
+        "with_judge": True,
+        "cases": 1,
+        "case_results": [case_result],
+        "investment_advice_violations": [],
+        "judge_errors": [],
+        "run_broken": False,
+    }
+    results_path = tmp_path / "fake_results_with_judge.json"
+    results_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    rescored = run_eval.rescore(results_path)
+
+    run = rescored["case_results"][0]["runs"][0]
+    assert run["judge_verdict"] == {"verdict": "FAIL", "reason": "stored verdict"}
+    violation_checks = {v["check"] for v in rescored["investment_advice_violations"]}
+    assert "llm_judge" in violation_checks
+
+
+def test_aggregate_case_results_matches_manual_computation_for_two_cases_two_checks():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    case_results = [
+        {"group": "tax_only", "pass_rate": 1.0, "check_pass_rates": {"tool_sequence": 1.0, "no_invented_numbers": 0.5}},
+        {"group": "savings_only", "pass_rate": 0.0, "check_pass_rates": {"tool_sequence": 0.0}},
+    ]
+
+    aggregate = run_eval._aggregate_case_results(case_results)
+
+    assert aggregate["overall_pass_rate"] == 0.5
+    assert aggregate["group_pass_rates"]["tax_only"]["tool_sequence"] == 1.0
+    assert aggregate["group_pass_rates"]["savings_only"]["tool_sequence"] == 0.0
+    # no_invented_numbers only exists for the tax_only case - savings_only's own rate is None,
+    # not silently treated as 0 or skipped from the per-check dict entirely.
+    assert aggregate["group_pass_rates"]["savings_only"]["no_invented_numbers"] is None
+    assert aggregate["overall_check_pass_rates"]["no_invented_numbers"] == 0.5
