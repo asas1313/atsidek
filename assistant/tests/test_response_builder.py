@@ -491,7 +491,12 @@ def test_share_over_100_percent_renders_virsija_laisvus_pinigus_netelpa_not_a_pe
     """Owner instruction (2026-11-16, after B6 eval #11, item 6b): free cash IS positive here
     (400), but the contribution (500) exceeds it - share_of_free_cash_pct > 100 reads just as
     misleadingly as the free_cash_monthly<=0 case ("150,0% laisvų pinigų" is not informative) -
-    must say plainly that it doesn't fit instead."""
+    must say plainly that it doesn't fit instead.
+
+    Owner instruction (2026-11-16, after eval a2dbaae, item 4a): tightened to EXACTLY one
+    sentence - "Įmoka viršija laisvus pinigus – netelpa." - Java's own general_tip (UNREALISTIC
+    verdict's "viršija pusę"/"ilgesnį terminą" wording) is no longer appended here; it understates
+    a >100% overflow and conflicts with item 4b's WHEN-mode guidance."""
     result = {
         "core": {
             "monthly_contribution": 500.0,
@@ -507,9 +512,12 @@ def test_share_over_100_percent_renders_virsija_laisvus_pinigus_netelpa_not_a_pe
 
     text = build_response([savings_call(result=result)], None)
 
-    assert "įmoka viršija laisvus pinigus – netelpa" in text
+    assert "Įmoka viršija laisvus pinigus – netelpa." in text
     assert "125,0%" not in text
     assert "Laisvų pinigų nėra" not in text  # distinct from the free_cash<=0 branch's wording
+    assert "tip" not in text  # Java's general_tip no longer appended for this branch
+    assert "viršija pusę" not in text
+    assert "500,00" not in text  # no longer restates the contribution amount in this sentence
 
 
 def test_share_exactly_100_percent_still_renders_the_normal_percent_sentence_not_the_overflow_one():
@@ -671,6 +679,34 @@ def test_when_mode_renders_the_goal_reach_date():
     text = build_response(tool_calls, None)
 
     assert "2027 m. kovo mėn." in text
+    assert "mėn.." not in text  # item 4d: no stray double period from _format_date_lt's own "."
+
+
+def test_when_mode_reach_date_with_a_non_fitting_contribution_renders_the_conditional_sentence():
+    """Owner instruction (2026-11-16, after eval a2dbaae, item 4c): when the user's own stated
+    contribution doesn't fit their free cash, the reach date must be framed conditionally
+    ("Jei pavyktų atidėti..."), not as a plain achievable fact."""
+    result = {
+        "core": {
+            "monthly_contribution": 500.0,
+            "free_cash_monthly": 400.0,
+            "share_of_free_cash_pct": 125.0,
+            "fits": False,
+            "general_tip": "tip",
+            "assumptions": [],
+            "disclaimer": "disc",
+            "reachable": True,
+            "reach_date": "2027-03-13",
+        },
+        "locked_features": [],
+    }
+    tool_calls = [savings_call(result=result, input={"goal": {"mode": "WHEN"}})]
+
+    text = build_response(tool_calls, None)
+
+    assert "Jei pavyktų atidėti 500,00 € per mėnesį, tikslą pasiektumėte 2027 m. kovo mėn." in text
+    assert "Su nurodyta įmoka tikslą pasieksite" not in text
+    assert "mėn.." not in text
 
 
 def test_when_mode_unreachable_within_50_years_renders_the_unreachable_sentence():

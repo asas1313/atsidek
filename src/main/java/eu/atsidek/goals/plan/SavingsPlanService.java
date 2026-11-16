@@ -4,6 +4,7 @@ import eu.atsidek.entitlement.EntitlementService;
 import eu.atsidek.entitlement.Feature;
 import eu.atsidek.goals.Assumptions;
 import eu.atsidek.goals.GoalInput;
+import eu.atsidek.goals.GoalMode;
 import eu.atsidek.goals.GoalResult;
 import eu.atsidek.goals.Household;
 import eu.atsidek.goals.Origin;
@@ -128,7 +129,7 @@ public class SavingsPlanService {
         addAssumptionIfNotUserProvided(assumptions, "annual_return_pct", result, "annualReturn");
         addAssumptionIfNotUserProvided(assumptions, "annual_inflation_pct", result, "annualInflation");
 
-        Core core = buildCore(result, assumptions);
+        Core core = buildCore(result, assumptions, goalInput.mode());
 
         List<Feature> locked = lockedFeatures(currentUserId);
         Tier tier = deriveTier(locked);
@@ -268,23 +269,32 @@ public class SavingsPlanService {
                 null);
     }
 
-    private static Core buildCore(GoalResult result, List<AssumptionEntry> assumptions) {
+    private static Core buildCore(GoalResult result, List<AssumptionEntry> assumptions, GoalMode mode) {
         boolean fits = result.verdict() != Verdict.UNREALISTIC && result.verdict() != Verdict.NO_FREE_CASH;
         BigDecimal sharePct = result.share().multiply(PERCENT_SCALE).setScale(2, RoundingMode.HALF_UP);
-        return new Core(result.monthly(), result.freeCash(), sharePct, fits, generalTip(result.verdict()),
+        return new Core(result.monthly(), result.freeCash(), sharePct, fits, generalTip(result.verdict(), mode),
                 List.copyOf(assumptions), DISCLAIMER, result.reachable(), result.reachDate());
     }
 
-    /** Deterministiniai šablonai pagal {@code GoalsEngine.Verdict} ribas (NE AI tekstas, žr. PLAN.md A3). */
-    private static String generalTip(Verdict verdict) {
+    /**
+     * Deterministiniai šablonai pagal {@code GoalsEngine.Verdict} ribas (NE AI tekstas, žr. PLAN.md A3).
+     * <p>
+     * Owner instrukcija (2026-11-16, po eval'o a2dbaae, 4b punktas): WHEN režimui "apsvarstykite ilgesnį
+     * terminą" patarimas neturi prasmės - WHEN pats suranda datą fiksuotai įmokai, terminas yra IŠVESTIS,
+     * ne įvestis, kurią būtų galima "pailginti". WHEN režimui vietoj to patariama mažesnė įmoka.
+     */
+    private static String generalTip(Verdict verdict, GoalMode mode) {
+        String adjustAdvice = mode == GoalMode.WHEN
+                ? "apsvarstykite mažesnę įmoką"
+                : "apsvarstykite ilgesnį terminą arba mažesnę sumą";
         return switch (verdict) {
             case NO_FREE_CASH -> "Laisvų pinigų nėra arba jie neigiami – pirmiausia peržiūrėkite išlaidas, "
                     + "kad atsirastų, iš ko taupyti.";
             case COMFORTABLE -> "Šis tikslas atrodo pasiekiamas – įmoka sudaro nedidelę dalį jūsų laisvų pinigų.";
             case TIGHT -> "Šis tikslas pasiekiamas, bet pareikalaus nemažos dalies laisvų pinigų – "
-                    + "apsvarstykite ilgesnį terminą arba mažesnę sumą.";
+                    + adjustAdvice + ".";
             case UNREALISTIC -> "Reikalinga įmoka viršija pusę jūsų laisvų pinigų – su šiuo terminu tikslas "
-                    + "greičiausiai nerealus, apsvarstykite ilgesnį terminą arba mažesnę sumą.";
+                    + "greičiausiai nerealus, " + adjustAdvice + ".";
         };
     }
 

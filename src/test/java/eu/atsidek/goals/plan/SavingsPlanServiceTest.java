@@ -442,6 +442,35 @@ class SavingsPlanServiceTest {
     }
 
     @Test
+    void whenModeUnrealisticVerdictAdvisesASmallerContributionNotALongerTerm() {
+        // Owner instruction (2026-11-16, after eval a2dbaae, item 4b): WHEN mode finds the date
+        // for a FIXED contribution - there is no term input to "lengthen", so generalTip must
+        // never suggest "ilgesnį terminą" for WHEN; "mažesnę įmoką" instead.
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+        // laisvi: 3100-0-1000=2100; 1200/2100 = 57,1% > 50% -> UNREALISTIC
+        SavingsPlanResponse response = service.plan(
+                request(whenGoal("20000", "1200"), "3100", "0", "1000"), null);
+
+        assertThat(response.core().fits()).isFalse();
+        assertThat(response.core().generalTip()).contains("mažesnę įmoką");
+        assertThat(response.core().generalTip()).doesNotContain("ilgesnį terminą");
+    }
+
+    @Test
+    void nonWhenModeUnrealisticVerdictStillAdvisesALongerTermOrASmallerAmount() {
+        // Same overflow, but YEARS mode DOES have a term input that can meaningfully be
+        // lengthened - the pre-existing wording stays unchanged there.
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+        SavingsPlanResponse response = service.plan(
+                request(yearsGoal("50000", 3), "3100", "0", "1000"), null);
+
+        assertThat(response.core().fits()).isFalse();
+        assertThat(response.core().generalTip()).contains("ilgesnį terminą arba mažesnę sumą");
+    }
+
+    @Test
     void whenModeCorePropagatesReachableAndReachDateFromGoalsEngine() {
         // Owner instruction (2026-11-16, after B6 eval #11): the core (free) response must surface
         // the WHEN-mode reach date (the fix wires GoalResult.reachable()/reachDate() into Core,

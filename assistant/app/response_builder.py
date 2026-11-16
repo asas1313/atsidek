@@ -185,10 +185,12 @@ def _build_goal_section(core: dict) -> str:
             "į tikslą netelpa."
         )
     elif Decimal(str(core["share_of_free_cash_pct"])) > 100:
-        sentence = (
-            f"Siūloma {_eur(core['monthly_contribution'])} per mėnesį įmoka viršija laisvus "
-            "pinigus – netelpa."
-        )
+        # Owner instruction (2026-11-16, after eval a2dbaae, item 4a): EXACTLY one sentence, no
+        # Java general_tip appended below - that tip's own UNREALISTIC-verdict wording ("viršija
+        # pusę jūsų laisvų pinigų... apsvarstykite ilgesnį terminą arba mažesnę sumą") understates
+        # a >100% overflow and, for WHEN mode, conflicts with item 4b's "mažesnė įmoka, ne ilgesnis
+        # terminas" guidance (WHEN mode has no term to lengthen).
+        return "Įmoka viršija laisvus pinigus – netelpa."
     else:
         sentence = (
             f"Tikslui siūloma atsidėti {_eur(core['monthly_contribution'])} per mėnesį "
@@ -212,7 +214,19 @@ def _build_when_reach_section(core: dict) -> Optional[str]:
     reach_date = core.get("reach_date")
     if reach_date is None:
         return None
-    return f"Su nurodyta įmoka tikslą pasieksite {_format_date_lt(reach_date)}."
+    # Owner instruction (2026-11-16, after eval a2dbaae, item 4c): when the user's own stated
+    # contribution doesn't actually fit their free cash (`fits=False`), stating the reach date as
+    # a plain fact ("tikslą pasieksite...") is misleading - it reads as achievable when it isn't
+    # under their real budget. Reframe conditionally with the same contribution amount instead.
+    #
+    # Item 4d: `_format_date_lt` already ends with "mėn." (an abbreviation period) - NO further
+    # "." is appended after it, which used to render as a stray double period ("mėn..").
+    if not core.get("fits", True):
+        return (
+            f"Jei pavyktų atidėti {_eur(core['monthly_contribution'])} per mėnesį, tikslą "
+            f"pasiektumėte {_format_date_lt(reach_date)}"
+        )
+    return f"Su nurodyta įmoka tikslą pasieksite {_format_date_lt(reach_date)}"
 
 
 def _source_year(source_date: Optional[str]) -> Optional[str]:
