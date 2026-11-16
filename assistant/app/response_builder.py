@@ -108,11 +108,30 @@ def _pct(v: Any) -> str:
     return f"{Decimal(str(v)):,.1f}".replace(",", " ").replace(".", ",") + "%"
 
 
-def _last_successful_result(tool_calls: list[dict], name: str) -> Optional[dict]:
+def _last_successful_call(tool_calls: list[dict], name: str) -> Optional[dict]:
     for call in reversed(tool_calls):
         if call["name"] == name and call["is_error"] is False:
-            return call["result"]
+            return call
     return None
+
+
+def _last_successful_result(tool_calls: list[dict], name: str) -> Optional[dict]:
+    call = _last_successful_call(tool_calls, name)
+    return call["result"] if call is not None else None
+
+
+_MONTH_NAMES_LT = {
+    1: "sausio", 2: "vasario", 3: "kovo", 4: "balandžio", 5: "gegužės", 6: "birželio",
+    7: "liepos", 8: "rugpjūčio", 9: "rugsėjo", 10: "spalio", 11: "lapkričio", 12: "gruodžio",
+}
+
+
+def _format_date_lt(iso_date: str) -> str:
+    """`core["reach_date"]` is Java's `LocalDate` serialized as plain ISO (`YYYY-MM-DD`, Spring
+    Boot's default JSR310 format, WRITE_DATES_AS_TIMESTAMPS disabled) - never parsed/re-derived
+    here, just reformatted for display."""
+    year, month, _day = iso_date.split("-")
+    return f"{int(year)} m. {_MONTH_NAMES_LT[int(month)]} mėn."
 
 
 def _build_taxes_section(tax_result: dict) -> str:
@@ -148,6 +167,21 @@ def _build_goal_section(core: dict) -> str:
     return f"{sentence} {general_tip}"
 
 
+def _build_when_reach_section(core: dict) -> Optional[str]:
+    """Owner instruction (2026-11-16, after B6 eval #11, item 2): WHEN mode's goal-reach date
+    (or "unreachable within 50 years") is a core (free) field (see `Core.reachable`/`reachDate`,
+    Java) - must actually be shown, not silently dropped. Only called when the savings tool call's
+    own INPUT had `goal.mode == "WHEN"` - for every other mode the term is an input, not Java's
+    output, and `reachable`/`reach_date` carry no information worth rendering (see Core.java's own
+    javadoc: always `reachable=true`/`reach_date=null` there)."""
+    if not core.get("reachable", True):
+        return "Su nurodyta įmoka tikslas nepasiekiamas per 50 metų."
+    reach_date = core.get("reach_date")
+    if reach_date is None:
+        return None
+    return f"Su nurodyta įmoka tikslą pasieksite {_format_date_lt(reach_date)}."
+
+
 def _build_assumptions_section(assumptions: list[dict]) -> str:
     lines = []
     for entry in assumptions:
@@ -181,7 +215,8 @@ def build_response(tool_calls: list[dict], final_text: Optional[str]) -> str:
     never re-derived or re-rounded here beyond display formatting.
     """
     tax_result = _last_successful_result(tool_calls, TAX_TOOL_NAME)
-    savings_result = _last_successful_result(tool_calls, SAVINGS_TOOL_NAME)
+    savings_call = _last_successful_call(tool_calls, SAVINGS_TOOL_NAME)
+    savings_result = savings_call["result"] if savings_call is not None else None
 
     sections: list[str] = []
 
@@ -192,6 +227,11 @@ def build_response(tool_calls: list[dict], final_text: Optional[str]) -> str:
         core = savings_result["core"]
         sections.append(_build_free_cash_section(core))
         sections.append(_build_goal_section(core))
+        goal_mode = ((savings_call.get("input") or {}).get("goal") or {}).get("mode")
+        if goal_mode == "WHEN":
+            when_section = _build_when_reach_section(core)
+            if when_section is not None:
+                sections.append(when_section)
         if core["assumptions"]:
             sections.append(_build_assumptions_section(core["assumptions"]))
         sections.append(core["disclaimer"])

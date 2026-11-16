@@ -17,11 +17,11 @@ def tax_call(call_id="tu_tax", is_error=False, result=None):
     }
 
 
-def savings_call(call_id="tu_sav", is_error=False, result=None):
+def savings_call(call_id="tu_sav", is_error=False, result=None, input=None):
     return {
         "id": call_id,
         "name": "calculate_savings_plan",
-        "input": {},
+        "input": input if input is not None else {},
         "result": result,
         "error": None if not is_error else "boom",
         "is_error": is_error,
@@ -426,6 +426,103 @@ def test_assumptions_section_handles_unmapped_field_and_origin_gracefully():
 
     assert "some_future_field" in text
     assert "SOME_FUTURE_ORIGIN" in text
+
+
+# --- Owner instruction (2026-11-16, after B6 eval #11, item 2): WHEN-mode reach date ------------
+
+def test_when_mode_renders_the_goal_reach_date():
+    result = {
+        "core": {
+            "monthly_contribution": 100.0,
+            "free_cash_monthly": 400.0,
+            "share_of_free_cash_pct": 25.0,
+            "fits": True,
+            "general_tip": "tip",
+            "assumptions": [],
+            "disclaimer": "disc",
+            "reachable": True,
+            "reach_date": "2027-03-13",
+        },
+        "locked_features": [],
+    }
+    tool_calls = [savings_call(result=result, input={"goal": {"mode": "WHEN"}})]
+
+    text = build_response(tool_calls, None)
+
+    assert "2027 m. kovo mėn." in text
+
+
+def test_when_mode_unreachable_within_50_years_renders_the_unreachable_sentence():
+    result = {
+        "core": {
+            "monthly_contribution": 1.0,
+            "free_cash_monthly": 400.0,
+            "share_of_free_cash_pct": 0.3,
+            "fits": True,
+            "general_tip": "tip",
+            "assumptions": [],
+            "disclaimer": "disc",
+            "reachable": False,
+            "reach_date": None,
+        },
+        "locked_features": [],
+    }
+    tool_calls = [savings_call(result=result, input={"goal": {"mode": "WHEN"}})]
+
+    text = build_response(tool_calls, None)
+
+    assert "nepasiekiamas per 50 metų" in text
+
+
+def test_non_when_mode_never_renders_a_reach_date_sentence_even_if_core_has_one():
+    """Defensive: Core.reachable/reachDate are always true/null for non-WHEN modes (Java-side
+    guarantee) - but the template itself must gate strictly on the REQUEST's goal.mode, not on
+    whether core happens to carry a reach_date, so a future Java change can't silently leak an
+    irrelevant date into a YEARS/DATE/CHILD_AGE reply."""
+    result = {
+        "core": {
+            "monthly_contribution": 100.0,
+            "free_cash_monthly": 400.0,
+            "share_of_free_cash_pct": 25.0,
+            "fits": True,
+            "general_tip": "tip",
+            "assumptions": [],
+            "disclaimer": "disc",
+            "reachable": True,
+            "reach_date": "2027-03-13",
+        },
+        "locked_features": [],
+    }
+    tool_calls = [savings_call(result=result, input={"goal": {"mode": "YEARS"}})]
+
+    text = build_response(tool_calls, None)
+
+    assert "2027" not in text
+    assert "pasieksite" not in text
+
+
+def test_when_mode_with_missing_input_shape_degrades_gracefully_no_crash():
+    """Defensive: a tool_calls fixture with no `input` (or an input missing `goal`) must not crash
+    - goal_mode resolves to None, same as a non-WHEN call."""
+    result = {
+        "core": {
+            "monthly_contribution": 100.0,
+            "free_cash_monthly": 400.0,
+            "share_of_free_cash_pct": 25.0,
+            "fits": True,
+            "general_tip": "tip",
+            "assumptions": [],
+            "disclaimer": "disc",
+            "reachable": True,
+            "reach_date": "2027-03-13",
+        },
+        "locked_features": [],
+    }
+    tool_calls = [savings_call(result=result, input={})]
+
+    text = build_response(tool_calls, None)
+
+    assert "pasieksite" not in text
 
 
 def test_cta_section_handles_unmapped_locked_feature_gracefully_no_crash_no_raw_dump():
