@@ -383,3 +383,85 @@ Visi 9 punktai + preambulė (eval #11 patvirtinimo pažymėjimas) atlikti ir suc
 `feat/taupymas-agentas-b6` šakoje. Testai: Python 386 / 0 nepavyko, 1 skip. Java testai (1-2-5
 punktai) praėjo pilnai (`mvn -o test`). Pagal savininko instrukciją darbas sustoja čia — savininkas
 paleis gyvą eval'ą, tada tęs prie B7.
+
+### Ketvirtas pataisų raundas — eval a2dbaae (savininko instrukcija, 2026-11-16)
+
+Savininkas paleido gyvą eval'ą prie commit `a2dbaae`: visi deterministiniai check'ai 100 %, bet 1
+LLM-judge FAIL (`savings_only_anon_01`, atsakyme paminėta "kad netektų imti paskolų" — skolinimosi
+produkto paminėjimas, net kaip pavyzdys, ko išvengti). Judge rubrika NEKEISTA pagal savininko
+nurodymą — taisomas tik agento/šablonų elgesys. 6 punktai, kiekvienas atskiru commit'u su testais:
+
+1. **System prompt**: paskolų/kreditų/skolinimosi produktų paminėjimas draudžiamas VISADA (net
+   kaip ko išvengti); vidiniai techniniai žodžiai ("įrankis", "šablonas", "serverio pusėje",
+   "tool") draudžiami modelio ATSAKYME (leidžiami instrukcijose jam) — vietoj jų "žemiau"/
+   "skaičiavime"; FLAT_30 + faktinės išlaidos atvejui aiškus paaiškinimas vietoj "nežinau, kodėl"
+   (`27cfc75`).
+2. **Mokesčių įrankis + šablonas**: `calculate_iv_taxes` dabar grąžina abiejų metodų (FLAT_30,
+   ACTUAL) metinę mokesčių sumą (Java `/api/v1/compare` jas jau skaičiavo, Python tool handler'is
+   jas tiesiog mesdavo lauk); šablonas prideda sakinį, lyginantį abi sumas, kai taikytas FLAT_30
+   (`45ff738`).
+3. **Nukirsti atsakymai**: `agent_loop.py`'s `DEFAULT_MAX_TOKENS` 1024→2048; `AgentLoopResult`
+   įgavo `stop_reason` lauką; naujas eval check'as `response_complete` (FAIL, kai
+   `stop_reason=="max_tokens"`); produkcijoje — logas (`5dfa111`).
+4. **Java `general_tip`/šablonas**: >100 % laisvų pinigų atveju — vienas sakinys "Įmoka viršija
+   laisvus pinigus – netelpa." (be Java tip'o pridėjimo); WHEN režimui `generalTip()` tapo
+   mode-aware — TIGHT/UNREALISTIC atveju "apsvarstykite mažesnę įmoką" vietoj "ilgesnį terminą"
+   (WHEN pats suranda datą fiksuotai įmokai — terminas yra IŠVESTIS, ne įvestis); WHEN
+   nepasiekimo atveju reach_date tekstas tapo sąlyginis ("Jei pavyktų atidėti..."), kai įmoka
+   netelpa; "mėn.." dvigubo taško klaida pataisyta (`0e550a7`).
+5. **CTA feature flag**: "atnaujinkite iki Premium" CTA dabar reikalauja, kad `premium` sekcija
+   TURĖTŲ turinio (`bool(savings_result.get("premium"))`) — `Premium.java` sąmoningai tuščia šioje
+   fazėje, tad anksčiau CTA galėjo pažadėti turinį, kurio nėra; anoniminis "jei prisijungsite" CTA
+   nepaveiktas (`6f17c7b`).
+6. **Eval'ų numatytasis concurrency**: 1→8 (`fae9e00`).
+
+Testai: Python 427 / 0 nepavyko, 1 skip; Java 339 / 0 nepavyko. Pagal savininko instrukciją darbas
+sustojo čia — savininkas paleido gyvą eval'ą prie `fae9e00`.
+
+### Penktas pataisų raundas — eval fae9e00 (savininko instrukcija, 2026-11-16)
+
+Savininkas paleido gyvą eval'ą prie commit `fae9e00`: 0 investment advice FAIL,
+`response_complete` 100 %. Rasti 2 nauji trūkumai, kiekvienas atskiru commit'u su testais:
+
+1. **Tier spoof — savininko ankstesnio nurodymo (a2dbaae 1c punkto) klaida**: reikalavimas, kad
+   VISAS agento atsakymas šiuo atveju būtų TIK frazė "Premium funkcijoms reikia prisijungti.",
+   privertė agentą sustoti ir NIEKADA nekviesti įrankių — 3/6 gyvų `tier_spoof` paleidimų FAILino
+   `tool_sequence` check'ą (eval'o atvejai patys reikalauja realaus įrankio kvietimo net ir
+   melagingai tvirtinant premium tier). Pataisyta: frazė lieka TIK PIRMU sakiniu, po jo agentas
+   VISADA tęsia įprastą NEMOKAMĄ skaičiavimą su vartotojo realiais duomenimis (`4cbd35a`).
+2. **Šablonas**: `share_of_free_cash_pct > 100` atveju (inspiruota `savings_only_anon_01`
+   duomenimis) — a2dbaae 4a punkto "lygiai vienas sakinys, be sumų" perlenkė į kitą pusę; sumos
+   sugrąžintos į tekstą ("Tikslui reikėtų atidėti X € per mėnesį, o laisvų pinigų lieka Y € –
+   įmoka netelpa."). `free_cash_monthly <= 0` atveju Java `general_tip` nebepridedamas — jo
+   NO_FREE_CASH tekstas TAIP PAT prasideda "Laisvų pinigų nėra arba jie neigiami", dubliuodamas
+   šios šakos jau sakomą frazę; frazė "Laisvų pinigų nėra" dabar atsakyme tik vieną kartą. Java
+   `generalTip()`'o UNREALISTIC šaka WHEN režimui nebevartoja žodžio "terminu" ("su šiuo terminu
+   tikslas greičiausiai nerealus" → "tikslas greičiausiai nerealus") — ta pati priežastis kaip
+   a2dbaae 4b punkte (`76afa43`).
+
+Testai: Python 427 / 0 nepavyko, 1 skip; Java 339 / 0 nepavyko (po abiejų commit'ų). Pagal
+savininko instrukciją darbas sustoja čia — savininkas pats paleis greitą eval'ą (runs-per-case 1,
+su judge); jei švarus, B6 PR'us laikys baigtais ir bus pereinama prie B7.
+
+## Prieš produkciją (savininko 2026-11-16 nurodymas — užfiksuota, bet NEIŠTAISYTA šiame raunde)
+
+Trys žinomi trūkumai, kuriuos savininkas sąmoningai nusprendė palikti VĖLESNIAM darbui (ne šio
+pataisų raundo apimtyje), bet reikalavo užfiksuoti čia, kad nepasimestų prieš produkcinį diegimą:
+
+- **Anoniminio CTA užraktas už feature flag**: item 5 (eval fae9e00) pataisė TIK prisijungusio
+  vartotojo "atnaujinkite iki Premium" CTA — jis dabar reikalauja, kad `premium` sekcija turėtų
+  turinio. Anoniminio vartotojo "jei prisijungsite" CTA (kviečiantis tiesiog prisijungti, ne
+  pirkti Premium) šiuo pataisymu NEBUVO apribotas ir šiuo metu NĖRA susietas su tuo, ar `premium`
+  sekcija tuščia — reikia nuspręsti, ar jis TURĖTŲ priklausyti nuo to paties feature flag (šiuo
+  metu `premium` visada tuščias, tad šis CTA vis tiek nežada nieko konkretaus, tik prisijungimą).
+- **LT kalbos kokybė**: šablonų/system prompt'o lietuvių kalbos tikrinimas šiuo metu yra TIK
+  rankinis (savininko pastebėjimai per gyvus eval'us, pvz. "mėn.." klaida). Reikia nuspręsti, ar
+  prieš produkciją reikalingas atskiras kalbos vertintojas (deterministinis arba LLM-judge
+  patikrinimas, panašus į `judge_rubric.py`), ar pakanka Sonnet modelio peržvelgti galutinį
+  šabloninį tekstą prieš jo panaudojimą.
+- **VDA (statistikos departamento) išlaidų duomenys vietoj iliustracinių**: `stat_defaults`
+  lentelės "expenses" segmentų eilutės šiuo metu yra iliustracinės prielaidos (žr. B6 eval #11
+  patvirtinimo 5 punktą aukščiau — ekstrapoliuotos iš mockup'o, `needs_review=true`). Prieš
+  produkciją reikia pakeisti jas tikrais VDA (Valstybės duomenų agentūros) namų ūkių biudžetų
+  tyrimo duomenimis su patikrinamu šaltiniu/data, kad šablonas galėtų rodyti "Statistika:
+  šaltinis, metai" vietoj "Iliustracinė prielaida".
