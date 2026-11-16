@@ -177,6 +177,38 @@ def test_prompt_handles_a_year_only_goal_as_december_without_asking():
     assert "target_month" in lowered and "12" in lowered
 
 
+# --- Third B6 live-eval round (2026-11-16 owner instruction, after eval #11): item 7 ------------
+
+def test_prompt_explicitly_covers_terms_not_just_amounts_in_the_no_invented_numbers_rule():
+    """Item 7a: the "never state a number" rule must explicitly name terms (years/dates), not
+    just monetary amounts - closing the gap where a model might read "skaičius" as "pinigų suma"
+    only and feel free to invent/suggest a term (e.g. "per 5 metus") instead."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "terminus" in lowered or "termino" in lowered
+    assert re.search(r"(termin\w*.{0,60}sum\w*)|(sum\w*.{0,60}termin\w*)", lowered)
+
+
+def test_prompt_forbids_speculative_explanations_of_system_behavior():
+    """Item 7b: must not guess/speculate when explaining why a tool returned a particular result
+    or how the system/calculation works beyond what the tool result itself states."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "nespėlio" in lowered
+    assert re.search(r"nespėlio\w*.{0,40}paaiškin", lowered) or re.search(r"paaiškin\w*.{0,40}nespėlio", lowered)
+
+
+def test_prompt_states_the_exact_anonymous_premium_claim_refusal_phrase():
+    """Item 7c: an anonymous user falsely claiming to be premium must get this exact sentence -
+    not a paraphrase - and the prompt must say the claim is never trusted."""
+    assert "Premium funkcijoms reikia prisijungti." in SYSTEM_PROMPT
+    lowered = SYSTEM_PROMPT.lower()
+    assert "anonimin" in lowered and "premium" in lowered
+    assert "niekada" in lowered
+
+
 def test_prompt_annualizes_a_stated_monthly_iv_income_before_calling_the_tax_tool():
     """Item 6e: "X per month via IV" must be converted to a pre-tax ANNUAL figure (x12) by the
     model itself before calling calculate_iv_taxes (the tool has no monthly mode), with the
