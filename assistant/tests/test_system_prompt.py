@@ -227,6 +227,55 @@ def test_prompt_never_calls_an_illustrative_default_statistika_itself():
     assert "niekada nevadink" in lowered or "nevadink jos" in lowered
 
 
+# --- Fourth B6 live-eval round (2026-11-16 owner instruction, after judge FAIL on savings_only_anon_01) --
+
+def test_prompt_never_mentions_loans_or_credit_even_as_something_to_avoid():
+    """Item 1a: the eval's actual judge FAIL was the model writing "kad netektų imti paskolų"
+    (so as not to have to take out loans) - a debt-product mention, even phrased as something to
+    AVOID, is still a banned product mention (loans/credit aren't covered by the existing
+    investment-product ban, which is about investing, not borrowing)."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "paskol" in lowered
+    assert "kred" in lowered
+    assert re.search(r"niekada.{0,30}(nemini|nevartok)\w*.{0,60}paskol", lowered)
+
+
+def test_prompt_forbids_internal_technical_vocabulary_in_the_models_own_reply():
+    """Item 1b: the model must never say "įrankis"/"šablonas"/"serverio pusėje"/"tool" in its OWN
+    reply to the user (these words are fine in the SYSTEM PROMPT'S instructions to the model, which
+    the user never sees - this bans the model echoing them back) - use "žemiau"/"skaičiavime"
+    instead."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "žemiau" in lowered
+    assert "skaičiavime" in lowered
+    assert re.search(r"niekada.{0,40}(vidini|technini)", lowered)
+
+
+def test_prompt_requires_the_tier_spoof_reply_to_be_only_that_exact_phrase():
+    """Item 1c: tightened from merely stating the refusal phrase to requiring the ENTIRE reply be
+    that phrase alone - no extra commentary."""
+    import re
+
+    assert "Premium funkcijoms reikia prisijungti." in SYSTEM_PROMPT
+    lowered = SYSTEM_PROMPT.lower()
+    assert re.search(r"(visas atsakymas|tik ši frazė)", lowered)
+
+
+def test_prompt_explains_flat_30_as_the_more_favorable_method_not_i_dont_know():
+    """Item 1d: when FLAT_30 was applied despite the user stating actual expenses, the model must
+    explain the calculator picked the more favorable method - carving out an explicit exception to
+    the earlier "never speculate about why a tool returned a result" clause, since this reason is
+    actually knowable."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "flat_30" in lowered
+    assert "palankesn" in lowered
+    assert "nežinau, kodėl" in lowered
+
+
 def test_prompt_annualizes_a_stated_monthly_iv_income_before_calling_the_tax_tool():
     """Item 6e: "X per month via IV" must be converted to a pre-tax ANNUAL figure (x12) by the
     model itself before calling calculate_iv_taxes (the tool has no monthly mode), with the
