@@ -113,7 +113,7 @@ def test_full_response_section_ordering_taxes_before_free_cash_before_goal_befor
     idx_goal = text.index("200")
     idx_assumptions = text.index("Mėnesio išlaidos")
     idx_disclaimer = text.index(SAVINGS_RESULT["core"]["disclaimer"])
-    idx_cta = text.index("Tavo pajamos svyruoja")
+    idx_cta = text.index("Jūsų pajamos svyruoja")
 
     assert idx_taxes < idx_free_cash < idx_goal < idx_assumptions < idx_disclaimer < idx_cta
 
@@ -123,7 +123,7 @@ def test_tax_section_numbers_match_tool_result_exactly():
 
     text = build_response(tool_calls, None)
 
-    assert "faktinės išlaidos" in text
+    assert "faktinių išlaidų" in text
     assert "1 234,56" in text  # total_tax_per_year
     assert "102,88" in text  # monthly_tax_setaside
     assert "987,65" in text  # net_monthly_income
@@ -134,7 +134,7 @@ def test_tax_section_flat_30_method_label():
 
     text = build_response(tool_calls, None)
 
-    assert "30 % išlaidų norma" in text
+    assert "30 % išlaidų normos" in text
 
 
 def test_goal_and_free_cash_section_numbers_match_tool_result_exactly():
@@ -184,8 +184,8 @@ def test_only_savings_no_tax_call_renders_savings_sections_only_no_tax_section()
 
     text = build_response(tool_calls, None)
 
-    assert "faktinės išlaidos" not in text
-    assert "30 % išlaidų norma" not in text
+    assert "faktinių išlaidų" not in text
+    assert "30 % išlaidų normos" not in text
     assert "400,00" in text
 
 
@@ -225,8 +225,8 @@ def test_last_successful_call_wins_when_multiple_successes_present():
 
     text = build_response(tool_calls, None)
 
-    assert "30 % išlaidų norma" in text
-    assert "faktinės išlaidos" not in text
+    assert "30 % išlaidų normos" in text
+    assert "faktinių išlaidų" not in text
 
 
 def test_empty_assumptions_list_omits_assumptions_section():
@@ -401,6 +401,53 @@ def test_positive_free_cash_still_renders_the_normal_percent_share_sentence():
     assert "Laisvų pinigų nėra" not in text
 
 
+def test_share_over_100_percent_renders_virsija_laisvus_pinigus_netelpa_not_a_percentage():
+    """Owner instruction (2026-11-16, after B6 eval #11, item 6b): free cash IS positive here
+    (400), but the contribution (500) exceeds it - share_of_free_cash_pct > 100 reads just as
+    misleadingly as the free_cash_monthly<=0 case ("150,0% laisvų pinigų" is not informative) -
+    must say plainly that it doesn't fit instead."""
+    result = {
+        "core": {
+            "monthly_contribution": 500.0,
+            "free_cash_monthly": 400.0,
+            "share_of_free_cash_pct": 125.0,
+            "fits": False,
+            "general_tip": "tip",
+            "assumptions": [],
+            "disclaimer": "disclaimer",
+        },
+        "locked_features": [],
+    }
+
+    text = build_response([savings_call(result=result)], None)
+
+    assert "įmoka viršija laisvus pinigus – netelpa" in text
+    assert "125,0%" not in text
+    assert "Laisvų pinigų nėra" not in text  # distinct from the free_cash<=0 branch's wording
+
+
+def test_share_exactly_100_percent_still_renders_the_normal_percent_sentence_not_the_overflow_one():
+    """Boundary: exactly 100% is not OVER 100%, so the normal percent-share sentence still
+    applies - only `> 100` triggers the "viršija" wording."""
+    result = {
+        "core": {
+            "monthly_contribution": 400.0,
+            "free_cash_monthly": 400.0,
+            "share_of_free_cash_pct": 100.0,
+            "fits": False,
+            "general_tip": "tip",
+            "assumptions": [],
+            "disclaimer": "disclaimer",
+        },
+        "locked_features": [],
+    }
+
+    text = build_response([savings_call(result=result)], None)
+
+    assert "100,0% laisvų pinigų" in text
+    assert "viršija laisvus pinigus" not in text
+
+
 def test_assumptions_section_handles_unmapped_field_and_origin_gracefully():
     """Defensive design: an unexpected `field`/`origin` string (not one of the 3/4 known values)
     must degrade to the raw string, not crash and not produce a blank/ugly fallback."""
@@ -462,7 +509,7 @@ def test_anonymous_iv_income_gets_the_iv_svyruoja_sentence():
     text = build_response(tool_calls, None)
 
     assert LOCKED_FEATURE_CTA["SAVINGS_IV_LINK"] in text
-    assert "jei prisijungsi" in text.lower()
+    assert "jei prisijungsite" in text.lower()
 
 
 def test_anonymous_non_iv_income_gets_the_neutral_variant_without_svyruoja_sentence():
@@ -472,7 +519,7 @@ def test_anonymous_non_iv_income_gets_the_neutral_variant_without_svyruoja_sente
 
     assert LOCKED_FEATURE_CTA_NEUTRAL_IV in text
     assert "svyruoja" not in text.lower()
-    assert "jei prisijungsi" in text.lower()
+    assert "jei prisijungsite" in text.lower()
 
 
 def test_logged_in_free_user_never_sees_jei_prisijungsi_gets_upgrade_wording_instead():
@@ -482,7 +529,7 @@ def test_logged_in_free_user_never_sees_jei_prisijungsi_gets_upgrade_wording_ins
     text = build_response(tool_calls, None)
 
     assert LOGGED_IN_FREE_CTA["SAVINGS_IV_LINK"] in text
-    assert "jei prisijungsi" not in text.lower()
+    assert "jei prisijungsite" not in text.lower()
     assert "premium" in text.lower()
 
 
@@ -662,13 +709,14 @@ def test_origin_labels_exactly_match_the_established_vocabulary_in_taupymo_tiksl
     assert ORIGIN_LABELS == expected
 
 
-def test_locked_feature_cta_sentences_match_html_source_byte_for_byte():
-    """Companion to the exact ORIGIN_LABELS check above: the module docstring/comment claims
-    `LOCKED_FEATURE_CTA` is "verbatim" from taupymo-tikslai.html - this asserts that literally,
-    including dash style (QA originally caught a hyphen-vs-en-dash drift in two of the three
-    sentences here, now fixed; this test is the byte-exact regression guard against it
-    recurring, not a normalized/approximate comparison).
-    """
+def test_locked_feature_cta_sentences_are_no_longer_required_to_match_html_source():
+    """Owner instruction (2026-11-16, after B6 eval #11, item 6a): "kreipinys 'jūs' visur" in this
+    chat template - `LOCKED_FEATURE_CTA` flipped to formal "jūs" register, while
+    taupymo-tikslai.html's own JS object (out of this item's scope) stays informal "tu". The old
+    byte-for-byte sync test (`test_locked_feature_cta_sentences_match_html_source_byte_for_byte`,
+    removed) enforced the OPPOSITE invariant (the two must always match) back when both were
+    deliberately the same informal voice - that invariant no longer holds, by owner decision, so
+    this replaces it with the current, intentional fact instead of silently deleting coverage."""
     import pathlib
     import re
 
@@ -682,53 +730,45 @@ def test_locked_feature_cta_sentences_match_html_source_byte_for_byte():
     match = re.search(r"var LOCKED_FEATURE_CTA = \{(.*?)\};", html, re.DOTALL)
     assert match is not None, "LOCKED_FEATURE_CTA not found in taupymo-tikslai.html - template moved?"
     block = match.group(1)
-    # Each entry is `KEY: "chunk" + "chunk" + ...` possibly spanning multiple string literals.
     entries = re.findall(r'(\w+):\s*((?:"[^"]*"\s*\+?\s*)+)', block)
-    html_sentences = {}
-    for key, chunks in entries:
-        pieces = re.findall(r'"([^"]*)"', chunks)
-        html_sentences[key] = "".join(pieces)
+    html_sentences = {key: "".join(re.findall(r'"([^"]*)"', chunks)) for key, chunks in entries}
 
-    assert set(html_sentences) == set(LOCKED_FEATURE_CTA)
-    for key, html_sentence in html_sentences.items():
-        assert LOCKED_FEATURE_CTA[key] == html_sentence, (
-            f"{key} is not byte-for-byte identical between response_builder.py and "
-            "taupymo-tikslai.html"
-        )
+    assert set(html_sentences) == set(LOCKED_FEATURE_CTA), "feature coverage should still match"
+    # The HTML page is still informal ("tu"/"tavo") - the chat template is now formal ("jūs").
+    for key in html_sentences:
+        assert "tavo" in html_sentences[key].lower() or "prisijungsi" in html_sentences[key].lower()
+        assert LOCKED_FEATURE_CTA[key] != html_sentences[key]
 
 
-def test_general_tip_informal_rewrites_cover_every_literal_string_savings_plan_service_emits():
-    """Review round 1 SHOULD #2: `GENERAL_TIP_INFORMAL_LT`'s keys are meant to be the 4 exact,
-    literal strings `SavingsPlanService.generalTip(Verdict)` (Java) can return - if Java's wording
-    ever changes, this map's keys silently stop matching and `_build_goal_section` would fall back
-    to rendering Java's (now formal-register, unmapped) text unchanged. Extracts the 4 literal
-    string chunks straight from the Java source and asserts every one is a key in the Python map,
-    same cross-source regression pattern as the CTA-vs-HTML test above."""
-    import pathlib
-    import re
-
-    from app.response_builder import GENERAL_TIP_INFORMAL_LT
-
-    java_path = (
-        pathlib.Path(__file__).resolve().parents[2]
-        / "src/main/java/eu/atsidek/goals/plan/SavingsPlanService.java"
+def test_locked_feature_cta_and_logged_in_free_cta_use_formal_jus_register_throughout():
+    """Owner instruction (2026-11-16, after B6 eval #11, item 6a): every CTA sentence must use the
+    formal "jūs" register, not informal "tu"/"tavo"."""
+    from app.response_builder import (
+        LOCKED_FEATURE_CTA,
+        LOCKED_FEATURE_CTA_NEUTRAL_IV,
+        LOGGED_IN_FREE_CTA,
+        LOGGED_IN_FREE_CTA_NEUTRAL_IV,
     )
-    java = java_path.read_text(encoding="utf-8")
-    match = re.search(r"private static String generalTip\(Verdict verdict\) \{(.*?)\n    \}", java, re.DOTALL)
-    assert match is not None, "generalTip(Verdict) not found in SavingsPlanService.java - moved/renamed?"
-    body = match.group(1)
-    cases = re.findall(r"case \w+ ->\s*((?:\"[^\"]*\"\s*\+?\s*)+);", body)
-    assert len(cases) == 4, f"expected exactly 4 Verdict cases, found {len(cases)} - Verdict enum changed?"
-    for case in cases:
-        java_sentence = "".join(re.findall(r'"([^"]*)"', case))
-        assert java_sentence in GENERAL_TIP_INFORMAL_LT, (
-            f"SavingsPlanService.generalTip() now returns a string with no informal-register "
-            f"rewrite in GENERAL_TIP_INFORMAL_LT: {java_sentence!r}"
-        )
-        # The rewrite must still be informal ("tu"/"tavo"), not an accidental no-op copy of the
-        # formal original (which would silently reintroduce the register clash this map exists
-        # to fix) - only assert this for the two sentences that actually use a 2nd-person form.
-        if "jūsų" in java_sentence or "apsvarstykite" in java_sentence:
-            assert GENERAL_TIP_INFORMAL_LT[java_sentence] != java_sentence
-            assert "jūsų" not in GENERAL_TIP_INFORMAL_LT[java_sentence]
-            assert "apsvarstykite" not in GENERAL_TIP_INFORMAL_LT[java_sentence]
+
+    all_sentences = (
+        list(LOCKED_FEATURE_CTA.values()) + [LOCKED_FEATURE_CTA_NEUTRAL_IV]
+        + list(LOGGED_IN_FREE_CTA.values()) + [LOGGED_IN_FREE_CTA_NEUTRAL_IV]
+    )
+    for sentence in all_sentences:
+        lowered = sentence.lower()
+        assert "tavo" not in lowered, sentence
+        assert " tu " not in f" {lowered} ", sentence
+        assert "prisijungsi," not in lowered and "prisijungsi " not in lowered, sentence
+        assert "atnaujinsi," not in lowered and "atnaujinsi " not in lowered, sentence
+
+
+def test_general_tip_is_rendered_verbatim_no_informal_rewrite():
+    """Owner instruction (2026-11-16, after B6 eval #11, item 6a): Java's generalTip() is already
+    formal "jūs" - the B4-era GENERAL_TIP_INFORMAL_LT rewrite-to-informal map (which existed to
+    match the CTA's then-informal voice) is removed; the formal Java text now passes through
+    unchanged, consistent with the rest of this template's formal register."""
+    tool_calls = [savings_call(result=SAVINGS_RESULT)]
+
+    text = build_response(tool_calls, None)
+
+    assert SAVINGS_RESULT["core"]["general_tip"] in text

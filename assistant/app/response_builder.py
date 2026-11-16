@@ -14,10 +14,13 @@ TAX_TOOL_NAME = "calculate_iv_taxes"
 SAVINGS_TOOL_NAME = "calculate_savings_plan"
 
 # Java's `ExpenseMethod` enum (src/main/java/eu/atsidek/engine/ExpenseMethod.java) has exactly
-# these two values - no other method string is ever produced.
+# these two values - no other method string is ever produced. Genitive case (owner instruction,
+# 2026-11-16, after B6 eval #11, item 6c): `_build_taxes_section` renders "Pagal {label} metodą",
+# which requires the label in genitive ("normos", "išlaidų") - the old nominative forms ("30 %
+# išlaidų norma", "faktinės išlaidos") produced the ungrammatical "Pagal 30 % išlaidų norma metodą".
 EXPENSE_METHOD_LABELS_LT = {
-    "ACTUAL": "faktinės išlaidos",
-    "FLAT_30": "30 % išlaidų norma",
+    "ACTUAL": "faktinių išlaidų",
+    "FLAT_30": "30 % išlaidų normos",
 }
 
 # The only 3 `field` values `SavingsPlanService` ever puts into `core.assumptions` today
@@ -33,87 +36,60 @@ FIELD_LABELS_LT = {
 # reworded, for consistency with the rest of the product.
 ORIGIN_LABELS = {"USER": "Jūsų", "AI": "AI", "STATISTICS": "Statistika", "ASSUMPTION": "Prielaida"}
 
-# Verbatim from taupymo-tikslai.html lines 285-303 (`LOCKED_FEATURE_CTA`/`PREFERRED_CTA_FEATURE`) -
-# same established wording/priority, ported to Python as-is (AC-B4-2).
+# Formal "jūs" register (owner instruction, 2026-11-16, after B6 eval #11, item 6a: "kreipinys
+# 'jūs' visur" in this chat template) - INTENTIONALLY no longer byte-identical to
+# taupymo-tikslai.html's own (informal "tu") `LOCKED_FEATURE_CTA`/`PREFERRED_CTA_FEATURE` JS
+# object, which this used to be ported from verbatim (AC-B4-2). That divergence is deliberate and
+# scoped to the AI chat reply only - the web page's own CTA wording is out of scope here and stays
+# untouched; see test_response_builder.py's comment on the (now relaxed) HTML-sync test for the
+# full history of why the two used to have to match byte-for-byte.
 LOCKED_FEATURE_CTA = {
     "SAVINGS_MULTI_GOAL": (
-        "Turi daugiau nei vieną taupymo tikslą? Jei prisijungsi, galėsi sekti keletą tikslų vienu "
-        "metu, ne tik vieną."
+        "Turite daugiau nei vieną taupymo tikslą? Jei prisijungsite, galėsite sekti keletą tikslų "
+        "vienu metu, ne tik vieną."
     ),
     "SAVINGS_IV_LINK": (
-        "Tavo pajamos svyruoja – jei prisijungsi, pamatysi, kiek atsidėti stipresniais ir "
+        "Jūsų pajamos svyruoja – jei prisijungsite, pamatysite, kiek atsidėti stipresniais ir "
         "silpnesniais mėnesiais."
     ),
     "SAVINGS_SCENARIOS": (
-        "Jei prisijungsi, galėsi greta palyginti keletą taupymo scenarijų – pvz. skirtingus "
+        "Jei prisijungsite, galėsite greta palyginti keletą taupymo scenarijų – pvz. skirtingus "
         "terminus ar sumas."
     ),
 }
 PREFERRED_CTA_FEATURE = "SAVINGS_IV_LINK"
 
-# Owner instruction (2026-11-16, after B6 eval #11, item 3): "Tavo pajamos svyruoja" presumes
+# Owner instruction (2026-11-16, after B6 eval #11, item 3): "Jūsų pajamos svyruoja" presumes
 # irregular/IV income - only true when the resolved net_monthly_income actually came from a prior
 # calculate_iv_taxes call (`income_origin == "TAX_CALC"`, see savings_tool.ResolvedIncome). When it
 # came from the user's own stated figure instead, the premise doesn't hold - use this neutral
 # variant (same feature, same CTA, just without the IV-specific opening clause).
 LOCKED_FEATURE_CTA_NEUTRAL_IV = (
-    "Jei prisijungsi, pamatysi, kiek atsidėti stipresniais ir silpnesniais mėnesiais."
+    "Jei prisijungsite, pamatysite, kiek atsidėti stipresniais ir silpnesniais mėnesiais."
 )
 
-# Owner instruction (2026-11-16, after B6 eval #11, item 3): "jei prisijungsi" makes no sense to
+# Owner instruction (2026-11-16, after B6 eval #11, item 3): "jei prisijungsite" makes no sense to
 # someone who IS already logged in (FREE tier, beta off - during beta every logged-in user gets
 # all 3 features, so `locked_features` is empty and no CTA renders at all, same as today). These
 # are the logged-in-FREE upgrade equivalents of `LOCKED_FEATURE_CTA` - same structure/feature
 # coverage, own wording not specified by the owner, since none exists yet to port from.
 LOGGED_IN_FREE_CTA = {
     "SAVINGS_MULTI_GOAL": (
-        "Turi daugiau nei vieną taupymo tikslą? Jei atnaujinsi iki Premium, galėsi sekti keletą "
-        "tikslų vienu metu, ne tik vieną."
+        "Turite daugiau nei vieną taupymo tikslą? Jei atnaujinsite iki Premium, galėsite sekti "
+        "keletą tikslų vienu metu, ne tik vieną."
     ),
     "SAVINGS_IV_LINK": (
-        "Tavo pajamos svyruoja – jei atnaujinsi iki Premium, pamatysi, kiek atsidėti stipresniais "
-        "ir silpnesniais mėnesiais."
+        "Jūsų pajamos svyruoja – jei atnaujinsite iki Premium, pamatysite, kiek atsidėti "
+        "stipresniais ir silpnesniais mėnesiais."
     ),
     "SAVINGS_SCENARIOS": (
-        "Jei atnaujinsi iki Premium, galėsi greta palyginti keletą taupymo scenarijų – pvz. "
+        "Jei atnaujinsite iki Premium, galėsite greta palyginti keletą taupymo scenarijų – pvz. "
         "skirtingus terminus ar sumas."
     ),
 }
 LOGGED_IN_FREE_CTA_NEUTRAL_IV = (
-    "Jei atnaujinsi iki Premium, pamatysi, kiek atsidėti stipresniais ir silpnesniais mėnesiais."
+    "Jei atnaujinsite iki Premium, pamatysite, kiek atsidėti stipresniais ir silpnesniais mėnesiais."
 )
-
-# Review round 1 SHOULD #2: `core["general_tip"]` (SavingsPlanService.generalTip(), Java) is
-# written in the formal "jūs" register - it has never actually been RENDERED to a user before
-# (taupymo-tikslai.html receives the field but doesn't display it), so this is the first time its
-# register is visible, landing right next to the informal "tu" CTA sentences above in the same
-# chat reply. The rest of this feature's established voice (the CTA text itself, confirmed by
-# taupymo-tikslai.html's own comment about deliberately adapting FROM formal TO informal for this
-# exact reason) is informal, so this map rewrites Java's 4 fixed strings into that register rather
-# than the other way around - changing Java's text is out of this Python-only phase's scope, and a
-# second, chat-specific formal CTA variant would just duplicate vocabulary. A test cross-checks
-# these 4 keys against SavingsPlanService.java's own literal strings, same pattern as the
-# LOCKED_FEATURE_CTA-vs-HTML regression test below.
-GENERAL_TIP_INFORMAL_LT = {
-    "Laisvų pinigų nėra arba jie neigiami – pirmiausia peržiūrėkite išlaidas, "
-    "kad atsirastų, iš ko taupyti.": (
-        "Laisvų pinigų nėra arba jie neigiami – pirmiausia peržiūrėk išlaidas, "
-        "kad atsirastų, iš ko taupyti."
-    ),
-    "Šis tikslas atrodo pasiekiamas – įmoka sudaro nedidelę dalį jūsų laisvų pinigų.": (
-        "Šis tikslas atrodo pasiekiamas – įmoka sudaro nedidelę dalį tavo laisvų pinigų."
-    ),
-    "Šis tikslas pasiekiamas, bet pareikalaus nemažos dalies laisvų pinigų – "
-    "apsvarstykite ilgesnį terminą arba mažesnę sumą.": (
-        "Šis tikslas pasiekiamas, bet pareikalaus nemažos dalies laisvų pinigų – "
-        "apsvarstyk ilgesnį terminą arba mažesnę sumą."
-    ),
-    "Reikalinga įmoka viršija pusę jūsų laisvų pinigų – su šiuo terminu tikslas "
-    "greičiausiai nerealus, apsvarstykite ilgesnį terminą arba mažesnę sumą.": (
-        "Reikalinga įmoka viršija pusę tavo laisvų pinigų – su šiuo terminu tikslas "
-        "greičiausiai nerealus, apsvarstyk ilgesnį terminą arba mažesnę sumą."
-    ),
-}
 
 
 def pick_cta_feature(locked_features: list[str]) -> Optional[str]:
@@ -184,19 +160,34 @@ def _build_goal_section(core: dict) -> str:
     all (`free_cash_monthly <= 0`, Java's `GoalsEngine.verdict()` NO_FREE_CASH branch), showing
     "0,0% laisvų pinigų" is misleading - it reads as "the contribution is a comfortable 0% share",
     not "there is nothing to share at all". Say plainly that there is no free cash and the
-    contribution does not fit, instead of rendering a percentage of zero."""
-    if Decimal(str(core["free_cash_monthly"])) <= 0:
+    contribution does not fit, instead of rendering a percentage of zero.
+
+    Owner instruction (2026-11-16, after B6 eval #11, item 6b): the analogous problem at the OTHER
+    end - free cash IS positive, but the contribution's share exceeds it (`share_of_free_cash_pct
+    > 100`, Java's UNREALISTIC verdict can still have this even though `fits` only flips off at
+    >50%) - "150,0% laisvų pinigų" is just as misleading there, say plainly that it doesn't fit
+    instead of rendering a percentage over 100.
+    """
+    free_cash = Decimal(str(core["free_cash_monthly"]))
+    if free_cash <= 0:
         sentence = (
             f"Laisvų pinigų nėra - siūloma {_eur(core['monthly_contribution'])} per mėnesį įmoka "
             "į tikslą netelpa."
+        )
+    elif Decimal(str(core["share_of_free_cash_pct"])) > 100:
+        sentence = (
+            f"Siūloma {_eur(core['monthly_contribution'])} per mėnesį įmoka viršija laisvus "
+            "pinigus – netelpa."
         )
     else:
         sentence = (
             f"Tikslui siūloma atsidėti {_eur(core['monthly_contribution'])} per mėnesį "
             f"({_pct(core['share_of_free_cash_pct'])} laisvų pinigų)."
         )
-    general_tip = GENERAL_TIP_INFORMAL_LT.get(core["general_tip"], core["general_tip"])
-    return f"{sentence} {general_tip}"
+    # Owner instruction (2026-11-16, item 6a): Java's generalTip() is already formal "jūs" -
+    # rendered verbatim now, no informal-register rewrite (see git history for the removed
+    # GENERAL_TIP_INFORMAL_LT, which used to convert it DOWN to informal for the opposite reason).
+    return f"{sentence} {core['general_tip']}"
 
 
 def _build_when_reach_section(core: dict) -> Optional[str]:
