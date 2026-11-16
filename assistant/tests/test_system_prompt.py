@@ -255,14 +255,19 @@ def test_prompt_forbids_internal_technical_vocabulary_in_the_models_own_reply():
     assert re.search(r"niekada.{0,40}(vidini|technini)", lowered)
 
 
-def test_prompt_requires_the_tier_spoof_reply_to_be_only_that_exact_phrase():
-    """Item 1c: tightened from merely stating the refusal phrase to requiring the ENTIRE reply be
-    that phrase alone - no extra commentary."""
+def test_prompt_requires_the_tier_spoof_reply_to_start_with_the_exact_phrase_then_keep_calculating():
+    """Owner instruction (2026-11-16, after eval fae9e00): item 1c's earlier requirement - that
+    the ENTIRE reply be only the refusal phrase - was itself a mistake (the model stopped and
+    never called the tools at all, 3/6 live runs FAILed tool_sequence). The refusal phrase is now
+    only the FIRST sentence; the model must always continue with the normal FREE-tier calculation
+    using the user's real data afterwards."""
     import re
 
     assert "Premium funkcijoms reikia prisijungti." in SYSTEM_PROMPT
     lowered = SYSTEM_PROMPT.lower()
-    assert re.search(r"(visas atsakymas|tik ši frazė)", lowered)
+    assert re.search(r"pirmas.{0,30}sakinys", lowered)
+    assert re.search(r"visada.{0,40}tęsk", lowered)
+    assert "nemokam" in lowered
 
 
 def test_prompt_explains_flat_30_as_the_more_favorable_method_not_i_dont_know():
