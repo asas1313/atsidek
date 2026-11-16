@@ -713,12 +713,16 @@ def main() -> None:
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=1,
+        # Owner instruction (2026-11-16, after eval a2dbaae, item 6): default bumped from 1 to 8 -
+        # a fully sequential run took ~17.5 minutes; each (case, run) unit is an independent
+        # LLM/Java round-trip, so running 8 at once is the new default instead of opt-in. Still
+        # overridable (e.g. --concurrency 1 to go back to the old sequential behaviour).
+        default=8,
         help=(
-            "How many (case, run) units to execute in parallel (default 1 = sequential, the "
-            "historical behaviour). A live run took ~17.5 minutes fully sequential - each unit is "
-            "an independent LLM/Java round-trip, so e.g. --concurrency 5 cuts wall-clock time "
-            "roughly 5x. Ignored with --rescore (no LLM calls are made at all)."
+            "How many (case, run) units to execute in parallel (default 8). A fully sequential "
+            "run (--concurrency 1) took ~17.5 minutes - each unit is an independent LLM/Java "
+            "round-trip, so e.g. --concurrency 5 cuts wall-clock time roughly 5x. Ignored with "
+            "--rescore (no LLM calls are made at all)."
         ),
     )
     parser.add_argument(
