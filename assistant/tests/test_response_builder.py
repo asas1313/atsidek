@@ -578,7 +578,10 @@ def test_assumptions_section_handles_unmapped_field_and_origin_gracefully():
 
 # --- Owner instruction (2026-11-16, after B6 eval #11, item 3): anon/logged-in/IV-income CTA -----
 
-def _savings_result(locked_features, income_origin="TAX_CALC", logged_in=False):
+def _savings_result(locked_features, income_origin="TAX_CALC", logged_in=False, premium_content=None):
+    """`premium_content=None` with `logged_in=True` stores `"premium": {}` - TODAY'S actual
+    Premium.java shape (intentionally empty at this phase, see its own javadoc) - pass a non-empty
+    dict to simulate a future state where Premium actually has content."""
     result = {
         "core": {
             "monthly_contribution": 100.0,
@@ -593,7 +596,7 @@ def _savings_result(locked_features, income_origin="TAX_CALC", logged_in=False):
         "income_origin": income_origin,
     }
     if logged_in:
-        result["premium"] = {}
+        result["premium"] = premium_content if premium_content is not None else {}
     return result
 
 
@@ -617,8 +620,10 @@ def test_anonymous_non_iv_income_gets_the_neutral_variant_without_svyruoja_sente
 
 
 def test_logged_in_free_user_never_sees_jei_prisijungsi_gets_upgrade_wording_instead():
-    tool_calls = [savings_call(
-        result=_savings_result(["SAVINGS_IV_LINK"], income_origin="TAX_CALC", logged_in=True))]
+    """premium_content non-empty: simulates a future state where the Premium section actually has
+    content (see item 5's fix below) - the positive case for the upgrade-wording CTA."""
+    tool_calls = [savings_call(result=_savings_result(
+        ["SAVINGS_IV_LINK"], income_origin="TAX_CALC", logged_in=True, premium_content={"goals": []}))]
 
     text = build_response(tool_calls, None)
 
@@ -628,13 +633,39 @@ def test_logged_in_free_user_never_sees_jei_prisijungsi_gets_upgrade_wording_ins
 
 
 def test_logged_in_free_user_non_iv_income_gets_the_logged_in_neutral_variant():
-    tool_calls = [savings_call(
-        result=_savings_result(["SAVINGS_IV_LINK"], income_origin="USER", logged_in=True))]
+    tool_calls = [savings_call(result=_savings_result(
+        ["SAVINGS_IV_LINK"], income_origin="USER", logged_in=True, premium_content={"goals": []}))]
 
     text = build_response(tool_calls, None)
 
     assert LOGGED_IN_FREE_CTA_NEUTRAL_IV in text
     assert "svyruoja" not in text.lower()
+
+
+# --- Owner instruction (2026-11-16, after eval a2dbaae, item 5): upgrade CTA needs real content --
+
+def test_logged_in_free_user_with_empty_premium_section_gets_no_upgrade_cta():
+    """The actual eval a2dbaae bug: Premium.java is intentionally EMPTY ({}) at this phase (its
+    own javadoc explains why) - promising "atnaujinkite iki Premium" for a section with nothing
+    in it is a false promise. Must show NO CTA at all here, not fall back to the anonymous
+    "jei prisijungsite" wording either (the user IS already logged in)."""
+    tool_calls = [savings_call(result=_savings_result(
+        ["SAVINGS_IV_LINK"], income_origin="TAX_CALC", logged_in=True))]  # premium_content=None -> {}
+
+    text = build_response(tool_calls, None)
+
+    assert "premium" not in text.lower()
+    assert "prisijung" not in text.lower()
+
+
+def test_logged_in_free_user_with_non_empty_premium_section_gets_the_upgrade_cta():
+    """Symmetric positive case: once Premium actually has content, the upgrade CTA is allowed."""
+    tool_calls = [savings_call(result=_savings_result(
+        ["SAVINGS_IV_LINK"], income_origin="TAX_CALC", logged_in=True, premium_content={"goals": []}))]
+
+    text = build_response(tool_calls, None)
+
+    assert LOGGED_IN_FREE_CTA["SAVINGS_IV_LINK"] in text
 
 
 def test_logged_in_user_with_no_locked_features_gets_no_cta_at_all_beta_equivalent():
@@ -649,8 +680,8 @@ def test_logged_in_user_with_no_locked_features_gets_no_cta_at_all_beta_equivale
 
 
 def test_logged_in_free_multi_goal_feature_uses_the_logged_in_wording_too():
-    tool_calls = [savings_call(
-        result=_savings_result(["SAVINGS_MULTI_GOAL"], income_origin="USER", logged_in=True))]
+    tool_calls = [savings_call(result=_savings_result(
+        ["SAVINGS_MULTI_GOAL"], income_origin="USER", logged_in=True, premium_content={"goals": []}))]
 
     text = build_response(tool_calls, None)
 

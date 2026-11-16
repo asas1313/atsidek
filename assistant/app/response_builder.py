@@ -270,18 +270,32 @@ def _build_assumptions_section(assumptions: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _build_cta_section(locked_features: list[str], is_logged_in: bool, income_origin: Optional[str]) -> Optional[str]:
+def _build_cta_section(
+    locked_features: list[str],
+    is_logged_in: bool,
+    income_origin: Optional[str],
+    premium_has_content: bool,
+) -> Optional[str]:
     """Owner instruction (2026-11-16, after B6 eval #11, item 3): `is_logged_in` picks the
     "jei prisijungsi" vs "jei atnaujinsi iki Premium" wording - during beta, a logged-in user's
     `locked_features` is already empty (full access), so this never fires for them regardless of
     `is_logged_in`, matching "beta metu – jokio CTA" without any extra beta-flag plumbing here.
     `income_origin` swaps in the IV-neutral variant for SAVINGS_IV_LINK when the resolved income
-    did NOT come from a prior calculate_iv_taxes call."""
+    did NOT come from a prior calculate_iv_taxes call.
+
+    Owner instruction (2026-11-16, after eval a2dbaae, item 5): `premium_has_content` gates the
+    LOGGED-IN upgrade CTA specifically - `Premium.java` is INTENTIONALLY empty (`{}`) at this
+    phase (its own javadoc says so; real content lands with later Feature work), so promising
+    "atnaujinkite iki Premium" for a section with nothing in it yet is a false promise. The
+    anonymous "jei prisijungsite" CTA is unaffected - logging in itself is real and available
+    today, unlike premium content."""
     feature = pick_cta_feature(locked_features)
     if feature is None:
         return None
     is_iv_income = income_origin == "TAX_CALC"
     if is_logged_in:
+        if not premium_has_content:
+            return None
         if feature == "SAVINGS_IV_LINK" and not is_iv_income:
             return LOGGED_IN_FREE_CTA_NEUTRAL_IV
         return LOGGED_IN_FREE_CTA.get(feature)
@@ -319,8 +333,10 @@ def build_response(tool_calls: list[dict], final_text: Optional[str]) -> str:
         sections.append(core["disclaimer"])
         if savings_result["locked_features"]:
             is_logged_in = "premium" in savings_result
+            premium_has_content = bool(savings_result.get("premium"))
             cta = _build_cta_section(
-                savings_result["locked_features"], is_logged_in, savings_result.get("income_origin"))
+                savings_result["locked_features"], is_logged_in, savings_result.get("income_origin"),
+                premium_has_content)
             if cta is not None:
                 sections.append(cta)
 
