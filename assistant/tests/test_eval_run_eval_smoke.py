@@ -468,6 +468,19 @@ def test_run_builds_work_items_keyed_on_case_id_not_the_case_instance_itself():
     assert "raw_results[(case.id, i)]" in source
 
 
+def test_run_one_and_rescore_both_wire_in_the_response_complete_check():
+    """Owner instruction (2026-11-16, after eval a2dbaae, item 3): both the live-run path
+    (`_run_one`) and `--rescore` must score `response_complete` - read directly from source since
+    `_run_one` needs a live backend and `rescore`'s own tests exercise it via stored JSON, not via
+    inspecting which checks got computed."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    assert '"response_complete": score_response_complete(result.stop_reason)' in inspect.getsource(run_eval._run_one)
+    assert "score_response_complete(stored_run.get(\"stop_reason\"))" in inspect.getsource(run_eval.rescore)
+
+
 def test_json_default_encodes_decimal_as_string_not_float():
     """Decimal -> str (never float), matching calculator._json_default_decimal_as_str's own
     rationale: tool_calls now stored in full (item 9) carry real Decimal values from

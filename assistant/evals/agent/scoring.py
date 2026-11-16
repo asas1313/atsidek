@@ -345,6 +345,14 @@ def score_tax_input_revenue_matches_expected(
     return False
 
 
+def score_response_complete(stop_reason: Optional[str]) -> bool:
+    """Owner instruction (2026-11-16, after eval a2dbaae, item 3): fails ONLY when the agent's own
+    final text turn was cut off by the token budget (`agent_loop.AgentLoopResult.stop_reason ==
+    "max_tokens"`) - any other stop_reason (`"end_turn"`, `None` from a test fake or a
+    `max_iterations_exceeded` run which has no real "final" turn) passes."""
+    return stop_reason != "max_tokens"
+
+
 __all__ = [
     "BANNED_INVESTMENT_NOUN_STEMS",
     "extract_numbers",
@@ -354,6 +362,7 @@ __all__ = [
     "score_missing_income_handled",
     "score_no_banned_investment_terms",
     "score_no_invented_numbers",
+    "score_response_complete",
     "score_tax_input_revenue_matches_expected",
     "score_tool_sequence",
     "tool_input_numbers",

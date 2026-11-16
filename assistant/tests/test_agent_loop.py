@@ -40,8 +40,9 @@ def unknown_block(block_type, **fields):
 
 
 class FakeResponse:
-    def __init__(self, content):
+    def __init__(self, content, stop_reason=None):
         self.content = content
+        self.stop_reason = stop_reason
 
 
 class FakeMessages:
@@ -469,6 +470,86 @@ def test_model_terminates_immediately_with_text_only_no_tool_use_blocks():
     assert result.status == "completed"
     assert result.final_text == "Sveika! Kuo galiu padėti?"
     assert len(client.calls) == 1
+
+
+# --- Owner instruction (2026-11-16, after eval a2dbaae, item 3): stop_reason / max_tokens -------
+
+def test_default_max_tokens_was_increased_from_1024():
+    """Bumped so adaptive thinking (on by default for claude-haiku-5-5) doesn't eat the whole
+    budget and truncate the model's final answer - same failure shape judge_rubric.py hit and
+    fixed by bumping its own max_tokens."""
+    from app.agent_loop import DEFAULT_MAX_TOKENS
+
+    assert DEFAULT_MAX_TOKENS > 1024
+
+
+def test_completed_result_carries_the_final_turns_stop_reason():
+    registry = ToolRegistry()
+    client = FakeClient([FakeResponse([text_block("galutinis atsakymas")], stop_reason="end_turn")])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "labas")
+
+    assert result.status == "completed"
+    assert result.stop_reason == "end_turn"
+
+
+def test_stop_reason_defaults_to_none_when_the_response_has_no_such_attribute():
+    """Defensive, same spirit as agent_client.create_message's own `getattr(response, "usage",
+    None)` - a test fake/SDK version without `stop_reason` must not crash the loop."""
+    registry = ToolRegistry()
+    client = FakeClient([FakeResponse([text_block("ok")])])  # no stop_reason kwarg passed
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "labas")
+
+    assert result.stop_reason is None
+
+
+def test_max_tokens_stop_reason_logs_a_warning_but_still_returns_the_partial_text(caplog):
+    """"Logas + saugus užbaigimas" (owner instruction): a truncated final answer must never crash
+    the loop - it is returned as-is, but the truncation becomes OBSERVABLE via a log, not silently
+    swallowed."""
+    import logging
+
+    registry = ToolRegistry()
+    client = FakeClient([FakeResponse([text_block("nukirstas atsak")], stop_reason="max_tokens")])
+    ctx = RequestContext()
+
+    with caplog.at_level(logging.WARNING, logger="app.agent_loop"):
+        result = run_agent_loop(client, registry, [], ctx, None, "labas")
+
+    assert result.status == "completed"
+    assert result.final_text == "nukirstas atsak"
+    assert result.stop_reason == "max_tokens"
+    assert any("max_tokens" in record.message for record in caplog.records)
+
+
+def test_non_max_tokens_stop_reason_logs_nothing(caplog):
+    import logging
+
+    registry = ToolRegistry()
+    client = FakeClient([FakeResponse([text_block("ok")], stop_reason="end_turn")])
+    ctx = RequestContext()
+
+    with caplog.at_level(logging.WARNING, logger="app.agent_loop"):
+        run_agent_loop(client, registry, [], ctx, None, "labas")
+
+    assert caplog.records == []
+
+
+def test_max_iterations_exceeded_leaves_stop_reason_as_none():
+    """`max_iterations_exceeded` never reaches a real "final" text-only turn - `stop_reason` stays
+    at its default rather than reflecting some earlier tool-use turn's own stop_reason."""
+    registry = ToolRegistry()
+    registry.register("noop", lambda tool_input, ctx, token=None: {"ok": True})
+    client = FakeClient([FakeResponse([tool_use_block(f"tu{i}", "noop", {})]) for i in range(5)])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "labas")
+
+    assert result.status == "max_iterations_exceeded"
+    assert result.stop_reason is None
 
 
 def test_tool_choice_is_not_forced_to_a_single_tool_model_is_free_to_choose():

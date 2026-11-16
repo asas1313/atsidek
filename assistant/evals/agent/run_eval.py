@@ -132,6 +132,7 @@ from evals.agent.scoring import (  # noqa: E402
     score_missing_income_handled,
     score_no_banned_investment_terms,
     score_no_invented_numbers,
+    score_response_complete,
     score_tax_input_revenue_matches_expected,
     score_tool_sequence,
 )
@@ -322,6 +323,7 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
             result.final_text, result.tool_calls, case.user_message
         ),
         "anon_no_premium": score_anon_no_premium(result.tool_calls, case.variant),
+        "response_complete": score_response_complete(result.stop_reason),
     }
     if case.expect_clarifying_question:
         rate_checks["missing_income_handled"] = score_missing_income_handled(
@@ -369,6 +371,10 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
         # reconstruct e.g. score_no_invented_numbers' rendered-number comparison or
         # score_anon_no_premium's "premium" key check.
         "tool_calls": result.tool_calls,
+        # Owner instruction (2026-11-16, item 3): stored too (not just folded into `checks`
+        # below), so `--rescore` can recompute `response_complete` from a past run without a new
+        # live LLM call - mirrors why `tool_calls` itself is stored in full (item 9).
+        "stop_reason": result.stop_reason,
         "context_token_used": context_token is not None,
         "actual_tier_seen": actual_tier_seen,
         "had_premium_section": had_premium_section,
@@ -579,6 +585,9 @@ def rescore(results_path: Path) -> dict:
                 "tool_sequence": score_tool_sequence(tool_calls, case.expected_tool_sequence),
                 "no_invented_numbers": score_no_invented_numbers(final_text, tool_calls, case.user_message),
                 "anon_no_premium": score_anon_no_premium(tool_calls, case.variant),
+                # .get(), not [] - older results files (predating item 3) have no "stop_reason"
+                # key at all; defaulting to None passes (score_response_complete(None) is True).
+                "response_complete": score_response_complete(stored_run.get("stop_reason")),
             }
             if case.expect_clarifying_question:
                 rate_checks["missing_income_handled"] = score_missing_income_handled(

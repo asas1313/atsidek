@@ -17,6 +17,7 @@ from evals.agent.scoring import (
     score_missing_income_handled,
     score_no_banned_investment_terms,
     score_no_invented_numbers,
+    score_response_complete,
     score_tax_input_revenue_matches_expected,
     score_tool_sequence,
     tool_input_numbers,
@@ -600,3 +601,19 @@ def test_score_tool_sequence_fails_when_an_unknown_tool_name_appears():
     tool name silently matching via some lax comparison)."""
     calls = [{"id": "x1", "name": "some_other_tool", "input": {}, "result": {}, "error": None, "is_error": False}]
     assert score_tool_sequence(calls, [TAX_TOOL_NAME]) is False
+
+
+# --- score_response_complete (owner instruction 2026-11-16, after eval a2dbaae, item 3) --------
+
+def test_score_response_complete_fails_on_max_tokens():
+    assert score_response_complete("max_tokens") is False
+
+
+def test_score_response_complete_passes_on_end_turn():
+    assert score_response_complete("end_turn") is True
+
+
+def test_score_response_complete_passes_on_none():
+    """None covers both a test fake without stop_reason and a max_iterations_exceeded run (no
+    real "final" turn, see agent_loop.AgentLoopResult's own docstring)."""
+    assert score_response_complete(None) is True

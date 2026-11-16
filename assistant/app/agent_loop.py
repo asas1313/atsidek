@@ -17,6 +17,7 @@ Claude-calling code now lives in `agent_client.create_message` (B4's prompt-cach
 directly.
 """
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Literal, Optional
@@ -25,6 +26,8 @@ from .agent_client import create_message
 from .errors import ToolError
 from .request_context import RequestContext
 from .tools import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 5
 
@@ -35,7 +38,12 @@ MAX_ITERATIONS = 5
 TAX_CALC_ID_FIELD = "tax_calc_id"
 
 DEFAULT_MODEL = "claude-haiku-5-5"
-DEFAULT_MAX_TOKENS = 1024
+# Owner instruction (2026-11-16, after eval a2dbaae): bumped from 1024 - claude-haiku-5-5 has
+# adaptive thinking on by default (no `thinking` param is set anywhere - see this module's own
+# earlier note), and thinking tokens count against this budget same as the actual answer text, so
+# a too-small value can truncate the model's FINAL text turn (same failure shape judge_rubric.py
+# hit with its own max_tokens=256, fixed there by bumping to 1024 - see that module's docstring).
+DEFAULT_MAX_TOKENS = 2048
 
 # Minimal/placeholder (plan Design decision 6): the REAL investment-advice-ban, income-never-
 # assumed, response-shape system prompt is explicitly B4's job. This is just enough to drive this
@@ -73,6 +81,14 @@ class AgentLoopResult:
     # "error": str | None, "is_error": bool}. `result` is the SAME dict `_dispatch_tool_call`
     # already parsed before JSON-encoding it for the model; B4 reads this directly, no decoding.
     tool_calls: list[dict[str, Any]]
+    # Owner instruction (2026-11-16, after eval a2dbaae, item 3): the LAST turn's own
+    # `response.stop_reason`, ONLY when `status == "completed"` (the turn that actually produced
+    # `final_text`) - `None` for `max_iterations_exceeded` (a different failure shape, already its
+    # own `status` value) and for any test fake that doesn't set `stop_reason` at all. `"max_tokens"`
+    # here means `final_text` may be truncated - B6's eval harness scores this as a separate
+    # `response_complete` check (`evals/agent/scoring.score_response_complete`); production code
+    # (once B7 wires this module in) should log it, never crash on it.
+    stop_reason: Optional[str] = None
 
 
 def _content_block_to_dict(block: Any) -> dict[str, Any]:
@@ -268,11 +284,22 @@ def run_agent_loop(
         if not tool_uses:
             # The model terminated the loop itself - a text-only final answer.
             texts = [b["text"] for b in assistant_content if b["type"] == "text"]
+            stop_reason = getattr(response, "stop_reason", None)
+            if stop_reason == "max_tokens":
+                # "Logas + saugus užbaigimas" (owner instruction, item 3): never raise/crash on a
+                # truncated final answer - `final_text` below is still whatever text the model
+                # got out before being cut off, returned as-is (a safe, non-crashing ending); this
+                # log is what makes the truncation OBSERVABLE instead of silently swallowed.
+                logger.warning(
+                    "agent final response truncated at max_tokens",
+                    extra={"max_tokens": DEFAULT_MAX_TOKENS},
+                )
             return AgentLoopResult(
                 status="completed",
                 final_text="\n".join(texts) if texts else None,
                 messages=messages,
                 tool_calls=tool_calls,
+                stop_reason=stop_reason,
             )
 
         dispatched = _dispatch_batch(registry, tool_uses, request_context, context_token)
