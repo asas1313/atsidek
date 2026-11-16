@@ -51,6 +51,38 @@ LOCKED_FEATURE_CTA = {
 }
 PREFERRED_CTA_FEATURE = "SAVINGS_IV_LINK"
 
+# Owner instruction (2026-11-16, after B6 eval #11, item 3): "Tavo pajamos svyruoja" presumes
+# irregular/IV income - only true when the resolved net_monthly_income actually came from a prior
+# calculate_iv_taxes call (`income_origin == "TAX_CALC"`, see savings_tool.ResolvedIncome). When it
+# came from the user's own stated figure instead, the premise doesn't hold - use this neutral
+# variant (same feature, same CTA, just without the IV-specific opening clause).
+LOCKED_FEATURE_CTA_NEUTRAL_IV = (
+    "Jei prisijungsi, pamatysi, kiek atsidėti stipresniais ir silpnesniais mėnesiais."
+)
+
+# Owner instruction (2026-11-16, after B6 eval #11, item 3): "jei prisijungsi" makes no sense to
+# someone who IS already logged in (FREE tier, beta off - during beta every logged-in user gets
+# all 3 features, so `locked_features` is empty and no CTA renders at all, same as today). These
+# are the logged-in-FREE upgrade equivalents of `LOCKED_FEATURE_CTA` - same structure/feature
+# coverage, own wording not specified by the owner, since none exists yet to port from.
+LOGGED_IN_FREE_CTA = {
+    "SAVINGS_MULTI_GOAL": (
+        "Turi daugiau nei vieną taupymo tikslą? Jei atnaujinsi iki Premium, galėsi sekti keletą "
+        "tikslų vienu metu, ne tik vieną."
+    ),
+    "SAVINGS_IV_LINK": (
+        "Tavo pajamos svyruoja – jei atnaujinsi iki Premium, pamatysi, kiek atsidėti stipresniais "
+        "ir silpnesniais mėnesiais."
+    ),
+    "SAVINGS_SCENARIOS": (
+        "Jei atnaujinsi iki Premium, galėsi greta palyginti keletą taupymo scenarijų – pvz. "
+        "skirtingus terminus ar sumas."
+    ),
+}
+LOGGED_IN_FREE_CTA_NEUTRAL_IV = (
+    "Jei atnaujinsi iki Premium, pamatysi, kiek atsidėti stipresniais ir silpnesniais mėnesiais."
+)
+
 # Review round 1 SHOULD #2: `core["general_tip"]` (SavingsPlanService.generalTip(), Java) is
 # written in the formal "jūs" register - it has never actually been RENDERED to a user before
 # (taupymo-tikslai.html receives the field but doesn't display it), so this is the first time its
@@ -201,10 +233,23 @@ def _build_assumptions_section(assumptions: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _build_cta_section(locked_features: list[str]) -> Optional[str]:
+def _build_cta_section(locked_features: list[str], is_logged_in: bool, income_origin: Optional[str]) -> Optional[str]:
+    """Owner instruction (2026-11-16, after B6 eval #11, item 3): `is_logged_in` picks the
+    "jei prisijungsi" vs "jei atnaujinsi iki Premium" wording - during beta, a logged-in user's
+    `locked_features` is already empty (full access), so this never fires for them regardless of
+    `is_logged_in`, matching "beta metu – jokio CTA" without any extra beta-flag plumbing here.
+    `income_origin` swaps in the IV-neutral variant for SAVINGS_IV_LINK when the resolved income
+    did NOT come from a prior calculate_iv_taxes call."""
     feature = pick_cta_feature(locked_features)
     if feature is None:
         return None
+    is_iv_income = income_origin == "TAX_CALC"
+    if is_logged_in:
+        if feature == "SAVINGS_IV_LINK" and not is_iv_income:
+            return LOGGED_IN_FREE_CTA_NEUTRAL_IV
+        return LOGGED_IN_FREE_CTA.get(feature)
+    if feature == "SAVINGS_IV_LINK" and not is_iv_income:
+        return LOCKED_FEATURE_CTA_NEUTRAL_IV
     return LOCKED_FEATURE_CTA.get(feature)
 
 
@@ -236,7 +281,9 @@ def build_response(tool_calls: list[dict], final_text: Optional[str]) -> str:
             sections.append(_build_assumptions_section(core["assumptions"]))
         sections.append(core["disclaimer"])
         if savings_result["locked_features"]:
-            cta = _build_cta_section(savings_result["locked_features"])
+            is_logged_in = "premium" in savings_result
+            cta = _build_cta_section(
+                savings_result["locked_features"], is_logged_in, savings_result.get("income_origin"))
             if cta is not None:
                 sections.append(cta)
 

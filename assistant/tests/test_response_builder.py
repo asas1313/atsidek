@@ -3,7 +3,14 @@ LLM-output test - every assertion here is about section ORDER and EXACT numeric 
 fixed, hand-built `tool_calls` inputs (the same shape `agent_loop.AgentLoopResult.tool_calls`
 produces), never about LLM-generated prose.
 """
-from app.response_builder import build_response, pick_cta_feature
+from app.response_builder import (
+    LOCKED_FEATURE_CTA,
+    LOCKED_FEATURE_CTA_NEUTRAL_IV,
+    LOGGED_IN_FREE_CTA,
+    LOGGED_IN_FREE_CTA_NEUTRAL_IV,
+    build_response,
+    pick_cta_feature,
+)
 
 
 def tax_call(call_id="tu_tax", is_error=False, result=None):
@@ -426,6 +433,87 @@ def test_assumptions_section_handles_unmapped_field_and_origin_gracefully():
 
     assert "some_future_field" in text
     assert "SOME_FUTURE_ORIGIN" in text
+
+
+# --- Owner instruction (2026-11-16, after B6 eval #11, item 3): anon/logged-in/IV-income CTA -----
+
+def _savings_result(locked_features, income_origin="TAX_CALC", logged_in=False):
+    result = {
+        "core": {
+            "monthly_contribution": 100.0,
+            "free_cash_monthly": 400.0,
+            "share_of_free_cash_pct": 25.0,
+            "fits": True,
+            "general_tip": "tip",
+            "assumptions": [],
+            "disclaimer": "disc",
+        },
+        "locked_features": locked_features,
+        "income_origin": income_origin,
+    }
+    if logged_in:
+        result["premium"] = {}
+    return result
+
+
+def test_anonymous_iv_income_gets_the_iv_svyruoja_sentence():
+    tool_calls = [savings_call(result=_savings_result(["SAVINGS_IV_LINK"], income_origin="TAX_CALC"))]
+
+    text = build_response(tool_calls, None)
+
+    assert LOCKED_FEATURE_CTA["SAVINGS_IV_LINK"] in text
+    assert "jei prisijungsi" in text.lower()
+
+
+def test_anonymous_non_iv_income_gets_the_neutral_variant_without_svyruoja_sentence():
+    tool_calls = [savings_call(result=_savings_result(["SAVINGS_IV_LINK"], income_origin="USER"))]
+
+    text = build_response(tool_calls, None)
+
+    assert LOCKED_FEATURE_CTA_NEUTRAL_IV in text
+    assert "svyruoja" not in text.lower()
+    assert "jei prisijungsi" in text.lower()
+
+
+def test_logged_in_free_user_never_sees_jei_prisijungsi_gets_upgrade_wording_instead():
+    tool_calls = [savings_call(
+        result=_savings_result(["SAVINGS_IV_LINK"], income_origin="TAX_CALC", logged_in=True))]
+
+    text = build_response(tool_calls, None)
+
+    assert LOGGED_IN_FREE_CTA["SAVINGS_IV_LINK"] in text
+    assert "jei prisijungsi" not in text.lower()
+    assert "premium" in text.lower()
+
+
+def test_logged_in_free_user_non_iv_income_gets_the_logged_in_neutral_variant():
+    tool_calls = [savings_call(
+        result=_savings_result(["SAVINGS_IV_LINK"], income_origin="USER", logged_in=True))]
+
+    text = build_response(tool_calls, None)
+
+    assert LOGGED_IN_FREE_CTA_NEUTRAL_IV in text
+    assert "svyruoja" not in text.lower()
+
+
+def test_logged_in_user_with_no_locked_features_gets_no_cta_at_all_beta_equivalent():
+    # During beta every logged-in user gets all 3 features -> empty locked_features -> no CTA,
+    # with no extra beta-flag plumbing needed in response_builder itself.
+    tool_calls = [savings_call(result=_savings_result([], logged_in=True))]
+
+    text = build_response(tool_calls, None)
+
+    assert "prisijung" not in text.lower()
+    assert "premium" not in text.lower()
+
+
+def test_logged_in_free_multi_goal_feature_uses_the_logged_in_wording_too():
+    tool_calls = [savings_call(
+        result=_savings_result(["SAVINGS_MULTI_GOAL"], income_origin="USER", logged_in=True))]
+
+    text = build_response(tool_calls, None)
+
+    assert LOGGED_IN_FREE_CTA["SAVINGS_MULTI_GOAL"] in text
 
 
 # --- Owner instruction (2026-11-16, after B6 eval #11, item 2): WHEN-mode reach date ------------
