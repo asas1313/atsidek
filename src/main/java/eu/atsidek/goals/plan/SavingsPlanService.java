@@ -113,8 +113,9 @@ public class SavingsPlanService {
         BigDecimal monthlyExpenses = resolveMonthlyExpenses(request, assumptions);
         // B6 live-eval incident (2026-11-13, žr. docs/specs/taupymo-tikslai/B6-log.log): ANKSČIAU
         // čia buvo `.subtract(nz(request.monthlyTaxSetaside()))` - bet `net_monthly_income` (B1,
-        // TaxResult.netMonthlyIncome = (revenue - total) / 12) JAU yra grynosios pajamos PO
-        // mokesčių, o `monthly_tax_setaside` (TaxResult.monthlyReserve = total / 12) yra TA PATI
+        // TaxResult.netMonthlyIncome = (revenue - actualExpenses - total) / 12, patikslinta owner
+        // instrukcija 2026-11-16) JAU yra grynosios pajamos PO mokesčių IR faktinių IV išlaidų, o
+        // `monthly_tax_setaside` (TaxResult.monthlyReserve = total / 12) yra TA PATI
         // mokesčių suma - atimant abu, mokesčiai buvo atimami du kartus (pvz. real case
         // combined_logged_in_02: 365,07 vietoj teisingo 815,87). `monthly_tax_setaside` yra TIK
         // rodymui (jau parodyta vartotojui per mokesčių skaičiavimo žingsnį) - laisviems pinigams

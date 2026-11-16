@@ -73,11 +73,28 @@ class TaxEngineTest {
     }
 
     @Test
-    void official6NetMonthlyIncomeIsRevenueMinusTotalDividedByTwelveForActualMethodToo() {
-        // (60000 - 13982.93) / 12 = 46017.07 / 12 = 3834.7558(3) -> HALF_UP 3834.76
+    void official6NetMonthlyIncomeSubtractsActualExpensesTooForActualMethod() {
+        // Owner instruction (2026-11-16, after B6 eval #11) supersedes the older "(revenue -
+        // total)/12, literally" reading this test used to assert: the 15000 actually spent is
+        // real money out the door, so it must also be subtracted, not just the 13982.93 tax.
+        // (60000 - 15000 - 13982.93) / 12 = 31017.07 / 12 = 2584.7558(3) -> HALF_UP 2584.76
         TaxInput in = new TaxInput(d("60000"), ExpenseMethod.ACTUAL, d("15000"), BigDecimal.ZERO, false);
         TaxResult r = engine.calculate(in);
-        assertEquals(d("3834.76"), r.netMonthlyIncome());
+        assertEquals(d("2584.76"), r.netMonthlyIncome());
+    }
+
+    @Test
+    void netMonthlyIncomeSubtractsActualExpensesEvenWhenFlat30NormAppliesForTax() {
+        // Owner instruction (2026-11-16, after B6 eval #11): the user's own stated actual
+        // expenses must be subtracted from net_monthly_income even when FLAT_30 (not ACTUAL) is
+        // the method actually used to compute tax - the 30% deemed deduction is tax-only, it is
+        // not real money the user has in hand.
+        // total: see official-scenario style check below; (22000 - 4000 - 3472.70) / 12 =
+        // 14527.30 / 12 = 1210.6083(3) -> HALF_UP 1210.61
+        TaxInput in = new TaxInput(d("22000"), ExpenseMethod.FLAT_30, d("4000"), BigDecimal.ZERO, false);
+        TaxResult r = engine.calculate(in);
+        assertEquals(d("3472.70"), r.total());
+        assertEquals(d("1210.61"), r.netMonthlyIncome());
     }
 
     @Test
@@ -148,8 +165,9 @@ class TaxEngineTest {
 
     @Test
     void netMonthlyIncomeGoesNegativeAndUnclampedWhenFixedCostsExceedRevenue() {
-        // Owner decision 5: netMonthlyIncome = (revenue - total) / 12, literally, no clamping to
-        // zero - net taikant mažas pajamas, PSD minimumas (12 mėn.) vienas viršija visas pajamas.
+        // Owner decision 5: netMonthlyIncome = (revenue - actualExpenses - total) / 12, literally,
+        // no clamping to zero - net taikant mažas pajamas, PSD minimumas (12 mėn.) vienas viršija
+        // visas pajamas. actualExpenses=0 čia (flat() helper), tad formulė sutampa su senąja.
         TaxResult r = engine.calculate(flat("1000", "0", false));
         assertEquals(d("1079.64"), r.total(), "sanity: total viršija revenue šiame scenarijuje");
         assertEquals(d("-6.64"), r.netMonthlyIncome());

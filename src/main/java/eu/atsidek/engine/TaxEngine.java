@@ -65,7 +65,7 @@ public final class TaxEngine {
                 r(total.divide(MONTHS, 10, RoundingMode.HALF_UP)),
                 effective.setScale(4, RoundingMode.HALF_UP),
                 ceilingHit,
-                r(revenue.subtract(total).divide(MONTHS, 10, RoundingMode.HALF_UP)));
+                r(revenue.subtract(in.actualExpenses()).subtract(total).divide(MONTHS, 10, RoundingMode.HALF_UP)));
     }
 
     /**
