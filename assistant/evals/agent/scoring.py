@@ -214,6 +214,50 @@ def score_missing_income_handled(
     return True
 
 
+# Owner instruction (2026-11-16, stat_defaults sprendimas #4): typical_amount is never auto-filled
+# (goal.amount is a REQUIRED calculate_savings_plan schema field, same treatment as income) - a
+# goal with no stated target amount must make the model ASK for it, not call the tool. Mirrors
+# _is_income_request/score_missing_income_handled exactly, keyed on "sum" (covers suma/sumos/
+# sumą/sumai) instead of "pajam", reusing the same request-stem vocabulary.
+_AMOUNT_REQUEST_STEMS = ("reik", "pasaky", "nurody", "praš", "trūksta")
+
+
+def _is_amount_request(final_text: str) -> bool:
+    """True for a genuine clarifying question ("?" present) OR a direct, non-question amount
+    request that both mentions a sum ("sum") and uses one of `_AMOUNT_REQUEST_STEMS` - merely
+    mentioning a sum in passing does NOT count, only an actual request/need phrasing does."""
+    if "?" in final_text:
+        return True
+    lowered = final_text.lower()
+    if "sum" not in lowered:
+        return False
+    return any(stem in lowered for stem in _AMOUNT_REQUEST_STEMS)
+
+
+def score_missing_amount_handled(
+    tool_calls: list[dict], final_text: Optional[str], user_message: str = ""
+) -> bool:
+    """Owner instruction (2026-11-16, stat_defaults sprendimas #4): passes if no SUCCESSFUL
+    `calculate_savings_plan` result exists (a failed attempt the model recovers from is tolerated)
+    AND `final_text` is a genuine amount request (see `_is_amount_request`) that states no numbers
+    other than a referenced calendar year or a number the USER'S OWN message already stated -
+    same shape as `score_missing_income_handled`, for the goal-amount-missing case instead of the
+    income-missing case.
+    """
+    if _last_successful_result(tool_calls, SAVINGS_TOOL_NAME) is not None:
+        return False
+    if not final_text:
+        return False
+    if not _is_amount_request(final_text):
+        return False
+    user_numbers = extract_numbers(user_message or "")
+    for n in extract_numbers(final_text):
+        if _is_calendar_year_like(n) or n in user_numbers:
+            continue
+        return False
+    return True
+
+
 # AC-B6-4 deterministic half - SIMPLIFIED per owner decision 2026-11-13, after review rounds 1-3
 # each found a new regex-edge-case false positive/negative in a verb+proximity+advisor-exception
 # heuristic (recommending the user consult a financial advisor vs. recommending a product, three
@@ -306,6 +350,7 @@ __all__ = [
     "extract_numbers",
     "rendered_numbers",
     "score_anon_no_premium",
+    "score_missing_amount_handled",
     "score_missing_income_handled",
     "score_no_banned_investment_terms",
     "score_no_invented_numbers",

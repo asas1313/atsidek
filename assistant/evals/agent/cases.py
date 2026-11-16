@@ -24,6 +24,9 @@ Schema (`EvalCase`, a frozen dataclass):
   - `expected_annual_revenue`: set only for the monthly-income cases below (AC-B6-7) - the
     correctly-annualized (x12) figure the model's `calculate_iv_taxes` tool call INPUT must carry,
     scored by `scoring.score_tax_input_revenue_matches_expected`. `None` for every other case.
+  - `expect_amount_clarifying_question`: `True` only for the missing-amount case below (owner
+    instruction, 2026-11-16) - mirrors `expect_clarifying_question` but for a savings goal with no
+    target amount stated, scored by `scoring.score_missing_amount_handled`.
 
 30 "core" cases: 3 groups x 2 variants x 5 cases, per the plan's "~30 cases, balanced
 5-per-group-per-variant" target. `combined` cases give enough information in ONE message for the
@@ -80,6 +83,7 @@ class EvalCase:
     expected_tool_sequence: list[str]
     expect_clarifying_question: bool = False
     expected_annual_revenue: Optional[Decimal] = None
+    expect_amount_clarifying_question: bool = False
 
 
 CASES: list[EvalCase] = [
@@ -483,6 +487,20 @@ CASES: list[EvalCase] = [
         ),
         expected_tool_sequence=[TAX_TOOL_NAME, SAVINGS_TOOL_NAME],
         expected_annual_revenue=Decimal("26400"),
+    ),
+    # --- missing-amount case (1) - owner instruction 2026-11-16, stat_defaults sprendimas #4 ------
+    # A savings goal with NO target amount stated at all - typical_amount is never auto-filled (the
+    # calculate_savings_plan tool's goal.amount is a REQUIRED schema field, just like
+    # net_monthly_income), so the model must ask for the amount instead of calling the tool, same
+    # treatment as the missing-income cases above. Scored by scoring.score_missing_amount_handled.
+    EvalCase(
+        id="missing_amount_anon_01",
+        group="savings_only",
+        variant="anon",
+        tier=None,
+        user_message="Mano grynosios pajamos 1800 eurų per mėnesį, norėčiau pradėti taupyti automobiliui per 4 metus.",
+        expected_tool_sequence=[],
+        expect_amount_clarifying_question=True,
     ),
 ]
 

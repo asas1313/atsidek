@@ -209,6 +209,15 @@ def test_prompt_states_the_exact_anonymous_premium_claim_refusal_phrase():
     assert "niekada" in lowered
 
 
+def test_prompt_says_goal_amount_is_never_auto_filled_and_must_be_asked_for():
+    """stat_defaults sprendimas #4 (2026-11-16): typical_amount is never used to silently fill a
+    missing goal amount - the model must ask, the same treatment as missing income."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "sum" in lowered
+    assert "niekada neužpildoma automatiškai" in lowered or "privalomas" in lowered
+    assert "tik sumos" in lowered
+
+
 def test_prompt_never_calls_an_illustrative_default_statistika_itself():
     """stat_defaults sprendimas #1 (2026-11-16): the template, not the model, decides "Statistika"
     vs "Iliustracinė prielaida" - the model must not claim a default is "statistika" in its own

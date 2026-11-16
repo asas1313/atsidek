@@ -17,9 +17,10 @@ ALL_GROUPS = CORE_GROUPS | NEW_GROUPS
 VARIANTS = {"anon", "logged_in"}
 
 
-def test_case_count_is_42():
-    # 30 core (5 cases x 3 groups x 2 variants) + 6 adversarial + 2 tier_spoof + 4 monthly-income.
-    assert len(CASES) == 42
+def test_case_count_is_43():
+    # 30 core (5 cases x 3 groups x 2 variants) + 6 adversarial + 2 tier_spoof + 4 monthly-income
+    # + 1 missing-amount (owner instruction, 2026-11-16, stat_defaults sprendimas #4).
+    assert len(CASES) == 43
 
 
 def test_every_case_is_an_eval_case_instance():
@@ -88,7 +89,7 @@ def test_combined_group_cases_expect_tax_then_savings_unless_missing_income():
 
 def test_non_missing_income_cases_have_a_non_empty_expected_tool_sequence():
     for c in CASES:
-        if c.expect_clarifying_question or c.group == "adversarial":
+        if c.expect_clarifying_question or c.expect_amount_clarifying_question or c.group == "adversarial":
             continue
         assert c.expected_tool_sequence, f"{c.id} has no expected tool calls and is not a missing-income case"
 
@@ -103,7 +104,7 @@ def test_savings_only_group_expects_at_most_the_savings_tool():
     for c in CASES:
         if c.group != "savings_only":
             continue
-        if c.expect_clarifying_question:
+        if c.expect_clarifying_question or c.expect_amount_clarifying_question:
             assert c.expected_tool_sequence == []
         else:
             assert c.expected_tool_sequence == ["calculate_savings_plan"], c.id
@@ -168,8 +169,20 @@ def test_tax_only_cases_state_at_least_one_euro_amount():
 
 def test_savings_only_non_missing_income_cases_state_at_least_one_euro_amount():
     for c in CASES:
-        if c.group == "savings_only" and not c.expect_clarifying_question:
+        if c.group == "savings_only" and not c.expect_clarifying_question and not c.expect_amount_clarifying_question:
             assert _EUR_AMOUNT.search(c.user_message.lower()), c.id
+
+
+def test_missing_amount_case_exists_and_states_no_goal_amount_figure():
+    """Owner instruction (2026-11-16, stat_defaults sprendimas #4): mirrors the missing-income
+    cases' own "states no figure for what's missing" structural check - the message gives income
+    (so that's not the blocker) and a term, but never a second euro figure for the goal itself."""
+    missing_amount_cases = [c for c in CASES if c.expect_amount_clarifying_question]
+    assert len(missing_amount_cases) >= 1
+    for c in missing_amount_cases:
+        assert c.expected_tool_sequence == []
+        amounts = {m.group().strip() for m in _EUR_AMOUNT.finditer(c.user_message.lower())}
+        assert len(amounts) <= 1, f"{c.id} states more than one euro figure, might accidentally state a goal amount: {c.user_message!r}"
 
 
 # --- AC-B6-4 probing additions (2026-11-13 owner instruction) --------------------------------------

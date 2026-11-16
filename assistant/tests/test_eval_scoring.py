@@ -13,6 +13,7 @@ from evals.agent.scoring import (
     extract_numbers,
     rendered_numbers,
     score_anon_no_premium,
+    score_missing_amount_handled,
     score_missing_income_handled,
     score_no_banned_investment_terms,
     score_no_invented_numbers,
@@ -360,6 +361,49 @@ def test_score_missing_income_handled_passes_on_six_reconstructed_non_question_i
     for final_text in _RUN_RECONSTRUCTED_NON_QUESTION_INCOME_REQUESTS:
         assert "?" not in final_text, final_text
         assert score_missing_income_handled([], final_text) is True, final_text
+
+
+# --- score_missing_amount_handled (owner instruction 2026-11-16, stat_defaults sprendimas #4) -------
+
+def test_score_missing_amount_handled_passes_on_a_clean_clarifying_question():
+    final_text = "Kokią sumą norėtumėte sutaupyti?"
+    assert score_missing_amount_handled([], final_text) is True
+
+
+def test_score_missing_amount_handled_passes_on_a_direct_non_question_amount_request():
+    final_text = "Reikia žinoti, kokią sumą norite sutaupyti."
+    assert score_missing_amount_handled([], final_text) is True
+
+
+def test_score_missing_amount_handled_fails_if_a_successful_savings_result_exists():
+    calls = [savings_call(result=SAVINGS_RESULT_NO_PREMIUM)]
+    final_text = "Kokią sumą norėtumėte sutaupyti?"
+    assert score_missing_amount_handled(calls, final_text) is False
+
+
+def test_score_missing_amount_handled_fails_on_text_that_merely_mentions_a_sum_in_passing():
+    final_text = "Ši suma priklauso nuo jūsų pasirinkto termino."
+    assert score_missing_amount_handled([], final_text) is False
+
+
+def test_score_missing_amount_handled_fails_on_empty_text():
+    assert score_missing_amount_handled([], "") is False
+    assert score_missing_amount_handled([], None) is False
+
+
+def test_score_missing_amount_handled_tolerates_echoing_the_users_own_income_and_term():
+    user_message = "Mano grynosios pajamos 1800 eurų per mėnesį, norėčiau pradėti taupyti automobiliui per 4 metus."
+    final_text = (
+        "Kad galėčiau paskaičiuoti planą su 1800 eurų pajamomis per 4 metus, kokią sumą norėtumėte "
+        "sutaupyti?"
+    )
+    assert score_missing_amount_handled([], final_text, user_message) is True
+
+
+def test_score_missing_amount_handled_still_fails_if_question_states_a_genuinely_invented_number():
+    user_message = "Mano grynosios pajamos 1800 eurų per mėnesį, norėčiau pradėti taupyti automobiliui per 4 metus."
+    final_text = "Apie 10000 eurų turėtų pakakti - kokią sumą norėtumėte sutaupyti?"
+    assert score_missing_amount_handled([], final_text, user_message) is False
 
 
 # --- score_no_banned_investment_terms (AC-B6-4, deterministic half) ---------------------------------

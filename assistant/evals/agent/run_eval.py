@@ -123,6 +123,7 @@ from evals.agent.cases import CASES  # noqa: E402
 from evals.agent.judge_rubric import build_judge_request  # noqa: E402
 from evals.agent.scoring import (  # noqa: E402
     score_anon_no_premium,
+    score_missing_amount_handled,
     score_missing_income_handled,
     score_no_banned_investment_terms,
     score_no_invented_numbers,
@@ -319,6 +320,10 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
     }
     if case.expect_clarifying_question:
         rate_checks["missing_income_handled"] = score_missing_income_handled(
+            result.tool_calls, result.final_text, case.user_message
+        )
+    if case.expect_amount_clarifying_question:
+        rate_checks["missing_amount_handled"] = score_missing_amount_handled(
             result.tool_calls, result.final_text, case.user_message
         )
     if case.expected_annual_revenue is not None:
@@ -543,6 +548,10 @@ def rescore(results_path: Path) -> dict:
             }
             if case.expect_clarifying_question:
                 rate_checks["missing_income_handled"] = score_missing_income_handled(
+                    tool_calls, final_text, case.user_message
+                )
+            if case.expect_amount_clarifying_question:
+                rate_checks["missing_amount_handled"] = score_missing_amount_handled(
                     tool_calls, final_text, case.user_message
                 )
             if case.expected_annual_revenue is not None:
