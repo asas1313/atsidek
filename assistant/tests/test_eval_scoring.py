@@ -290,8 +290,23 @@ def test_score_missing_income_handled_fails_if_question_text_contains_a_number()
     assert score_missing_income_handled([], final_text) is False
 
 
-def test_score_missing_income_handled_fails_if_text_has_no_question_mark():
+def test_score_missing_income_handled_recognizes_a_direct_non_question_income_request():
+    """Owner instruction (2026-11-16, after B6 eval #11, item 8): a genuine income request isn't
+    always phrased as a question - this used to fail purely for lacking "?", even though it
+    clearly asks for income ("reikėtų" + "pajamas")."""
     final_text = "Reikėtų žinoti tavo pajamas."
+    assert score_missing_income_handled([], final_text) is True
+
+
+def test_score_missing_income_handled_still_fails_on_text_that_merely_mentions_income_in_passing():
+    """Merely containing "pajamos" is not enough - no "?" and no request stem (reik/pasaky/nurody/
+    praš/trūksta) means this isn't actually asking the user for anything."""
+    final_text = "Pajamos šiais laikais svyruoja daug."
+    assert score_missing_income_handled([], final_text) is False
+
+
+def test_score_missing_income_handled_fails_on_text_with_no_question_mark_and_no_income_mention():
+    final_text = "Ačiū, duomenis patikrinsiu vėliau."
     assert score_missing_income_handled([], final_text) is False
 
 
@@ -322,6 +337,29 @@ def test_score_missing_income_handled_still_fails_if_question_states_a_genuinely
     user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
     final_text = "Apie 300 eurų per mėnesį turėtų pakakti - kokios jūsų pajamos?"
     assert score_missing_income_handled([], final_text, user_message) is False
+
+
+# Owner instruction (2026-11-16, after B6 eval #11, item 8): "testai su šio paleidimo 6 tekstais" -
+# this eval run's own local sandbox has no network access to the real Anthropic/Java backends and
+# no copy of run #11's results JSON, so these 6 texts are RECONSTRUCTED, illustrative examples (not
+# literal captured transcripts) built directly around the owner's own quoted example
+# ("man reikia jūsų grynųjų mėnesio pajamų") and plausible variant phrasings of the same
+# direct-request pattern - each one deliberately has NO "?", which is exactly what the old
+# question-mark-only check missed.
+_RUN_RECONSTRUCTED_NON_QUESTION_INCOME_REQUESTS = [
+    "Man reikia jūsų grynųjų mėnesio pajamų, kad galėčiau paskaičiuoti planą.",
+    "Pasakykite savo grynąsias mėnesio pajamas, tada tęsiu skaičiavimą.",
+    "Nurodykite mėnesio pajamas - be jų tikslo neapskaičiuosiu.",
+    "Šiuo metu trūksta jūsų pajamų duomenų, jų reikės toliau.",
+    "Prašau pajamų - be šios informacijos negaliu tęsti.",
+    "Pirmiausia reikės jūsų grynųjų pajamų sumos per mėnesį.",
+]
+
+
+def test_score_missing_income_handled_passes_on_six_reconstructed_non_question_income_requests():
+    for final_text in _RUN_RECONSTRUCTED_NON_QUESTION_INCOME_REQUESTS:
+        assert "?" not in final_text, final_text
+        assert score_missing_income_handled([], final_text) is True, final_text
 
 
 # --- score_no_banned_investment_terms (AC-B6-4, deterministic half) ---------------------------------

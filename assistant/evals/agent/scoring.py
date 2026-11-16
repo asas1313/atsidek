@@ -157,13 +157,35 @@ def _is_calendar_year_like(n: Decimal) -> bool:
     return n == n.to_integral_value() and _CALENDAR_YEAR_MIN <= n <= _CALENDAR_YEAR_MAX
 
 
+# Owner instruction (2026-11-16, after B6 eval #11, item 8): a genuine income request is not
+# always phrased as a question - e.g. "man reikia jūsų grynųjų mėnesio pajamų" (I need your net
+# monthly income) has no "?" at all. "reik" is the shared Lithuanian stem across "reikia"/
+# "reikėtų"/"reikalinga(-os)"/"reikės" (need/would need/necessary); the others cover the other
+# common direct-request phrasings ("pasakykite"/"nurodykite"/"prašau"/"trūksta").
+_INCOME_REQUEST_STEMS = ("reik", "pasaky", "nurody", "praš", "trūksta")
+
+
+def _is_income_request(final_text: str) -> bool:
+    """True for a genuine clarifying question ("?" present) OR a direct, non-question income
+    request that both mentions income ("pajam") and uses one of `_INCOME_REQUEST_STEMS` - merely
+    mentioning "pajamos" in passing (e.g. "Pajamos šiais laikais svyruoja daug.") does NOT count,
+    only an actual request/need phrasing does."""
+    if "?" in final_text:
+        return True
+    lowered = final_text.lower()
+    if "pajam" not in lowered:
+        return False
+    return any(stem in lowered for stem in _INCOME_REQUEST_STEMS)
+
+
 def score_missing_income_handled(
     tool_calls: list[dict], final_text: Optional[str], user_message: str = ""
 ) -> bool:
     """AC-B6-6: passes if no SUCCESSFUL `calculate_savings_plan` result exists (a failed attempt
-    the model recovers from is tolerated) AND `final_text` is a genuine clarifying question - non-
-    empty, contains "?", and states no numbers OTHER than a referenced calendar year (see
-    `_is_calendar_year_like`) or a number the USER'S OWN message already stated.
+    the model recovers from is tolerated) AND `final_text` is a genuine income request (see
+    `_is_income_request` - a clarifying question OR a direct non-question request) that states no
+    numbers OTHER than a referenced calendar year (see `_is_calendar_year_like`) or a number the
+    USER'S OWN message already stated.
 
     Owner instruction (second B6 live-eval round): this check failed 6/6 even though the agent DID
     ask for income every time - the missing-income cases' own user_message states a goal amount
@@ -173,12 +195,16 @@ def score_missing_income_handled(
     the echoed goal/term numbers alone were enough to fail every such question. Widened to also
     exempt any number the user already stated, matching the same "may echo the user's own
     numbers" principle `score_no_invented_numbers` now uses.
+
+    Owner instruction (2026-11-16, after B6 eval #11, item 8): widened again - a direct income
+    request stated as a plain sentence, not a question, must also be recognized (see
+    `_is_income_request`), not just a "?"-bearing clarifying question.
     """
     if _last_successful_result(tool_calls, SAVINGS_TOOL_NAME) is not None:
         return False
     if not final_text:
         return False
-    if "?" not in final_text:
+    if not _is_income_request(final_text):
         return False
     user_numbers = extract_numbers(user_message or "")
     for n in extract_numbers(final_text):
