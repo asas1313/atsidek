@@ -36,6 +36,7 @@ jobs:
           POSTGRES_DB: atsidek
           POSTGRES_USER: atsidek
           POSTGRES_PASSWORD: atsidek
+          EVAL_CYCLES: 1
         ports:
           - 5432:5432
         options: >-
