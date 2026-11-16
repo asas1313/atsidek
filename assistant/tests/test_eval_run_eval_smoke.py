@@ -403,6 +403,34 @@ def test_execute_work_items_parallel_propagates_a_worker_exception():
         run_eval._execute_work_items([1, 2, 3], boom, concurrency=2)
 
 
+def test_eval_case_instances_are_not_hashable_so_must_never_be_used_as_a_dict_key():
+    """Documents WHY `run()`'s `work_items` must key on `case.id` (a str), not the `EvalCase`
+    instance itself: `EvalCase` is a frozen dataclass, but its auto-generated `__hash__` hashes
+    every field INCLUDING `expected_tool_sequence` (a `list`), which is itself unhashable. A live
+    CI run hit exactly this (2026-11-16): `TypeError: unhashable type: 'list'` inside
+    `_execute_work_items`'s `{item: worker(item) for item in work_items}`, because `work_items`
+    was `[(case, i) for case in CASES for i in range(RUNS_PER_CASE)]` at the time."""
+    from evals.agent.cases import CASES
+
+    import pytest
+
+    with pytest.raises(TypeError, match="unhashable"):
+        hash(CASES[0])
+
+
+def test_run_builds_work_items_keyed_on_case_id_not_the_case_instance_itself():
+    """Regression test for the bug above: `run()`'s `work_items` construction (read directly from
+    source, since `run()` itself needs a live client/backend to execute) must use `case.id`."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.run)
+
+    assert "work_items = [(case.id, i)" in source
+    assert "[(case, i)" not in source
+    assert "raw_results[(case.id, i)]" in source
+
+
 def test_json_default_encodes_decimal_as_string_not_float():
     """Decimal -> str (never float), matching calculator._json_default_decimal_as_str's own
     rationale: tool_calls now stored in full (item 9) carry real Decimal values from

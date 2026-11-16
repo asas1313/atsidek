@@ -428,10 +428,20 @@ def run(model: str, with_judge: bool, concurrency: int = 1) -> dict:
     # minutes with everything sequential. Each unit's own LLM/Java calls are unaffected; only the
     # SCHEDULING across units changes. `work_items` fixes a stable, hashable key per unit so
     # results can be looked back up in `CASES` order below regardless of actual completion order.
-    work_items = [(case, i) for case in CASES for i in range(RUNS_PER_CASE)]
+    #
+    # Bug fix (2026-11-16, live CI run `TypeError: unhashable type: 'list'`): the key must be
+    # `case.id` (a str), NOT the `EvalCase` instance itself - `EvalCase` is a frozen dataclass, but
+    # its auto-generated `__hash__` hashes every field including `expected_tool_sequence` (a
+    # `list`), which is itself unhashable. `(case, i)` tuples as dict keys therefore crashed on
+    # the FIRST lookup/insertion, in both the sequential and ThreadPoolExecutor paths of
+    # `_execute_work_items` - case ids are unique (test_eval_cases.py::test_case_ids_are_unique),
+    # so `(case.id, i)` is a safe, stable substitute; `_case_by_id` looks the case back up.
+    work_items = [(case.id, i) for case in CASES for i in range(RUNS_PER_CASE)]
     raw_results = _execute_work_items(
         work_items,
-        lambda item: _execute_case_run(client, registry, tools, item[0], model, base_url, api_key, with_judge),
+        lambda item: _execute_case_run(
+            client, registry, tools, _case_by_id(item[0]), model, base_url, api_key, with_judge
+        ),
         concurrency,
     )
 
@@ -448,7 +458,7 @@ def run(model: str, with_judge: bool, concurrency: int = 1) -> dict:
     # `main()`'s exit code).
     judge_errors: list[dict] = []
     for case in CASES:
-        runs = [raw_results[(case, i)] for i in range(RUNS_PER_CASE)]
+        runs = [raw_results[(case.id, i)] for i in range(RUNS_PER_CASE)]
 
         for run_record in runs:
             if not run_record["no_banned_investment_terms"]:
