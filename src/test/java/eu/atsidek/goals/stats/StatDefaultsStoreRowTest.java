@@ -15,7 +15,7 @@ class StatDefaultsStoreRowTest {
 
     private static StatDefaultsStore.Row row(String source, LocalDate asOf, boolean illustrative) {
         return new StatDefaultsStore.Row("income", "members=1;workers=1", new BigDecimal("1000"), "EUR_PER_MONTH",
-                source, "https://example.org", asOf, illustrative);
+                source, "https://example.org", asOf, illustrative, false);
     }
 
     @Test

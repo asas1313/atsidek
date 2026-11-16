@@ -47,7 +47,12 @@ class StatDefaultsServiceTest {
 
     private static StatDefaultsStore.Row row(String key, String segment, String value) {
         return new StatDefaultsStore.Row(key, segment, new BigDecimal(value), "EUR_PER_MONTH",
-                "test-source", "https://example.org/test", AS_OF, true);
+                "test-source", "https://example.org/test", AS_OF, true, false);
+    }
+
+    private static StatDefaultsStore.Row needsReviewRow(String key, String segment, String value) {
+        return new StatDefaultsStore.Row(key, segment, new BigDecimal(value), "EUR_PER_MONTH",
+                "test-source (OECD skalė, nepatvirtinta)", "https://example.org/test", AS_OF, true, true);
     }
 
     @Test
@@ -70,6 +75,43 @@ class StatDefaultsServiceTest {
         // (5,3) nėra seed'e; artimiausias pagal Manheteno atstumą - (4,2): |4-5|+|2-3| = 2.
         StatDefaultsResponse r = serviceWithSeedLikeData().resolve(5, 3, null, null);
         assertThat(r.income().value()).isEqualByComparingTo("3200");
+        assertThat(r.expenses().value()).isEqualByComparingTo("1900");
+    }
+
+    @Test
+    void needsReviewRowIsNeverReturnedAsAnExactMatch() {
+        // Owner instruction (2026-11-16, after B6 eval #11): a needs_review row (unverified
+        // extrapolation method, e.g. the OECD-scale expense rows) must never be resolved, even
+        // when its segment matches exactly - the service must fall through to the nearest
+        // non-flagged segment instead.
+        StatDefaultsService service = new StatDefaultsService(new FakeStore(Map.of(
+                "expenses", List.of(
+                        needsReviewRow("expenses", "members=1;workers=1", "900"),
+                        row("expenses", "members=4;workers=2", "1900"),
+                        row("expenses", "general", "1400")),
+                "income", List.of(row("income", "members=1;workers=1", "1600")))));
+
+        StatDefaultsResponse r = service.resolve(1, 1, null, null);
+
+        // exact members=1;workers=1 segment is flagged - nearest non-flagged (members=4;workers=2) wins.
+        assertThat(r.expenses().value()).isEqualByComparingTo("1900");
+    }
+
+    @Test
+    void needsReviewRowIsExcludedFromNearestSegmentSearchToo() {
+        StatDefaultsService service = new StatDefaultsService(new FakeStore(Map.of(
+                "expenses", List.of(
+                        needsReviewRow("expenses", "members=2;workers=1", "1350"),
+                        row("expenses", "members=4;workers=2", "1900"),
+                        row("expenses", "general", "1400")),
+                "income", List.of(row("income", "members=2;workers=1", "1600")))));
+
+        // members=3;workers=1 isn't seeded - Manhattan-nearest WOULD be the flagged
+        // members=2;workers=1 (distance |3-2|+|1-1|=1) if it weren't excluded from the search;
+        // with it excluded, members=4;workers=2 (distance |3-4|+|1-2|=2) is the only eligible
+        // candidate left and wins by default, not because it is actually closer.
+        StatDefaultsResponse r = service.resolve(3, 1, null, null);
+
         assertThat(r.expenses().value()).isEqualByComparingTo("1900");
     }
 

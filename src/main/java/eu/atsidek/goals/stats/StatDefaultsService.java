@@ -78,9 +78,12 @@ public class StatDefaultsService {
     /**
      * Tikslus (members,workers) segmentas, jei yra; kitaip artimiausias pagal dydį; jei members/workers
      * visai nenurodyti – bendras ({@code "general"}) segmentas, apskaičiuotas kaip žinomų segmentų vidurkis.
+     * {@code needsReview} eilutės (owner instrukcija, 2026-11-16, po B6 eval #11: nepatvirtintu metodu
+     * ekstrapoliuotos reikšmės, žr. {@code V10__stat_defaults_needs_review.sql}) NIEKADA negrąžinamos -
+     * atmetamos prieš renkantis tikslų/artimiausią segmentą, lyg jų iš viso nebūtų.
      */
     private StatDefaultValue resolveHousehold(String key, Integer members, Integer workers) {
-        List<StatDefaultsStore.Row> rows = store.findAllByKey(key);
+        List<StatDefaultsStore.Row> rows = store.findAllByKey(key).stream().filter(r -> !r.needsReview()).toList();
         if (rows.isEmpty()) {
             throw new IllegalStateException("Trūksta seed duomenų raktui: " + key);
         }
