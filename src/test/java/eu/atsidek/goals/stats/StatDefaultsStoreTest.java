@@ -66,27 +66,16 @@ class StatDefaultsStoreTest {
     }
 
     @Test
-    void oecdScaleExtrapolatedExpenseRowsAreFlaggedNeedsReview() {
-        // Owner instruction (2026-11-16, after B6 eval #11): V10__stat_defaults_needs_review.sql
-        // flags the 4 "expenses" segments extrapolated from the mockup's 1900 EUR anchor via the
-        // OECD equivalence scale - an unverified METHOD, not a direct source value.
-        for (String segment : List.of("members=1;workers=1", "members=2;workers=1", "members=2;workers=2",
-                "members=3;workers=2")) {
-            Optional<StatDefaultsStore.Row> row = store.find("expenses", segment);
-            assertThat(row).as("expenses/" + segment).isPresent();
-            assertThat(row.get().needsReview()).as("expenses/" + segment + " needs_review").isTrue();
-        }
-    }
-
-    @Test
-    void mockupDirectValueAndGeneralAverageAreNotFlaggedNeedsReview() {
-        assertThat(store.find("expenses", "members=4;workers=2").orElseThrow().needsReview()).isFalse();
-        assertThat(store.find("expenses", "general").orElseThrow().needsReview()).isFalse();
-        for (String segment : List.of("members=1;workers=1", "members=2;workers=1", "members=2;workers=2",
-                "members=3;workers=2", "members=4;workers=2", "general")) {
-            assertThat(store.find("income", segment).orElseThrow()).as("income/" + segment)
-                    .extracting(StatDefaultsStore.Row::needsReview).isEqualTo(false);
-        }
+    void everySeededRowIsFlaggedNeedsReview() {
+        // Owner instruction (2026-11-16, stat_defaults sprendimas #2, V11__stat_defaults_needs_
+        // review_all.sql): ALL seeded rows (income/expenses/typical_amount, every segment,
+        // including the mockup's own literal figures and the general averages) are illustrative/
+        // unverified against an official dated source - needs_review=true for every single row,
+        // superseding V10's earlier partial (4-row-only) flagging.
+        List<StatDefaultsStore.Row> all = store.findAll();
+        assertThat(all).isNotEmpty();
+        assertThat(all).allSatisfy(row -> assertThat(row.needsReview())
+                .as("key=%s segment=%s needs_review", row.key(), row.segment()).isTrue());
     }
 
     @Test

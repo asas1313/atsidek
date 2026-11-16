@@ -59,6 +59,7 @@ ASSUMPTIONS = [
         "source": "Sodra 2025",
         "source_date": "2025-01-01",
         "is_illustrative": True,
+        "needs_review": False,
     },
     {
         "field": "annual_return_pct",
@@ -67,6 +68,22 @@ ASSUMPTIONS = [
         "source": None,
         "source_date": None,
         "is_illustrative": None,
+        "needs_review": None,
+    },
+]
+
+# Owner instruction (2026-11-16, stat_defaults sprendimas #1-2): ALL stat_defaults rows today are
+# needs_review=true (V11 migration) - this is the REALISTIC fixture, unlike ASSUMPTIONS above
+# (which models the future confirmed-source case).
+ASSUMPTIONS_NEEDS_REVIEW = [
+    {
+        "field": "monthly_expenses",
+        "value": 650.0,
+        "origin": "STATISTICS",
+        "source": "Įvertinta OECD skale nuo maketo reikšmės",
+        "source_date": None,
+        "is_illustrative": True,
+        "needs_review": True,
     },
 ]
 
@@ -148,17 +165,45 @@ def test_goal_and_free_cash_section_numbers_match_tool_result_exactly():
     assert SAVINGS_RESULT["core"]["general_tip"] in text
 
 
-def test_assumptions_section_renders_one_line_per_entry_with_origin_label():
+def test_assumptions_section_renders_statistika_with_source_and_year_when_confirmed():
+    """needs_review=false (a future, confirmed VDA import) renders "Statistika: <source>, <year>"."""
     tool_calls = [savings_call(result=SAVINGS_RESULT)]
 
     text = build_response(tool_calls, None)
 
     assert "Mėnesio išlaidos" in text
     assert "650,00" in text
-    assert "Statistika: Sodra 2025" in text
+    assert "Statistika: Sodra 2025, 2025" in text
     assert "Metinė grąža" in text
     assert "3,5%" in text
     assert "Prielaida" in text
+
+
+def test_assumptions_section_renders_illustrative_assumption_not_statistika_when_needs_review():
+    """Owner instruction (2026-11-16, stat_defaults sprendimas #1): a needs_review=true
+    STATISTICS-origin value (the realistic case for every stat_defaults row today) must render as
+    "Iliustracinė prielaida", NEVER "Statistika" - that label is reserved for confirmed values."""
+    result = {**SAVINGS_RESULT, "core": {**SAVINGS_RESULT["core"], "assumptions": ASSUMPTIONS_NEEDS_REVIEW}}
+    tool_calls = [savings_call(result=result)]
+
+    text = build_response(tool_calls, None)
+
+    assert "Mėnesio išlaidos" in text
+    assert "Iliustracinė prielaida" in text
+    assert "Statistika" not in text
+
+
+def test_assumptions_section_treats_a_missing_needs_review_key_as_needing_review():
+    """Conservative default: an entry with no needs_review key at all must still NOT be labeled
+    "Statistika" - never assume confirmed just because the flag is absent."""
+    entry = {k: v for k, v in ASSUMPTIONS_NEEDS_REVIEW[0].items() if k != "needs_review"}
+    result = {**SAVINGS_RESULT, "core": {**SAVINGS_RESULT["core"], "assumptions": [entry]}}
+    tool_calls = [savings_call(result=result)]
+
+    text = build_response(tool_calls, None)
+
+    assert "Iliustracinė prielaida" in text
+    assert "Statistika" not in text
 
 
 def test_disclaimer_rendered_verbatim():

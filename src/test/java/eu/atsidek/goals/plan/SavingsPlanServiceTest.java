@@ -57,10 +57,15 @@ class SavingsPlanServiceTest {
     }
 
     private static StatDefaultsService statsResolvingExpensesTo(BigDecimal value, boolean illustrative) {
+        return statsResolvingExpensesTo(value, illustrative, true);
+    }
+
+    private static StatDefaultsService statsResolvingExpensesTo(BigDecimal value, boolean illustrative,
+                                                                  boolean needsReview) {
         StatDefaultsService stats = mock(StatDefaultsService.class);
         StatDefaultValue expensesValue = new StatDefaultValue(value, "EUR_PER_MONTH", "STATISTICS",
                 "VDA namų ūkių biudžetų tyrimas", "https://osp.stat.gov.lt/example", LocalDate.of(2026, 1, 1),
-                illustrative);
+                illustrative, needsReview);
         StatDefaultsResponse response = new StatDefaultsResponse(null, expensesValue, null, null, null);
         when(stats.resolve(any(), any(), any(), any())).thenReturn(response);
         return stats;
@@ -132,9 +137,27 @@ class SavingsPlanServiceTest {
         assertThat(expensesEntry.source()).isEqualTo("VDA namų ūkių biudžetų tyrimas");
         assertThat(expensesEntry.sourceDate()).isEqualTo("2026-01-01");
         assertThat(expensesEntry.isIllustrative()).isTrue();
+        assertThat(expensesEntry.needsReview()).isTrue();
         // B6 incident fix: laisvi pinigai = net_monthly_income - monthly_expenses = 3100 - 1350 =
         // 1750 (monthly_tax_setaside yra TIK rodymui - net_monthly_income JAU yra po mokesčių).
         assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("1750.00");
+    }
+
+    @Test
+    void monthlyExpensesOmittedAndConfirmedFromOfficialSourcePropagatesNeedsReviewFalse() {
+        // Owner instruction (2026-11-16, stat_defaults sprendimas #1-2): kai needs_review=false
+        // (ateityje, po tikro VDA importo - žr. item 5), šablonas rodo "Statistika", ne
+        // "Iliustracinė prielaida" - needsReview turi pasiekti AssumptionEntry teisingai ABIEM
+        // atvejais, ne tik needs_review=true (žr. testą aukščiau).
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), false, false));
+
+        SavingsPlanResponse response = service.plan(
+                request(yearsGoal("15000", 5), "3100", "900", null), null);
+
+        AssumptionEntry expensesEntry = response.core().assumptions().stream()
+                .filter(e -> e.field().equals("monthly_expenses")).findFirst().orElseThrow();
+        assertThat(expensesEntry.needsReview()).isFalse();
     }
 
     @Test

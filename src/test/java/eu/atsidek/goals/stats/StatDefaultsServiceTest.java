@@ -79,11 +79,13 @@ class StatDefaultsServiceTest {
     }
 
     @Test
-    void needsReviewRowIsNeverReturnedAsAnExactMatch() {
-        // Owner instruction (2026-11-16, after B6 eval #11): a needs_review row (unverified
-        // extrapolation method, e.g. the OECD-scale expense rows) must never be resolved, even
-        // when its segment matches exactly - the service must fall through to the nearest
-        // non-flagged segment instead.
+    void needsReviewRowIsStillReturnedAsAnExactMatchButFlaggedOnTheValue() {
+        // Owner instruction (2026-11-16, stat_defaults sprendimas #2, supersedes the earlier
+        // 703748c/V10 "exclude needs_review from matching" decision): needs_review is now PURELY
+        // a label signal for the user-facing text (see StatDefaultValue.needsReview javadoc),
+        // never a matching-exclusion filter - excluding would return nothing once EVERY row is
+        // flagged (V11). An exact segment match still wins even when flagged; the flag just rides
+        // along on the returned value.
         StatDefaultsService service = new StatDefaultsService(new FakeStore(Map.of(
                 "expenses", List.of(
                         needsReviewRow("expenses", "members=1;workers=1", "900"),
@@ -93,26 +95,14 @@ class StatDefaultsServiceTest {
 
         StatDefaultsResponse r = service.resolve(1, 1, null, null);
 
-        // exact members=1;workers=1 segment is flagged - nearest non-flagged (members=4;workers=2) wins.
-        assertThat(r.expenses().value()).isEqualByComparingTo("1900");
+        assertThat(r.expenses().value()).isEqualByComparingTo("900");
+        assertThat(r.expenses().needsReview()).isTrue();
     }
 
     @Test
-    void needsReviewRowIsExcludedFromNearestSegmentSearchToo() {
-        StatDefaultsService service = new StatDefaultsService(new FakeStore(Map.of(
-                "expenses", List.of(
-                        needsReviewRow("expenses", "members=2;workers=1", "1350"),
-                        row("expenses", "members=4;workers=2", "1900"),
-                        row("expenses", "general", "1400")),
-                "income", List.of(row("income", "members=2;workers=1", "1600")))));
-
-        // members=3;workers=1 isn't seeded - Manhattan-nearest WOULD be the flagged
-        // members=2;workers=1 (distance |3-2|+|1-1|=1) if it weren't excluded from the search;
-        // with it excluded, members=4;workers=2 (distance |3-4|+|1-2|=2) is the only eligible
-        // candidate left and wins by default, not because it is actually closer.
-        StatDefaultsResponse r = service.resolve(3, 1, null, null);
-
-        assertThat(r.expenses().value()).isEqualByComparingTo("1900");
+    void nonNeedsReviewRowPropagatesNeedsReviewFalseOnTheValue() {
+        StatDefaultsResponse r = serviceWithSeedLikeData().resolve(2, 2, null, null);
+        assertThat(r.expenses().needsReview()).isFalse();
     }
 
     @Test

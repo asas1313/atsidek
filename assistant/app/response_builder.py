@@ -205,6 +205,19 @@ def _build_when_reach_section(core: dict) -> Optional[str]:
     return f"Su nurodyta įmoka tikslą pasieksite {_format_date_lt(reach_date)}."
 
 
+def _source_year(source_date: Optional[str]) -> Optional[str]:
+    """`source_date` is an ISO `YYYY-MM-DD` string (`AssumptionEntry.sourceDate`) or `None`."""
+    if not source_date:
+        return None
+    return source_date[:4]
+
+
+# Owner instruction (2026-11-16, stat_defaults sprendimas #1): until a stat_defaults-sourced value
+# is confirmed from an official, DATED source, it must be labeled "Iliustracinė prielaida"
+# (illustrative assumption) to the user, never "Statistika" - "Statistika (šaltinis, metai)" is
+# reserved for confirmed values only. `needs_review` (AssumptionEntry.needsReview, threaded from
+# `stat_defaults.needs_review`) is the gate - defaults to treating a MISSING flag as needing review
+# too (conservative: never claim "Statistika" without an explicit confirmed=false signal).
 def _build_assumptions_section(assumptions: list[dict]) -> str:
     lines = []
     for entry in assumptions:
@@ -215,10 +228,19 @@ def _build_assumptions_section(assumptions: list[dict]) -> str:
         else:
             value_str = _pct(entry["value"])
         origin = entry["origin"]
-        origin_label = ORIGIN_LABELS.get(origin, origin)
-        if origin == "STATISTICS" and entry.get("source"):
-            origin_note = f"({origin_label}: {entry['source']})"
+        if origin == "STATISTICS" and entry.get("needs_review", True):
+            origin_note = "(Iliustracinė prielaida)"
+        elif origin == "STATISTICS":
+            source = entry.get("source")
+            year = _source_year(entry.get("source_date"))
+            if source and year:
+                origin_note = f"(Statistika: {source}, {year})"
+            elif source:
+                origin_note = f"(Statistika: {source})"
+            else:
+                origin_note = "(Statistika)"
         else:
+            origin_label = ORIGIN_LABELS.get(origin, origin)
             origin_note = f"({origin_label})"
         lines.append(f"{label}: {value_str} {origin_note}")
     return "\n".join(lines)

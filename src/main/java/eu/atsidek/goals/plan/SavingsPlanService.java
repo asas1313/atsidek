@@ -235,7 +235,7 @@ public class SavingsPlanService {
         StatDefaultValue expenses = statDefaultsService.resolve(members, workers, null, goalType).expenses();
         assumptions.add(new AssumptionEntry("monthly_expenses", expenses.value(), Origin.STATISTICS,
                 expenses.source(), expenses.asOf() == null ? null : expenses.asOf().toString(),
-                expenses.illustrative()));
+                expenses.illustrative(), expenses.needsReview()));
         return expenses.value();
     }
 
@@ -250,7 +250,7 @@ public class SavingsPlanService {
         var resolved = result.resolvedInputs().get(resolvedKey);
         if (resolved != null && resolved.origin() == Origin.ASSUMPTION) {
             assumptions.add(new AssumptionEntry(field, (BigDecimal) resolved.value(), Origin.ASSUMPTION,
-                    resolved.source(), resolved.asOf(), null));
+                    resolved.source(), resolved.asOf(), null, null));
         }
     }
 

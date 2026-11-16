@@ -53,7 +53,7 @@ class SavingsPlanResponseJsonTest {
     @Test
     void coreAndAssumptionsUseSnakeCase() throws Exception {
         AssumptionEntry entry = new AssumptionEntry("monthly_expenses", new BigDecimal("1350.00"),
-                eu.atsidek.goals.Origin.STATISTICS, "VDA", "2026-01-01", true);
+                eu.atsidek.goals.Origin.STATISTICS, "VDA", "2026-01-01", true, true);
         Core core = new Core(new BigDecimal("200.00"), new BigDecimal("500.00"), new BigDecimal("40.00"), true,
                 "tip", List.of(entry), "disclaimer", true, LocalDate.of(2027, 3, 1));
         SavingsPlanResponse response = new SavingsPlanResponse(Tier.FREE, core, List.of(), null);
@@ -66,6 +66,7 @@ class SavingsPlanResponseJsonTest {
         assertThat(json).contains("\"general_tip\":\"tip\"");
         assertThat(json).contains("\"source_date\":\"2026-01-01\"");
         assertThat(json).contains("\"is_illustrative\":true");
+        assertThat(json).contains("\"needs_review\":true");
     }
 
     @Test

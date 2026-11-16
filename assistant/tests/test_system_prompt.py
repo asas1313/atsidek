@@ -209,6 +209,15 @@ def test_prompt_states_the_exact_anonymous_premium_claim_refusal_phrase():
     assert "niekada" in lowered
 
 
+def test_prompt_never_calls_an_illustrative_default_statistika_itself():
+    """stat_defaults sprendimas #1 (2026-11-16): the template, not the model, decides "Statistika"
+    vs "Iliustracinė prielaida" - the model must not claim a default is "statistika" in its own
+    prose."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "statistika" in lowered
+    assert "niekada nevadink" in lowered or "nevadink jos" in lowered
+
+
 def test_prompt_annualizes_a_stated_monthly_iv_income_before_calling_the_tax_tool():
     """Item 6e: "X per month via IV" must be converted to a pre-tax ANNUAL figure (x12) by the
     model itself before calling calculate_iv_taxes (the tool has no monthly mode), with the
