@@ -445,7 +445,12 @@ def test_zero_or_negative_free_cash_never_renders_a_misleading_zero_percent_shar
     """Owner instruction (2026-11-13, second B6 live-eval round): "0,0% laisvų pinigų" reads as
     "a comfortable 0% share of your free cash", not "there is no free cash at all" - must say
     plainly that there is no free cash and the contribution does not fit, for BOTH the exact-zero
-    and negative free_cash_monthly cases."""
+    and negative free_cash_monthly cases.
+
+    Owner instruction (2026-11-16, after eval fae9e00, item 2): general_tip is no longer appended
+    in this branch (Java's own NO_FREE_CASH tip text ALSO says "Laisvų pinigų nėra arba jie
+    neigiami", which duplicated the phrase) - "Laisvų pinigų nėra" must appear EXACTLY ONCE,
+    regardless of what the mocked general_tip below says."""
     for free_cash in ("0.0", "-50.5"):
         result = {
             "core": {
@@ -463,8 +468,9 @@ def test_zero_or_negative_free_cash_never_renders_a_misleading_zero_percent_shar
         text = build_response([savings_call(result=result)], None)
 
         assert "0,0% laisvų pinigų" not in text, free_cash
-        assert "Laisvų pinigų nėra" in text, free_cash
+        assert text.count("Laisvų pinigų nėra") == 1, free_cash
         assert "netelpa" in text, free_cash
+        assert "Pagal nurodytas pajamas" not in text, free_cash  # general_tip no longer appended
 
 
 def test_positive_free_cash_still_renders_the_normal_percent_share_sentence():
@@ -487,16 +493,19 @@ def test_positive_free_cash_still_renders_the_normal_percent_share_sentence():
     assert "Laisvų pinigų nėra" not in text
 
 
-def test_share_over_100_percent_renders_virsija_laisvus_pinigus_netelpa_not_a_percentage():
+def test_share_over_100_percent_renders_the_contribution_and_remaining_free_cash_amounts():
     """Owner instruction (2026-11-16, after B6 eval #11, item 6b): free cash IS positive here
     (400), but the contribution (500) exceeds it - share_of_free_cash_pct > 100 reads just as
     misleadingly as the free_cash_monthly<=0 case ("150,0% laisvų pinigų" is not informative) -
     must say plainly that it doesn't fit instead.
 
-    Owner instruction (2026-11-16, after eval a2dbaae, item 4a): tightened to EXACTLY one
-    sentence - "Įmoka viršija laisvus pinigus – netelpa." - Java's own general_tip (UNREALISTIC
-    verdict's "viršija pusę"/"ilgesnį terminą" wording) is no longer appended here; it understates
-    a >100% overflow and conflicts with item 4b's WHEN-mode guidance."""
+    Owner instruction (2026-11-16, after eval a2dbaae, item 4a): first tightened to EXACTLY one
+    sentence with no amounts - Java's own general_tip (UNREALISTIC verdict's "viršija pusę"/
+    "ilgesnį terminą" wording) is not appended here; it understates a >100% overflow and
+    conflicts with item 4b's WHEN-mode guidance.
+
+    Owner instruction (2026-11-16, after eval fae9e00, item 2): that went too far - the owner's
+    exact wording puts the contribution AND remaining free cash amounts back into the sentence."""
     result = {
         "core": {
             "monthly_contribution": 500.0,
@@ -512,12 +521,14 @@ def test_share_over_100_percent_renders_virsija_laisvus_pinigus_netelpa_not_a_pe
 
     text = build_response([savings_call(result=result)], None)
 
-    assert "Įmoka viršija laisvus pinigus – netelpa." in text
+    assert (
+        "Tikslui reikėtų atidėti 500,00 € per mėnesį, o laisvų pinigų lieka 400,00 € – įmoka netelpa."
+        in text
+    )
     assert "125,0%" not in text
     assert "Laisvų pinigų nėra" not in text  # distinct from the free_cash<=0 branch's wording
-    assert "tip" not in text  # Java's general_tip no longer appended for this branch
+    assert "tip" not in text  # Java's general_tip still not appended for this branch
     assert "viršija pusę" not in text
-    assert "500,00" not in text  # no longer restates the contribution amount in this sentence
 
 
 def test_share_exactly_100_percent_still_renders_the_normal_percent_sentence_not_the_overflow_one():

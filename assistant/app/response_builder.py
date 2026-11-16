@@ -180,22 +180,25 @@ def _build_goal_section(core: dict) -> str:
     """
     free_cash = Decimal(str(core["free_cash_monthly"]))
     if free_cash <= 0:
-        sentence = (
+        # Owner instruction (2026-11-16, after eval fae9e00, item 2): general_tip is no longer
+        # appended here - Java's NO_FREE_CASH tip text ALSO starts with "Laisvų pinigų nėra arba
+        # jie neigiami", so appending it duplicated the phrase this sentence already states.
+        return (
             f"Laisvų pinigų nėra - siūloma {_eur(core['monthly_contribution'])} per mėnesį įmoka "
             "į tikslą netelpa."
         )
     elif Decimal(str(core["share_of_free_cash_pct"])) > 100:
-        # Owner instruction (2026-11-16, after eval a2dbaae, item 4a): EXACTLY one sentence, no
-        # Java general_tip appended below - that tip's own UNREALISTIC-verdict wording ("viršija
-        # pusę jūsų laisvų pinigų... apsvarstykite ilgesnį terminą arba mažesnę sumą") understates
-        # a >100% overflow and, for WHEN mode, conflicts with item 4b's "mažesnė įmoka, ne ilgesnis
-        # terminas" guidance (WHEN mode has no term to lengthen).
-        return "Įmoka viršija laisvus pinigus – netelpa."
-    else:
-        sentence = (
-            f"Tikslui siūloma atsidėti {_eur(core['monthly_contribution'])} per mėnesį "
-            f"({_pct(core['share_of_free_cash_pct'])} laisvų pinigų)."
+        # Owner instruction (2026-11-16, after eval fae9e00, item 2): item 4a's "exactly one
+        # sentence, no amounts" went too far the other way - put the actual amounts back so the
+        # user can see WHY it doesn't fit, not just that it doesn't.
+        return (
+            f"Tikslui reikėtų atidėti {_eur(core['monthly_contribution'])} per mėnesį, o laisvų "
+            f"pinigų lieka {_eur(core['free_cash_monthly'])} – įmoka netelpa."
         )
+    sentence = (
+        f"Tikslui siūloma atsidėti {_eur(core['monthly_contribution'])} per mėnesį "
+        f"({_pct(core['share_of_free_cash_pct'])} laisvų pinigų)."
+    )
     # Owner instruction (2026-11-16, item 6a): Java's generalTip() is already formal "jūs" -
     # rendered verbatim now, no informal-register rewrite (see git history for the removed
     # GENERAL_TIP_INFORMAL_LT, which used to convert it DOWN to informal for the opposite reason).

@@ -282,19 +282,26 @@ public class SavingsPlanService {
      * Owner instrukcija (2026-11-16, po eval'o a2dbaae, 4b punktas): WHEN režimui "apsvarstykite ilgesnį
      * terminą" patarimas neturi prasmės - WHEN pats suranda datą fiksuotai įmokai, terminas yra IŠVESTIS,
      * ne įvestis, kurią būtų galima "pailginti". WHEN režimui vietoj to patariama mažesnė įmoka.
+     * <p>
+     * Owner instrukcija (2026-11-16, po eval'o fae9e00, 2 punktas): dėl tos pačios priežasties UNREALISTIC
+     * atveju "su šiuo terminu tikslas greičiausiai nerealus" taip pat netinka WHEN režimui (terminas - ne
+     * vartotojo įvestis) - WHEN režimui šis "terminu" žodis taip pat pašalinamas.
      */
     private static String generalTip(Verdict verdict, GoalMode mode) {
         String adjustAdvice = mode == GoalMode.WHEN
                 ? "apsvarstykite mažesnę įmoką"
                 : "apsvarstykite ilgesnį terminą arba mažesnę sumą";
+        String unrealisticClause = mode == GoalMode.WHEN
+                ? "tikslas greičiausiai nerealus"
+                : "su šiuo terminu tikslas greičiausiai nerealus";
         return switch (verdict) {
             case NO_FREE_CASH -> "Laisvų pinigų nėra arba jie neigiami – pirmiausia peržiūrėkite išlaidas, "
                     + "kad atsirastų, iš ko taupyti.";
             case COMFORTABLE -> "Šis tikslas atrodo pasiekiamas – įmoka sudaro nedidelę dalį jūsų laisvų pinigų.";
             case TIGHT -> "Šis tikslas pasiekiamas, bet pareikalaus nemažos dalies laisvų pinigų – "
                     + adjustAdvice + ".";
-            case UNREALISTIC -> "Reikalinga įmoka viršija pusę jūsų laisvų pinigų – su šiuo terminu tikslas "
-                    + "greičiausiai nerealus, " + adjustAdvice + ".";
+            case UNREALISTIC -> "Reikalinga įmoka viršija pusę jūsų laisvų pinigų – " + unrealisticClause
+                    + ", " + adjustAdvice + ".";
         };
     }
 

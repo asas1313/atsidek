@@ -455,6 +455,11 @@ class SavingsPlanServiceTest {
         assertThat(response.core().fits()).isFalse();
         assertThat(response.core().generalTip()).contains("mažesnę įmoką");
         assertThat(response.core().generalTip()).doesNotContain("ilgesnį terminą");
+        // Owner instruction (2026-11-16, after eval fae9e00, item 2): "su šiuo terminu tikslas
+        // greičiausiai nerealus" has the same "term is not a WHEN-mode input" problem as
+        // "ilgesnį terminą" - the whole word "termin*" must be absent for WHEN, not just that
+        // one phrase.
+        assertThat(response.core().generalTip()).doesNotContain("termin");
     }
 
     @Test
@@ -468,6 +473,7 @@ class SavingsPlanServiceTest {
 
         assertThat(response.core().fits()).isFalse();
         assertThat(response.core().generalTip()).contains("ilgesnį terminą arba mažesnę sumą");
+        assertThat(response.core().generalTip()).contains("su šiuo terminu");
     }
 
     @Test
