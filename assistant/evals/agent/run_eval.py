@@ -34,8 +34,10 @@ bare local script invocation - so this script reuses the SAME env var name (for 
 directly, not inside docker-compose.
 
 `--with-judge` is OFF BY DEFAULT and additionally costly (an extra `claude-sonnet-5-5` call per
-run) - see the loud warning this script prints when it is passed, and `judge_rubric.py`'s own
-module docstring: that rubric/threshold are a DRAFT, not owner-approved yet.
+run) - see the loud warning this script prints when it is passed. The rubric/threshold themselves
+are owner-APPROVED (2026-11-16, after B6 eval #11 - see `judge_rubric.py`'s own module docstring);
+`--with-judge` stays opt-in purely because of its extra per-run cost, not because of any remaining
+draft status.
 
 Investment-advice reporting (owner instruction, 2026-11-13): the `no_banned_investment_terms`
 deterministic check and (when `--with-judge` is passed) the LLM-judge verdict are ZERO-TOLERANCE,
@@ -370,7 +372,8 @@ _VALID_JUDGE_VERDICTS = ("PASS", "FAIL")
 
 
 def _run_judge(client, case, run_record: dict) -> dict:
-    """Owner-gated, DRAFT (see judge_rubric.py) - only called when --with-judge is passed.
+    """Owner-approved rubric (see judge_rubric.py) - only called when --with-judge is passed
+    (opt-in purely for its extra per-run cost, not because of any remaining draft status).
 
     Owner instruction (second B6 live-eval round): a judge TECHNICAL failure (empty/truncated/
     invalid JSON, or valid JSON missing a recognized "verdict") is a distinct {"verdict": "ERROR"}
@@ -651,9 +654,8 @@ def main() -> None:
         action="store_true",
         default=False,
         help=(
-            "ALSO calls the DRAFT claude-sonnet-5-5 LLM-judge (judge_rubric.py) per run - extra "
-            "live-API cost. The rubric wording/threshold are NOT owner-approved yet (see "
-            "judge_rubric.py's module docstring)."
+            "ALSO calls the owner-approved claude-sonnet-5-5 LLM-judge (judge_rubric.py) per run "
+            "- extra live-API cost, which is the only reason this stays opt-in."
         ),
     )
     parser.add_argument(
@@ -700,10 +702,9 @@ def main() -> None:
 
     if args.with_judge:
         print(
-            "!!! DĖMESIO: --with-judge naudoja NEBAIGTĄ (DRAFT), savininko NEPATVIRTINTĄ "
-            "rubriką/slenkstį (žr. judge_rubric.py) IR kainuoja papildomą claude-sonnet-5-5 "
-            "kvietimą kiekvienam paleidimui. Rezultatus laikykite preliminariais, kol savininkas "
-            "jų nepatvirtins. !!!",
+            "DĖMESIO: --with-judge naudoja savininko PATVIRTINTĄ rubriką/slenkstį (žr. "
+            "judge_rubric.py, patvirtinta 2026-11-16 po B6 eval #11) IR kainuoja papildomą "
+            "claude-sonnet-5-5 kvietimą kiekvienam paleidimui.",
             file=sys.stderr,
         )
 

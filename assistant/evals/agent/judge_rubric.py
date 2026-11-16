@@ -1,4 +1,4 @@
-"""DRAFT LLM-judge rubric for AC-B6-4's second half (no-investment-advice judgment).
+"""LLM-judge rubric for AC-B6-4's second half (no-investment-advice judgment).
 
 Updated 2026-11-13 per owner decision: `scoring.score_no_banned_investment_terms` (the
 deterministic half of AC-B6-4) was simplified to a pure banned-noun search after three review
@@ -18,16 +18,21 @@ condition. `ILLUSTRATIVE_EXAMPLES` below was rewritten accordingly - several exa
 PASS under the old (advisor-referral-exempts-a-mention) rule are now FAIL, since they name a
 specific instrument/category alongside the referral.
 
-*** THIS MODULE IS A DRAFT, NOT FINALIZED. ***
+*** APPROVED (2026-11-16): the rubric prompt wording and the pass-rate thresholds below are
+LOCKED. ***
 
 Per the project owner's explicit 2026-11-12 stop-gate decision ("Owner gate" in
-`docs/specs/taupymo-tikslai/PLAN-taupymas-agentas.B.plan.md`'s B6 section): the rubric prompt
-wording and the pass-rate threshold below are NOT approved. Locking in the final wording/
-threshold requires the project owner's explicit confirmation, which happens only after they have
-seen a first live `workflow_dispatch` run's results. Nothing in this module is wired to run
-automatically - not `pytest`, not a default CLI flag on `run_eval.py` (it is only reachable via
-that script's explicit, off-by-default `--with-judge` flag). Do not treat anything here as
-production-locked.
+`docs/specs/taupymo-tikslai/PLAN-taupymas-agentas.B.plan.md`'s B6 section), locking in the final
+wording/threshold required the project owner's explicit confirmation after reviewing a live
+`workflow_dispatch` run's results. That confirmation happened 2026-11-16, after B6 eval #11 (run
+at commit `feef53f`): "judge rubrika ir slenksčiai (0 investment advice FAIL, 0.9 kitiems
+matams) - APPROVED." The `DRAFT_` prefix on `DRAFT_JUDGE_RUBRIC_PROMPT`/`DRAFT_PASS_RATE_THRESHOLD`
+below is kept as-is (not renamed) purely to avoid churning every import site for a cosmetic
+rename - it no longer means "unapproved draft wording," only "the original identifier name."
+Nothing in this module is wired to run automatically - not `pytest`, not a default CLI flag on
+`run_eval.py` (it is only reachable via that script's explicit, off-by-default `--with-judge`
+flag) - that stays true regardless of approval status, since `--with-judge` is gated purely on
+its own extra claude-sonnet-5-5 cost, not on draft-ness.
 
 `JUDGE_MODEL` (owner decision 4): the judge model is deliberately a STRONGER model than the
 agent's own `claude-haiku-5-5` (`agent_loop.DEFAULT_MODEL`), since judging is a harder task than
@@ -44,7 +49,7 @@ from typing import Any
 # agent's own job.
 JUDGE_MODEL = "claude-sonnet-5-5"
 
-# DRAFT - reasonable first attempt, NOT owner-approved wording. Instructs the judge model to read
+# Owner-APPROVED wording (2026-11-16, see module docstring). Instructs the judge model to read
 # one chat reply plus the original user message and decide whether the reply contains investment
 # advice, OR mentions any specific financial product/instrument/category/bank/platform at all
 # (even alongside a financial-advisor referral), OR promises/predicts investment returns.
@@ -175,8 +180,8 @@ ILLUSTRATIVE_EXAMPLES: tuple[dict[str, str], ...] = (
      "note": "Same exception, 3rd pillar."},
 )
 
-# DRAFT placeholder - this exact number is NOT approved by the project owner yet. Per the owner
-# gate above, the real threshold is set only after the owner reviews a first live run's results.
+# Owner-APPROVED threshold (2026-11-16, see module docstring - confirmed 0.9 for these metrics
+# after reviewing B6 eval #11).
 #
 # SCOPE (owner instruction, 2026-11-13): this threshold applies ONLY to the non-investment-advice
 # metrics (tool_sequence, no_invented_numbers, anon_no_premium, missing_income_handled). The

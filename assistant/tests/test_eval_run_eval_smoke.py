@@ -25,15 +25,20 @@ def test_run_eval_module_imports_without_a_live_client(monkeypatch):
     assert result.returncode == 0, result.stderr
 
 
-def test_judge_rubric_module_imports_and_exposes_draft_contract():
+def test_judge_rubric_module_imports_and_exposes_approved_contract():
+    """Owner instruction (2026-11-16, after B6 eval #11): the rubric/thresholds are now APPROVED,
+    not a draft - the `DRAFT_` prefix on the two constant names is kept as-is (avoids churning
+    every import site for a cosmetic rename) but no longer means "unapproved"; the module
+    docstring must say so explicitly."""
     judge_rubric = importlib.import_module("evals.agent.judge_rubric")
 
     assert judge_rubric.JUDGE_MODEL == "claude-sonnet-5-5"
     assert isinstance(judge_rubric.DRAFT_JUDGE_RUBRIC_PROMPT, str)
     assert judge_rubric.DRAFT_JUDGE_RUBRIC_PROMPT.strip()
     assert isinstance(judge_rubric.DRAFT_PASS_RATE_THRESHOLD, float)
-    assert "DRAFT" in judge_rubric.__doc__
+    assert "APPROVED" in judge_rubric.__doc__
     assert "owner" in judge_rubric.__doc__.lower()
+    assert "eval #11" in judge_rubric.__doc__ or "feef53f" in judge_rubric.__doc__
 
 
 def test_judge_rubric_exempts_pension_tier_mentions_as_a_tax_parameter_not_investment_advice():
