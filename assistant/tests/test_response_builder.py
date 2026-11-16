@@ -154,6 +154,47 @@ def test_tax_section_flat_30_method_label():
     assert "30 % išlaidų normos" in text
 
 
+# --- Owner instruction (2026-11-16, after eval a2dbaae's judge FAIL, item 2) --------------------
+
+def test_flat_30_with_actual_expenses_comparison_adds_the_explanatory_sentence():
+    tool_calls = [tax_call(result={
+        **TAX_RESULT_FLAT,
+        "flat_30_total_tax_per_year": 2000,
+        "actual_expenses_total_tax_per_year": 3500,
+    })]
+
+    text = build_response(tool_calls, None)
+
+    assert "Taikyta 30 % norma, nes ji palankesnė nei faktinės išlaidos" in text
+    assert "2 000,00" in text
+    assert "3 500,00" in text
+    assert " vs " in text
+
+
+def test_flat_30_without_an_actual_expenses_comparison_omits_the_explanatory_sentence():
+    """TAX_RESULT_FLAT has no actual_expenses_total_tax_per_year key at all (the user never
+    stated actual expenses) - the sentence must not appear."""
+    tool_calls = [tax_call(result=TAX_RESULT_FLAT)]
+
+    text = build_response(tool_calls, None)
+
+    assert "Taikyta 30 % norma" not in text
+
+
+def test_actual_method_with_a_comparison_value_present_still_omits_the_sentence():
+    """The explanatory sentence is specifically about FLAT_30 being chosen - never add it when
+    ACTUAL was the chosen method, even if a comparison value happens to be present."""
+    tool_calls = [tax_call(result={
+        **TAX_RESULT,
+        "flat_30_total_tax_per_year": 5000,
+        "actual_expenses_total_tax_per_year": 1234.56,
+    })]
+
+    text = build_response(tool_calls, None)
+
+    assert "Taikyta 30 % norma" not in text
+
+
 def test_goal_and_free_cash_section_numbers_match_tool_result_exactly():
     tool_calls = [savings_call(result=SAVINGS_RESULT)]
 

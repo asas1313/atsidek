@@ -79,6 +79,42 @@ def test_surfaces_java_computed_net_monthly_income_without_any_arithmetic_of_its
     assert out["net_monthly_income"] == Decimal("9999.99")
 
 
+# --- Owner instruction (2026-11-16, after eval a2dbaae's judge FAIL, item 2) -------------------
+
+def test_surfaces_both_methods_annual_tax_totals_alongside_the_chosen_better_one():
+    calc = FakeCalc(compare_json())
+    handler = make_calculate_iv_taxes_tool(calc)
+    ctx = RequestContext(user_id=None, tier="anonymous")
+
+    out = handler({"revenue": Decimal("30000"), "actual_expenses": Decimal("5000")}, ctx, None)
+
+    assert out["flat_30_total_tax_per_year"] == Decimal("4875.50")
+    assert out["actual_expenses_total_tax_per_year"] == Decimal("7282.55")
+
+
+def test_actual_expenses_total_is_null_when_the_user_never_stated_actual_expenses():
+    """Comparing against an implicit zero-expenses ACTUAL total would be a meaningless, dishonest
+    comparison - only surface it when the user actually gave a value (even an explicit 0)."""
+    calc = FakeCalc(compare_json())
+    handler = make_calculate_iv_taxes_tool(calc)
+    ctx = RequestContext(user_id=None, tier="anonymous")
+
+    out = handler({"revenue": Decimal("30000")}, ctx, None)
+
+    assert out["actual_expenses_total_tax_per_year"] is None
+    assert out["flat_30_total_tax_per_year"] == Decimal("4875.50")
+
+
+def test_actual_expenses_total_is_present_when_the_user_stated_exactly_zero():
+    calc = FakeCalc(compare_json())
+    handler = make_calculate_iv_taxes_tool(calc)
+    ctx = RequestContext(user_id=None, tier="anonymous")
+
+    out = handler({"revenue": Decimal("30000"), "actual_expenses": Decimal("0")}, ctx, None)
+
+    assert out["actual_expenses_total_tax_per_year"] == Decimal("7282.55")
+
+
 def test_result_stored_under_tax_calc_id_resolves_to_the_same_entry_on_second_lookup():
     """AC-B1-3: opaque tax_calc_id round-trips to the same stored RequestContext entry, and the
     raw Java response (incl. internal field names like sodraBase/gpmBase) does not leak into the

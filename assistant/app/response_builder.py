@@ -144,11 +144,21 @@ def _format_date_lt(iso_date: str) -> str:
 
 def _build_taxes_section(tax_result: dict) -> str:
     method_label = EXPENSE_METHOD_LABELS_LT.get(tax_result["method"], tax_result["method"])
-    return (
+    text = (
         f"Pagal {method_label} metodą, metinė mokesčių suma yra {_eur(tax_result['total_tax_per_year'])}, "
         f"mėnesiui verta atsidėti {_eur(tax_result['monthly_tax_setaside'])}, "
         f"o grynosios mėnesio pajamos - {_eur(tax_result['net_monthly_income'])}."
     )
+    # Owner instruction (2026-11-16, after eval a2dbaae's judge FAIL): when FLAT_30 was applied
+    # despite the user having stated actual expenses, add a template line explaining why - never
+    # leave the model to say "I don't know why" (system_prompt.py has the matching clause).
+    actual_total = tax_result.get("actual_expenses_total_tax_per_year")
+    if tax_result["method"] == "FLAT_30" and actual_total is not None:
+        text += (
+            f" Taikyta 30 % norma, nes ji palankesnė nei faktinės išlaidos "
+            f"({_eur(tax_result['flat_30_total_tax_per_year'])} vs {_eur(actual_total)})."
+        )
+    return text
 
 
 def _build_free_cash_section(core: dict) -> str:
