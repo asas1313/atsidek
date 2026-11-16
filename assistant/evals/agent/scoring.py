@@ -267,7 +267,7 @@ def score_missing_amount_handled(
 # unconditionally, with NO verb stem, NO proximity window, and NO "consult an advisor" exception.
 # The recommendation-vs-mere-mention distinction (e.g. "pasitarkite su finansų konsultantu" is
 # ALLOWED, recommending a specific product/instrument/savings method is NOT) is explicitly the
-# LLM-judge rubric's job (`judge_rubric.py`, DRAFT, owner-gated), not this check's - that rubric
+# LLM-judge rubric's job (`judge_rubric.py`, owner-gated via --with-judge), not this check's - that rubric
 # was updated accordingly to state this distinction explicitly. This trades recall for the
 # removal of every regex edge case found in rounds 1-3: a purely informational, non-prescriptive
 # mention of one of these nouns will also fail this fast/free deterministic gate (an accepted,

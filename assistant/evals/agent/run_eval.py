@@ -39,6 +39,11 @@ are owner-APPROVED (2026-11-16, after B6 eval #11 - see `judge_rubric.py`'s own 
 `--with-judge` stays opt-in purely because of its extra per-run cost, not because of any remaining
 draft status.
 
+Owner instruction (2026-11-16): `judge_rubric.JUDGE_RUBRIC_VERSION` is stamped onto every
+`judge_verdict` AND the summary's top-level `judge_rubric_version` field, so a results JSON always
+shows which rubric wording actually produced it - bump that constant whenever the rubric prompt
+text changes.
+
 Investment-advice reporting (owner instruction, 2026-11-13): the `no_banned_investment_terms`
 deterministic check and (when `--with-judge` is passed) the LLM-judge verdict are ZERO-TOLERANCE,
 reported separately from every other metric. ANY single FAIL across the 3 runs/case is collected
@@ -120,7 +125,7 @@ from app.tax_tool import TOOL_NAME as TAX_TOOL_NAME  # noqa: E402
 from app.tax_tool import make_calculate_iv_taxes_tool  # noqa: E402
 from app.tools import ToolRegistry  # noqa: E402
 from evals.agent.cases import CASES  # noqa: E402
-from evals.agent.judge_rubric import build_judge_request  # noqa: E402
+from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION, build_judge_request  # noqa: E402
 from evals.agent.scoring import (  # noqa: E402
     score_anon_no_premium,
     score_missing_amount_handled,
@@ -387,18 +392,36 @@ def _run_judge(client, case, run_record: dict) -> dict:
     violations, read verbatim for manual review - mixing in infra noise would defeat its point).
     `run()` collects ERRORs separately and marks the whole run as broken (`main()` exits non-zero)
     - a judge technical error means the CHECK didn't run, not that the agent's reply passed.
+
+    Owner instruction (2026-11-16): every returned dict (PASS/FAIL AND each ERROR path) carries
+    `rubric_version` (`judge_rubric.JUDGE_RUBRIC_VERSION`), so a results JSON always shows which
+    rubric wording actually produced a given verdict - including a technical-error verdict, since
+    even that still used (and failed to get a usable answer from) a specific rubric version.
     """
     request = build_judge_request(case.user_message, run_record["reply"])
     response = client.messages.create(**request)
     text = "".join(block.text for block in response.content if block.type == "text")
     if not text.strip():
-        return {"reason": "judge grąžino tuščią text bloką (žr. max_tokens/thinking)", "verdict": "ERROR"}
+        return {
+            "reason": "judge grąžino tuščią text bloką (žr. max_tokens/thinking)",
+            "verdict": "ERROR",
+            "rubric_version": JUDGE_RUBRIC_VERSION,
+        }
     try:
         verdict = json.loads(text)
     except json.JSONDecodeError:
-        return {"reason": f"nevalidus judge JSON atsakymas: {text!r}", "verdict": "ERROR"}
+        return {
+            "reason": f"nevalidus judge JSON atsakymas: {text!r}",
+            "verdict": "ERROR",
+            "rubric_version": JUDGE_RUBRIC_VERSION,
+        }
     if not isinstance(verdict, dict) or verdict.get("verdict") not in _VALID_JUDGE_VERDICTS:
-        return {"reason": f"judge JSON neturi atpažinto 'verdict' lauko: {text!r}", "verdict": "ERROR"}
+        return {
+            "reason": f"judge JSON neturi atpažinto 'verdict' lauko: {text!r}",
+            "verdict": "ERROR",
+            "rubric_version": JUDGE_RUBRIC_VERSION,
+        }
+    verdict["rubric_version"] = JUDGE_RUBRIC_VERSION
     return verdict
 
 
@@ -508,6 +531,7 @@ def run(model: str, with_judge: bool, concurrency: int = 1) -> dict:
         **_git_info(),
         "runs_per_case": RUNS_PER_CASE,
         "with_judge": with_judge,
+        "judge_rubric_version": JUDGE_RUBRIC_VERSION if with_judge else None,
         "concurrency": concurrency,
         "cases": len(CASES),
         **_aggregate_case_results(case_results),
@@ -673,8 +697,8 @@ def main() -> None:
         action="store_true",
         default=False,
         help=(
-            "ALSO calls the owner-approved claude-sonnet-5-5 LLM-judge (judge_rubric.py) per run "
-            "- extra live-API cost, which is the only reason this stays opt-in."
+            f"LLM judge (claude-sonnet-5-5, patvirtinta rubrika {JUDGE_RUBRIC_VERSION}) - "
+            "papildoma kaina; žymėti, kai keičiamas system prompt, agento ciklas ar įrankiai."
         ),
     )
     parser.add_argument(
@@ -721,9 +745,9 @@ def main() -> None:
 
     if args.with_judge:
         print(
-            "DĖMESIO: --with-judge naudoja savininko PATVIRTINTĄ rubriką/slenkstį (žr. "
-            "judge_rubric.py, patvirtinta 2026-11-16 po B6 eval #11) IR kainuoja papildomą "
-            "claude-sonnet-5-5 kvietimą kiekvienam paleidimui.",
+            f"LLM judge (claude-sonnet-5-5, patvirtinta rubrika {JUDGE_RUBRIC_VERSION}, žr. "
+            "judge_rubric.py, patvirtinta 2026-11-16 po B6 eval #11) - papildoma kaina; "
+            "žymėti, kai keičiamas system prompt, agento ciklas ar įrankiai.",
             file=sys.stderr,
         )
 

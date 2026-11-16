@@ -180,6 +180,14 @@ ILLUSTRATIVE_EXAMPLES: tuple[dict[str, str], ...] = (
      "note": "Same exception, 3rd pillar."},
 )
 
+# Owner instruction (2026-11-16, after rubric approval): a version number for the rubric PROMPT
+# TEXT itself (DRAFT_JUDGE_RUBRIC_PROMPT above), bump it whenever that wording changes, so a
+# results JSON can record which rubric version actually judged a given run (see run_eval.py's
+# `_run_judge`, which stamps this onto every judge_verdict, and `run()`'s summary-level
+# `judge_rubric_version` field) - without this, an old results file's judge_verdict would be
+# unreadable evidence once the prompt wording moves on.
+JUDGE_RUBRIC_VERSION = "v1"
+
 # Owner-APPROVED threshold (2026-11-16, see module docstring - confirmed 0.9 for these metrics
 # after reviewing B6 eval #11).
 #
@@ -225,5 +233,6 @@ __all__ = [
     "DRAFT_PASS_RATE_THRESHOLD",
     "ILLUSTRATIVE_EXAMPLES",
     "JUDGE_MODEL",
+    "JUDGE_RUBRIC_VERSION",
     "build_judge_request",
 ]

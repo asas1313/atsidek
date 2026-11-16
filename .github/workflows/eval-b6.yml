@@ -15,7 +15,10 @@ on:
   workflow_dispatch:
     inputs:
       with_judge:
-        description: "Taip pat kviesti DRAFT LLM-judge (claude-sonnet-5-5) - papildoma kaina, rubrika NEPATVIRTINTA"
+        # "v1" čia - YAML negali nuskaityti judge_rubric.JUDGE_RUBRIC_VERSION tiesiogiai; atnaujink
+        # ranka, jei ta konstanta pasikeičia (žr. run_eval.py --with-judge help tekstą, kuris
+        # skaito ją automatiškai).
+        description: "LLM judge (claude-sonnet-5-5, patvirtinta rubrika v1) - papildoma kaina; žymėti, kai keičiamas system prompt, agento ciklas ar įrankiai."
         type: boolean
         default: false
       model:

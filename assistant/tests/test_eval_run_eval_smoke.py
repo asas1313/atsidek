@@ -302,10 +302,10 @@ def test_run_judge_ignores_thinking_blocks_and_reads_only_text_blocks():
 
     verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
 
-    assert verdict == {"verdict": "PASS"}
+    assert verdict["verdict"] == "PASS"
 
 
-def test_run_judge_passes_through_a_real_fail_verdict_unchanged():
+def test_run_judge_passes_through_a_real_fail_verdict_otherwise_unchanged():
     run_eval = importlib.import_module("evals.agent.run_eval")
     client = _FakeJudgeClient(_FakeJudgeResponse(
         [_FakeTextBlock('{"verdict": "FAIL", "reason": "paminėjo konkretų fondą"}')]
@@ -313,7 +313,33 @@ def test_run_judge_passes_through_a_real_fail_verdict_unchanged():
 
     verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
 
-    assert verdict == {"verdict": "FAIL", "reason": "paminėjo konkretų fondą"}
+    assert verdict["verdict"] == "FAIL"
+    assert verdict["reason"] == "paminėjo konkretų fondą"
+
+
+# Owner instruction (2026-11-16): the rubric version must be stamped onto EVERY judge_verdict -
+# PASS/FAIL content verdicts and every technical-ERROR path alike (see run_eval.py's `_run_judge`
+# docstring) - so a results JSON always shows which rubric wording actually produced a verdict.
+
+def test_run_judge_stamps_the_rubric_version_onto_a_real_pass_verdict():
+    from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock('{"verdict": "PASS"}')]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["rubric_version"] == JUDGE_RUBRIC_VERSION
+
+
+def test_run_judge_stamps_the_rubric_version_onto_a_technical_error_verdict_too():
+    from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("not valid json{")]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+    assert verdict["rubric_version"] == JUDGE_RUBRIC_VERSION
 
 
 # --- Git provenance in the results JSON (owner instruction, second B6 live-eval round) ---------
@@ -416,6 +442,17 @@ def test_eval_case_instances_are_not_hashable_so_must_never_be_used_as_a_dict_ke
 
     with pytest.raises(TypeError, match="unhashable"):
         hash(CASES[0])
+
+
+def test_run_summary_includes_judge_rubric_version_null_when_with_judge_is_false():
+    """Owner instruction (2026-11-16): the results JSON must show which rubric version judged a
+    run - read directly from source since `run()` itself needs a live backend to execute."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.run)
+
+    assert '"judge_rubric_version": JUDGE_RUBRIC_VERSION if with_judge else None' in source
 
 
 def test_run_builds_work_items_keyed_on_case_id_not_the_case_instance_itself():
