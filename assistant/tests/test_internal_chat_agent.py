@@ -433,7 +433,7 @@ def test_usage_is_logged_once_per_message_to_stdout(capsys):
     c.post("/internal/chat", json={"message": "Labas"})
 
     out = capsys.readouterr().out
-    assert '"cost_cents"' in out
+    assert '"cost_micros"' in out
     assert '"tool_call_count": 0' in out
 
 

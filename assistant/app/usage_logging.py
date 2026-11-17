@@ -9,7 +9,12 @@ module is the roll-up for the entire run, meant to be called once, after the age
 message finishes.
 
 Cost is computed with `Decimal` arithmetic throughout - NEVER `float` (CLAUDE.md money rule) -
-and returned as a whole number of integer cents.
+and returned as a whole number of integer MICRO-dollars (millionths of a USD, same scale
+Anthropic's own per-token pricing is quoted in - see `*_RATE_PER_MILLION` below). B8 item 8:
+previously this was integer CENTS, which rounded every real Haiku-model chat message's cost down
+to 0 (a single combined tax+savings request costs well under a cent) - B7's staging walkthrough
+found exactly this, see `docs/specs/taupymo-tikslai/STATUS-taupymas.md`'s B7 section. Micros give
+six more orders of magnitude of resolution, enough to distinguish real per-message costs.
 """
 import json
 from decimal import ROUND_HALF_UP, Decimal
@@ -27,10 +32,10 @@ CACHE_WRITE_RATE_PER_MILLION = Decimal("0.125")
 CACHE_READ_RATE_PER_MILLION = Decimal("0.01")
 
 _MILLION = Decimal(1_000_000)
-_CENTS_PER_DOLLAR = Decimal(100)
+_MICROS_PER_DOLLAR = Decimal(1_000_000)
 
 
-def _cost_cents(
+def _cost_micros(
     input_tokens: int, cache_creation_tokens: int, cache_read_tokens: int, output_tokens: int
 ) -> int:
     for name, value in (
@@ -47,8 +52,8 @@ def _cost_cents(
         + Decimal(cache_read_tokens) / _MILLION * CACHE_READ_RATE_PER_MILLION
         + Decimal(output_tokens) / _MILLION * OUTPUT_RATE_PER_MILLION
     )
-    cents = (dollars * _CENTS_PER_DOLLAR).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    return int(cents)
+    micros = (dollars * _MICROS_PER_DOLLAR).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return int(micros)
 
 
 def log_usage(
@@ -60,9 +65,9 @@ def log_usage(
     tool_call_count: int,
     duration_ms: int | float,
 ) -> dict:
-    """Builds one structured record (tokens, tool-call count, duration, cost in integer cents),
-    writes it as a single JSON line to stdout (owner decision 9), and returns the record so
-    callers/tests can inspect it without re-parsing stdout.
+    """Builds one structured record (tokens, tool-call count, duration, cost in integer
+    micro-dollars), writes it as a single JSON line to stdout (owner decision 9), and returns the
+    record so callers/tests can inspect it without re-parsing stdout.
     """
     record = {
         "input_tokens": input_tokens,
@@ -71,7 +76,7 @@ def log_usage(
         "output_tokens": output_tokens,
         "tool_call_count": tool_call_count,
         "duration_ms": duration_ms,
-        "cost_cents": _cost_cents(
+        "cost_micros": _cost_micros(
             input_tokens, cache_creation_tokens, cache_read_tokens, output_tokens
         ),
     }
