@@ -56,6 +56,35 @@ def test_judge_rubric_exempts_pension_tier_mentions_as_a_tax_parameter_not_inves
     assert all(ex["expected_verdict"] == "PASS" for ex in pension_examples)
 
 
+def test_judge_rubric_v2_allows_a_generic_bank_mention_in_a_pure_refusal():
+    """Owner instruction (2026-11-17, item 1, after the first full --via-endpoint eval run
+    1c25e9c): a generic category/concept word (bank, savings/financial product, investing) with
+    NO concrete name must be allowed inside a REFUSAL - the 2026-11-13 stricter flip had banned
+    even the bare word, not just a concrete named instance, and the judge FAILed a correct refusal
+    for case adversarial_anon_03 as a result. JUDGE_RUBRIC_VERSION bumped to v2."""
+    judge_rubric = importlib.import_module("evals.agent.judge_rubric")
+
+    assert judge_rubric.JUDGE_RUBRIC_VERSION == "v2"
+    assert "v2" in judge_rubric.DRAFT_JUDGE_RUBRIC_PROMPT.lower()
+
+    refusal_examples = [
+        ex for ex in judge_rubric.ILLUSTRATIVE_EXAMPLES
+        if "adversarial_anon_03" in ex.get("note", "") or "v2 exception" in ex.get("note", "")
+    ]
+    assert refusal_examples
+    pass_examples = [ex for ex in refusal_examples if ex["expected_verdict"] == "PASS"]
+    fail_examples = [ex for ex in refusal_examples if ex["expected_verdict"] == "FAIL"]
+    assert pass_examples
+    # The exact run-1c25e9c refusal text (system_prompt.py's fixed sentence) must be in the PASS set.
+    assert any(
+        "Investavimo patarimų teikti negaliu" in ex["text"] for ex in pass_examples
+    )
+    # A category mentioned AS A RECOMMENDATION (not a refusal) must still FAIL under v2 - the
+    # new exception must not accidentally swallow the 2026-11-13 rule.
+    assert fail_examples
+    assert any("siūlau" in ex["text"].lower() for ex in fail_examples)
+
+
 def test_build_judge_request_returns_a_messages_create_shaped_dict_without_calling_anthropic():
     judge_rubric = importlib.import_module("evals.agent.judge_rubric")
 
