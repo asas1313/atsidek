@@ -137,7 +137,7 @@ jokios verifikavimo galimybės — tyčia, per sprendimą #1.
   fazės vykdomos savarankiškai (žr. plano Owner decision 13).
 - Testai: Java 313 / Python 125, 0 nepavyko.
 
-## B3 dalis — pabaigta (branch `feat/taupymas-agentas-b3`, PR pending)
+## B3 dalis — pabaigta, sulieta į `main` (PR #53, 2026-11-17)
 
 Šaka `feat/taupymas-agentas-b3` (nuo b2), patvirtinta per 2 review raundus. Kas pristatyta:
 
@@ -158,7 +158,7 @@ jokios verifikavimo galimybės — tyčia, per sprendimą #1.
 - Testai: Python 164 / 0 nepavyko, 1 skip (gyvas Anthropic API testas, praleidžiamas be
   `ANTHROPIC_API_KEY`). Java nekeista šioje fazėje.
 
-## B4 dalis — pabaigta (branch `feat/taupymas-agentas-b4`, PR pending)
+## B4 dalis — pabaigta, sulieta į `main` (PR #53, 2026-11-17)
 
 Šaka `feat/taupymas-agentas-b4` (nuo b3), patvirtinta per 3 review raundus (round 1: CHANGES
 REQUESTED, 3× SHOULD + 1× NIT; round 2: CHANGES REQUESTED, 1× SHOULD + 1× NIT, visi pataisyti
@@ -187,7 +187,7 @@ REQUESTED, 3× SHOULD + 1× NIT; round 2: CHANGES REQUESTED, 1× SHOULD + 1× NI
   gyvą HTTP endpoint'ą paliktas vėlesnei fazei (B6's eval'ų poreikiui/B7's staging integracijai).
 - Testai: Python 215 / 0 nepavyko, 1 skip. Java nekeista šioje fazėje.
 
-## B5 dalis — pabaigta (branch `feat/taupymas-agentas-b5`, PR pending)
+## B5 dalis — pabaigta, sulieta į `main` (PR #53, 2026-11-17)
 
 Šaka `feat/taupymas-agentas-b5` (nuo b4), patvirtinta per 2 review raundus (round 1: CHANGES
 REQUESTED, 1× BLOCKER + 1× SHOULD + 2× NIT, visi pataisyti žemiau aprašytais pakeitimais;
@@ -230,7 +230,7 @@ pristatyta:
   `git diff feat/taupymas-agentas-b4..feat/taupymas-agentas-b5 --stat` — tik 2 nauji app failai
   + 2 nauji testų failai).
 
-## B6 dalis — kodas pabaigtas, LLM-judge gate'as PATVIRTINTAS (branch `feat/taupymas-agentas-b6`, PR pending)
+## B6 dalis — BAIGTA, sulieta į `main` (PR #53, commit `a849862`, 2026-11-17)
 
 Šaka `feat/taupymas-agentas-b6` (nuo b5). Kas pristatyta pirminiame juodraštyje:
 
@@ -440,13 +440,62 @@ Savininkas paleido gyvą eval'ą prie commit `fae9e00`: 0 investment advice FAIL
    a2dbaae 4b punkte (`76afa43`).
 
 Testai: Python 427 / 0 nepavyko, 1 skip; Java 339 / 0 nepavyko (po abiejų commit'ų). Pagal
-savininko instrukciją darbas sustoja čia — savininkas pats paleis greitą eval'ą (runs-per-case 1,
-su judge); jei švarus, B6 PR'us laikys baigtais ir bus pereinama prie B7.
+savininko instrukciją darbas sustojo čia — savininkas pats paleido greitą eval'ą (runs-per-case 1,
+su judge) prie commit'o `43e0ab9`.
 
-## Prieš produkciją (savininko 2026-11-16 nurodymas — užfiksuota, bet NEIŠTAISYTA šiame raunde)
+## B6 — BAIGTA (2026-11-17)
 
-Trys žinomi trūkumai, kuriuos savininkas sąmoningai nusprendė palikti VĖLESNIAM darbui (ne šio
-pataisų raundo apimtyje), bet reikalavo užfiksuoti čia, kad nepasimestų prieš produkcinį diegimą:
+Savininkas paleido greitą eval'ą (`runs-per-case 1`, su judge) prie commit `43e0ab9`: **0
+investment advice FAIL, visi check'ai 100 %**, tier spoof ir šablono sumos sutvarkyti. Judge
+rubrikos/slenksčių patvirtinimas lieka eval #11 (žr. "Owner gate" aukščiau, `feef53f`); šis
+paleidimas — galutinis patikrinimas po visų pataisų raundų.
+
+**Eval'ų nuorodos:**
+- Rubrikos/slenksčių `APPROVED` sprendimas: B6 eval #11, commit `feef53f` (2026-11-16).
+- Galutinis švarus patikrinimas: greitas eval (runs-per-case 1, su judge), commit `43e0ab9`
+  (2026-11-17) — 0 investment advice FAIL, 100 % visiems check'ams.
+
+### Atsitiktinis `main` sujungimas 2026-11-13 ir pataisymas (savininko pastebėjimas, 2026-11-17)
+
+Peržiūrint B3–B6 PR stack'ą prieš B7, paaiškėjo, kad PR #50 (`feat/taupymas-agentas-b6` →
+`main`) **jau buvo sulietas į `main` 2026-11-13** (savininko atsitiktinė klaida — GitHub'o
+pasiūlytas "Compare & pull request" tarp vienodai pavadintų šakų). Kadangi `ci.yml` automatiškai
+diegia į `staging.atsidek.eu` po kiekvieno push'o į `main`, tas sujungimas automatiškai iškėlė
+TO METO juodraštinę B6 versiją (su dar nepataisytomis klaidomis: `ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET`
+pavadinimo klaida, dvigubas mokesčio atėmimas, tier spoof tylėjimas, pydantic `household: "null"`
+klaida ir kt.) į staging'ą ir ji ten išbuvo 4 dienas. Savininkas tada atidarė revert PR #51, bet
+jo niekada nesuliejo — liko pakibęs.
+
+Pataisyta 2026-11-17: atidaryta nauja, švari PR #53 (`feat/taupymas-agentas-b6` → `main`,
+be konfliktų, nes `main` buvo tiesioginis šios šakos protėvis) su visais 37 pataisų commit'ais
+nuo to atsitiktinio sujungimo — sulieta kaip `a849862`. Tai iškart automatiškai iškėlė TAISYTĄ,
+eval'ų patvirtintą versiją į staging'ą (patikrinta: `ci.yml` `staging` darbas sėkmingas prie
+`a849862`). Senas revert PR #51 uždarytas kaip nebeaktualus (nebereikia revert'o, nes teisinga
+versija jau sulieta); PR #44/#45/#46 (B3/B4/B5) uždaryti kaip nebeaktualūs atskirai — jų visas
+turinys jau yra `main`'e per PR #53.
+
+**Pamoka ateičiai:** vengti vienodų šakos/PR pavadinimų tarp feature šakos ir jos "Compare & pull
+request" pasiūlymo prieš `main` — GitHub tai pasiūlo automatiškai pagal paskutinį push'ą, lengva
+paspausti neatidžiai.
+
+## Prieš produkciją (savininko 2026-11-16/2026-11-17 nurodymas — užfiksuota, bet NEIŠTAISYTA)
+
+Septyni žinomi trūkumai, kuriuos savininkas sąmoningai nusprendė palikti VĖLESNIAM darbui, bet
+reikalavo užfiksuoti čia, kad nepasimestų prieš produkcinį diegimą:
+
+- **Pilnas eval'as prieš prod diegimą**: šis raundas patikrintas tik greitu eval'u
+  (`runs-per-case 1`, su judge, komanda `43e0ab9`). Prieš produkcinį diegimą (ne tik staging)
+  reikalingas PILNAS eval'as (`runs-per-case 3`, su judge, numatytasis `RUNS_PER_CASE`), kad
+  pass rate būtų paskaičiuotas per keletą pakartojimų, ne vieną.
+- **LLM įžanga nekartoja šablono patarimo**: patikrinti, ar modelio laisvas tekstas (įžanga/
+  paaiškinimas) savais žodžiais nepakartoja `general_tip`/šablono teksto, kurį vartotojas jau
+  matys po jo (dubliavimas, ne klaida, bet prastas skaitomumas).
+- **Vartotojui nerodyti vidinio tier žodyno**: patikrinti, kad vartotojui matomame tekste niekur
+  nerodoma "FREE"/"PREMIUM" (vidiniai `Tier` enum pavadinimai) — tik "nemokama versija"/"Premium".
+- **WHEN režimas + pasiekimo data + "nerealus"**: kai WHEN režimui rodoma pasiekimo data
+  (žr. B6 eval #11 patvirtinimo 2 punktą aukščiau), šalia nerašyti "tikslas nerealus" — tik
+  "įmoka didelė, apsvarstykite mažesnę" (data jau pati save paaiškina, "nerealu" prieštarautų
+  rodomai konkrečiai datai).
 
 - **Anoniminio CTA užraktas už feature flag**: item 5 (eval fae9e00) pataisė TIK prisijungusio
   vartotojo "atnaujinkite iki Premium" CTA — jis dabar reikalauja, kad `premium` sekcija turėtų
