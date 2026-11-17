@@ -1,5 +1,6 @@
 package eu.atsidek.chat;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -33,7 +34,16 @@ public class RestClientAssistantClient implements AssistantClient {
     public RestClientAssistantClient(@Value("${atsidek.assistant.base-url:http://assistant:8000}") String baseUrl,
             @Value("${atsidek.assistant.timeout-ms:10000}") long timeoutMs) {
         Duration timeout = Duration.ofMillis(timeoutMs);
-        ClientHttpRequestFactory requestFactory = ClientHttpRequestFactoryBuilder.detect()
+        // B6.5 live bug (found via the first real --via-endpoint CI run, 2026-11-17):
+        // ClientHttpRequestFactoryBuilder.detect() falls back to the JDK HttpClient (no Apache/
+        // Jetty/Reactor HTTP client on the classpath), whose DEFAULT HttpClient.Version is HTTP_2 -
+        // it tries an HTTP/1.1->2 cleartext ("h2c") upgrade on every request. uvicorn's h11 server
+        // rejects that upgrade ("Unsupported upgrade request") and the retry that follows loses
+        // the request body entirely - Python/FastAPI then 422s with "Field required" on an EMPTY
+        // body, which this class's own catch below turns into an opaque 502. Pinning HTTP/1.1
+        // avoids the upgrade attempt altogether; Python's assistant service never speaks HTTP/2.
+        ClientHttpRequestFactory requestFactory = ClientHttpRequestFactoryBuilder.jdk()
+                .withHttpClientCustomizer(builder -> builder.version(HttpClient.Version.HTTP_1_1))
                 .build(ClientHttpRequestFactorySettings.defaults().withTimeouts(timeout, timeout));
         this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build();
     }
