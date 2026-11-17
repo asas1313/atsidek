@@ -157,60 +157,56 @@ def _is_calendar_year_like(n: Decimal) -> bool:
     return n == n.to_integral_value() and _CALENDAR_YEAR_MIN <= n <= _CALENDAR_YEAR_MAX
 
 
-# Owner instruction (2026-11-16, after B6 eval #11, item 8): a genuine income request is not
-# always phrased as a question - e.g. "man reikia jūsų grynųjų mėnesio pajamų" (I need your net
-# monthly income) has no "?" at all. "reik" is the shared Lithuanian stem across "reikia"/
-# "reikėtų"/"reikalinga(-os)"/"reikės" (need/would need/necessary); the others cover the other
-# common direct-request phrasings ("pasakykite"/"nurodykite"/"prašau"/"trūksta").
-_INCOME_REQUEST_STEMS = ("reik", "pasaky", "nurody", "praš", "trūksta")
-
-
-def _is_income_request(final_text: str) -> bool:
-    """True for a genuine clarifying question ("?" present) OR a direct, non-question income
-    request that both mentions income ("pajam") and uses one of `_INCOME_REQUEST_STEMS` - merely
-    mentioning "pajamos" in passing (e.g. "Pajamos šiais laikais svyruoja daug.") does NOT count,
-    only an actual request/need phrasing does."""
-    if "?" in final_text:
-        return True
-    lowered = final_text.lower()
-    if "pajam" not in lowered:
+# Owner decision, 2026-11-17 (first real staging walkthrough) - REPLACES the old
+# score_missing_income_handled (which required a clarifying question and FAILED if a successful
+# savings_plan result existed at all): a goal with no income stated must now still get a
+# successful calculate_savings_plan result back (monthly contribution/reach-date computed), just
+# with the free-cash fit fields null and the deterministic income-invitation tip present - a
+# question blocking the calculation is no longer correct behavior, see
+# app/system_prompt.py and SavingsPlanService#generalTip (Java).
+def score_income_omitted_handled(tool_calls: list[dict], user_message: str = "") -> bool:
+    """Passes when a SUCCESSFUL `calculate_savings_plan` result exists with a computed
+    `monthly_contribution`, `free_cash_monthly` (and therefore `share_of_free_cash_pct`/`fits`)
+    null, and a `general_tip` that actually invites the user to provide income (contains
+    "pajam") - i.e. the tool was called with income genuinely omitted, never guessed, and the
+    model did not block the calculation behind a clarifying question."""
+    result = _last_successful_result(tool_calls, SAVINGS_TOOL_NAME)
+    if result is None:
         return False
-    return any(stem in lowered for stem in _INCOME_REQUEST_STEMS)
-
-
-def score_missing_income_handled(
-    tool_calls: list[dict], final_text: Optional[str], user_message: str = ""
-) -> bool:
-    """AC-B6-6: passes if no SUCCESSFUL `calculate_savings_plan` result exists (a failed attempt
-    the model recovers from is tolerated) AND `final_text` is a genuine income request (see
-    `_is_income_request` - a clarifying question OR a direct non-question request) that states no
-    numbers OTHER than a referenced calendar year (see `_is_calendar_year_like`) or a number the
-    USER'S OWN message already stated.
-
-    Owner instruction (second B6 live-eval round): this check failed 6/6 even though the agent DID
-    ask for income every time - the missing-income cases' own user_message states a goal amount
-    and a term (e.g. "...20000 eurų per 10 metų...") that a legitimate clarifying question
-    naturally echoes back while confirming the goal ("Norėdamas sutaupyti 20 000 eurų per 10
-    metų..., kiek pajamų gaunate?") - the OLD calendar-year-only exemption didn't cover that, so
-    the echoed goal/term numbers alone were enough to fail every such question. Widened to also
-    exempt any number the user already stated, matching the same "may echo the user's own
-    numbers" principle `score_no_invented_numbers` now uses.
-
-    Owner instruction (2026-11-16, after B6 eval #11, item 8): widened again - a direct income
-    request stated as a plain sentence, not a question, must also be recognized (see
-    `_is_income_request`), not just a "?"-bearing clarifying question.
-    """
-    if _last_successful_result(tool_calls, SAVINGS_TOOL_NAME) is not None:
+    core = result.get("core") or {}
+    if core.get("monthly_contribution") is None:
         return False
-    if not final_text:
+    if core.get("free_cash_monthly") is not None:
         return False
-    if not _is_income_request(final_text):
-        return False
+    tip = core.get("general_tip") or ""
+    return "pajam" in tip.lower()
+
+
+def score_no_hallucinated_income(tool_calls: list[dict], user_message: str = "") -> bool:
+    """Owner decision, 2026-11-17 (real staging bug: the model computed goal_amount/term and
+    passed the result off as income to a tool - see `app.errors.HallucinatedIncomeError`, the
+    matching runtime guard this eval check mirrors). Fails if `calculate_savings_plan`'s
+    `net_monthly_income` or `calculate_iv_taxes`'s `revenue` tool-call INPUT (not result) carries
+    a number absent from the user's own message, tolerating the legitimate x12 monthly->annual
+    conversion `calculate_iv_taxes`'s `revenue` is allowed to use (system_prompt.py's own
+    documented rule, `score_tax_input_revenue_matches_expected`'s same convention)."""
     user_numbers = extract_numbers(user_message or "")
-    for n in extract_numbers(final_text):
-        if _is_calendar_year_like(n) or n in user_numbers:
-            continue
-        return False
+    for call in tool_calls:
+        tool_input = call.get("input") or {}
+        if call["name"] == SAVINGS_TOOL_NAME:
+            candidate = tool_input.get("net_monthly_income")
+            if candidate is None:
+                continue
+            if Decimal(str(candidate)) not in user_numbers:
+                return False
+        elif call["name"] == TAX_TOOL_NAME:
+            candidate = tool_input.get("revenue")
+            if candidate is None:
+                continue
+            candidate = Decimal(str(candidate))
+            if candidate in user_numbers or (candidate / 12) in user_numbers:
+                continue
+            return False
     return True
 
 
@@ -358,9 +354,10 @@ __all__ = [
     "extract_numbers",
     "rendered_numbers",
     "score_anon_no_premium",
+    "score_income_omitted_handled",
     "score_missing_amount_handled",
-    "score_missing_income_handled",
     "score_no_banned_investment_terms",
+    "score_no_hallucinated_income",
     "score_no_invented_numbers",
     "score_response_complete",
     "score_tax_input_revenue_matches_expected",

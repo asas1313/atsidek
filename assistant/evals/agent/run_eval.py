@@ -68,9 +68,9 @@ reported separately from every other metric. ANY single FAIL across the 3 runs/c
 verbatim (case id, the run's `final_text`, and the judge's own `reason` when present) into the
 summary's top-level `investment_advice_violations` list for manual review - never blended into a
 pass-rate percentage. `judge_rubric.DRAFT_PASS_RATE_THRESHOLD` (0.9) applies only to the
-OTHER metrics (tool_sequence, no_invented_numbers, anon_no_premium, missing_income_handled,
-tax_input_revenue_matches_expected): a case's own `pass_rate` and the `group_pass_rates`/
-`overall_pass_rate` aggregates are computed from those metrics only.
+OTHER metrics (tool_sequence, no_invented_numbers, anon_no_premium, income_omitted_handled,
+no_hallucinated_income, tax_input_revenue_matches_expected): a case's own `pass_rate` and the
+`group_pass_rates`/`overall_pass_rate` aggregates are computed from those metrics only.
 
 Context-token minting (owner instruction, 2026-11-13 - supersedes the earlier "operator obtains
 one manually" design below): ADR-0003 context tokens are minted and signed by JAVA, not by this
@@ -131,7 +131,7 @@ ASSISTANT_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ASSISTANT_DIR))  # kad veiktų "from app...." importai
 sys.path.insert(0, str(ASSISTANT_DIR.parent))  # kad veiktų "evals.agent...." importai
 
-from app.agent_loop import AgentLoopResult, TOO_MANY_STEPS_MESSAGE, run_agent_loop  # noqa: E402
+from app.agent_loop import AgentLoopResult, run_agent_loop  # noqa: E402
 from app.calculator import AtsidekApi  # noqa: E402
 from app.request_context import RequestContext  # noqa: E402
 from app.response_builder import _last_successful_result, build_response  # noqa: E402
@@ -147,9 +147,10 @@ from evals.agent.cases import CASES  # noqa: E402
 from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION, build_judge_request  # noqa: E402
 from evals.agent.scoring import (  # noqa: E402
     score_anon_no_premium,
+    score_income_omitted_handled,
     score_missing_amount_handled,
-    score_missing_income_handled,
     score_no_banned_investment_terms,
+    score_no_hallucinated_income,
     score_no_invented_numbers,
     score_response_complete,
     score_tax_input_revenue_matches_expected,
@@ -386,15 +387,16 @@ def _via_endpoint_chat_send(client: httpx.Client, message: str) -> dict:
 
 
 def _coerce_decimal_strings(value: Any) -> Any:
-    """Undoes the one lossy step `agent_loop._dispatch_tool_call` takes when it JSON-encodes a
-    tool result for the wire (`json.dumps(result, default=str)` turns every `Decimal` leaf - the
-    only thing in a tax/savings result `AtsidekApi` doesn't already parse as a plain int/str -
-    into a quoted JSON string, so the model reads e.g. `"458.79"` as a tool result). The DIRECT
-    `run_agent_loop()` call path never loses this (`tool_calls[i]["result"]` is the original
-    Python dict, `Decimal`s included) - without this, every monetary figure reconstructed from a
-    real `/chat/send` response would be a `str`, which `scoring.rendered_numbers()`'s
-    `_numeric_leaves` silently ignores (it only recognizes `int`/`float`/`Decimal` leaves),
-    making `score_no_invented_numbers` fail on numbers the agent never actually invented.
+    """Undoes a lossy step some `Decimal`-bearing value takes when it is JSON-encoded for the
+    wire with `json.dumps(value, default=str)` - every `Decimal` leaf becomes a quoted JSON
+    string (`main.py`'s `_agent_chat` does exactly this to `result.tool_calls` before returning it
+    over HTTP, the same trick `agent_loop._dispatch_tool_call` already uses for the tool-result
+    CONTENT STRING the model itself reads). The DIRECT `run_agent_loop()` call path never loses
+    this (`tool_calls[i]["result"]` is the original Python dict, `Decimal`s included) - without
+    this, every monetary figure reconstructed from a real `/chat/send` response would be a `str`,
+    which `scoring.rendered_numbers()`'s `_numeric_leaves` silently ignores (it only recognizes
+    `int`/`float`/`Decimal` leaves), making `score_no_invented_numbers` fail on numbers the agent
+    never actually invented.
     Deliberately a plain string->Decimal attempt (no field-name whitelist): the only strings this
     result shape ever carries that are NOT meant to be read as a quantity (`tax_calc_id` - a UUID,
     `tier` - "FREE"/"PREMIUM") never parse as a `Decimal` in the first place."""
@@ -408,63 +410,6 @@ def _coerce_decimal_strings(value: Any) -> Any:
     if isinstance(value, list):
         return [_coerce_decimal_strings(v) for v in value]
     return value
-
-
-def _reconstruct_tool_calls(messages: list[dict]) -> list[dict]:
-    """Rebuilds `AgentLoopResult.tool_calls` (the exact shape every `scoring.py` function expects)
-    from the Messages-API-shaped `messages` list `/chat/send` returns - `_agent_chat` relays
-    `AgentLoopResult.messages` verbatim (B5 decision 7's "opaque blob"), and that is the ONLY form
-    --via-endpoint gets to see; the real HTTP boundary never exposes `run_agent_loop()`'s own
-    `tool_calls` list directly. Walks assistant `tool_use` blocks and matches each one to its
-    `tool_result` in the FOLLOWING user turn by `tool_use_id` - exactly how the Messages API itself
-    pairs them."""
-    tool_calls: list[dict] = []
-    pending: dict[str, dict] = {}
-    for turn in messages:
-        content = turn.get("content")
-        if not isinstance(content, list):
-            continue
-        if turn.get("role") == "assistant":
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    call = {
-                        "id": block["id"], "name": block["name"], "input": block.get("input") or {},
-                        "result": None, "error": None, "is_error": False,
-                    }
-                    tool_calls.append(call)
-                    pending[block["id"]] = call
-        elif turn.get("role") == "user":
-            for block in content:
-                if not isinstance(block, dict) or block.get("type") != "tool_result":
-                    continue
-                call = pending.pop(block.get("tool_use_id"), None)
-                if call is None:
-                    continue
-                if block.get("is_error"):
-                    call["error"] = block.get("content")
-                    call["is_error"] = True
-                else:
-                    call["result"] = _coerce_decimal_strings(json.loads(block["content"]))
-    return tool_calls
-
-
-def _reconstruct_final_text_and_status(
-    messages: list[dict], stop_reason_from_response: Optional[str]
-) -> tuple[Optional[str], str, Optional[str]]:
-    """Mirrors `run_agent_loop`'s own two endings: a "completed" run's LAST turn is always a
-    text-only (no `tool_use`) assistant turn; a "max_iterations_exceeded" run's last turn is
-    instead the final tool-result (user) turn - the assistant turn that WOULD have followed never
-    ran, exactly the same shape `run_agent_loop` itself returns (`final_text` is the hardcoded
-    `TOO_MANY_STEPS_MESSAGE`, `stop_reason=None`, since there never was a final model turn to carry
-    one). Returns (final_text, status, stop_reason)."""
-    last = messages[-1] if messages else None
-    if isinstance(last, dict) and last.get("role") == "assistant":
-        content = last.get("content") or []
-        tool_uses = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
-        if not tool_uses:
-            texts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"]
-            return ("\n".join(texts) if texts else None), "completed", stop_reason_from_response
-    return TOO_MANY_STEPS_MESSAGE, "max_iterations_exceeded", None
 
 
 def _preflight_via_endpoint(base_url: str, api_key: str) -> None:
@@ -526,28 +471,42 @@ def _run_one_via_endpoint(case, base_url: str, api_key: str) -> dict:
     the REAL Java `/chat/send` -> Python `/internal/chat` round trip instead of calling
     `run_agent_loop()` in-process - exercises the Java tier-derivation/session/history layer AND
     the real Python HTTP endpoint (`AGENT_CHAT_ENABLED` flag, `chat_limiter`, `usage_logging`),
-    none of which the direct-call path ever touches. Reconstructs an `AgentLoopResult`-shaped
-    object from the HTTP response and hands it to the SAME `_score_run` the direct path uses, so
-    both modes produce identical checks on identical data shapes (never a separate/drifting
-    scoring implementation)."""
+    none of which the direct-call path ever touches.
+
+    `case.conversation_turns` (owner decision, 2026-11-17, bug 3 - the thinking-block/history
+    crash): when set, sends EVERY turn through the SAME client (same session cookie), so Java's
+    `HttpSession`-held history actually accumulates across separate `/chat/send` calls exactly
+    like a real multi-turn browser conversation - the one shape that can reproduce the crash this
+    phase fixes (the direct in-process path never touches `HttpSession` at all, so a multi-turn
+    case is meaningless there; `_run_one` above just sends `case.user_message`, turn 1, alone).
+    Raises immediately if ANY turn (not just the last) fails to return "messages", so a regression
+    surfaces at the turn it actually breaks, not as a confusing failure on the final one.
+
+    Builds an `AgentLoopResult`-shaped object directly from the LAST turn's response body's own
+    `tool_calls`/`final_text`/`status`/`stop_reason` fields (added to `_agent_chat`'s response
+    specifically so this never has to reconstruct them from "messages" - since bug 3's fix,
+    "messages" is plain-text history for the NEXT turn, not Messages-API blocks) and hands it to
+    the SAME `_score_run` the direct path uses, so both modes produce identical checks on
+    identical data shapes (never a separate/drifting scoring implementation)."""
     client = _via_endpoint_client(case, base_url, api_key)
     try:
-        response_body = _via_endpoint_chat_send(client, case.user_message)
+        response_body: dict = {}
+        for turn_text in case.conversation_turns or (case.user_message,):
+            response_body = _via_endpoint_chat_send(client, turn_text)
+            if "messages" not in response_body:
+                raise RuntimeError(
+                    f"{case.id}: /chat/send negrąžino 'messages' rakto via-endpoint režimu "
+                    f"(posūkis {turn_text!r}; dienos limitas pasiektas? Python servisas "
+                    f"nesukonfigūruotas? AGENT_CHAT_ENABLED=false?): {response_body!r}"
+                )
     finally:
         client.close()
-    if "messages" not in response_body:
-        raise RuntimeError(
-            f"{case.id}: /chat/send negrąžino 'messages' rakto via-endpoint režimu (dienos "
-            f"limitas pasiektas? Python servisas nesukonfigūruotas? AGENT_CHAT_ENABLED=false?): "
-            f"{response_body!r}"
-        )
-    tool_calls = _reconstruct_tool_calls(response_body["messages"])
-    final_text, status, stop_reason = _reconstruct_final_text_and_status(
-        response_body["messages"], response_body.get("stop_reason")
-    )
     result = AgentLoopResult(
-        status=status, final_text=final_text, messages=response_body["messages"],
-        tool_calls=tool_calls, stop_reason=stop_reason,
+        status=response_body.get("status") or "completed",
+        final_text=response_body.get("final_text"),
+        messages=response_body["messages"],
+        tool_calls=_coerce_decimal_strings(response_body.get("tool_calls") or []),
+        stop_reason=response_body.get("stop_reason"),
     )
     return _score_run(result, case, context_token_used=case.variant == "logged_in")
 
@@ -565,9 +524,16 @@ def _score_run(result: AgentLoopResult, case, context_token_used: bool) -> dict:
         "anon_no_premium": score_anon_no_premium(result.tool_calls, case.variant),
         "response_complete": score_response_complete(result.stop_reason),
     }
-    if case.expect_clarifying_question:
-        rate_checks["missing_income_handled"] = score_missing_income_handled(
-            result.tool_calls, result.final_text, case.user_message
+    if case.expect_income_omitted:
+        # Owner decision, 2026-11-17: TWO checks, not one - the tool must still be called and
+        # compute a result WITHOUT income (score_income_omitted_handled), AND neither tool call's
+        # income-bearing input may carry a number the model invented from the goal amount/term
+        # (score_no_hallucinated_income, the real bug this phase fixes).
+        rate_checks["income_omitted_handled"] = score_income_omitted_handled(
+            result.tool_calls, case.user_message
+        )
+        rate_checks["no_hallucinated_income"] = score_no_hallucinated_income(
+            result.tool_calls, case.user_message
         )
     if case.expect_amount_clarifying_question:
         rate_checks["missing_amount_handled"] = score_missing_amount_handled(
@@ -776,7 +742,7 @@ def run(
         # hides WHICH check is failing (e.g. missing_income_handled going 0/6 was invisible next
         # to tool_sequence/no_invented_numbers passing fine). Compute a pass rate PER CHECK NAME
         # too - a check's presence is constant across a case's RUNS_PER_CASE runs (it depends only
-        # on fixed case properties like expect_clarifying_question), never flaky per-run.
+        # on fixed case properties like expect_income_omitted), never flaky per-run.
         check_names = {name for r in runs for name in r["checks"]}
         check_pass_rates = {
             name: sum(1 for r in runs if r["checks"][name]) / len(runs) for name in check_names
@@ -849,9 +815,12 @@ def rescore(results_path: Path) -> dict:
                 # key at all; defaulting to None passes (score_response_complete(None) is True).
                 "response_complete": score_response_complete(stored_run.get("stop_reason")),
             }
-            if case.expect_clarifying_question:
-                rate_checks["missing_income_handled"] = score_missing_income_handled(
-                    tool_calls, final_text, case.user_message
+            if case.expect_income_omitted:
+                rate_checks["income_omitted_handled"] = score_income_omitted_handled(
+                    tool_calls, case.user_message
+                )
+                rate_checks["no_hallucinated_income"] = score_no_hallucinated_income(
+                    tool_calls, case.user_message
                 )
             if case.expect_amount_clarifying_question:
                 rate_checks["missing_amount_handled"] = score_missing_amount_handled(
