@@ -4,8 +4,15 @@ services:
       context: .
       args:
         APP_VERSION: ${APP_VERSION:-1.0.0}
-        GIT_SHA: ${IMAGE_TAG:-local}
-    image: atsidek:${IMAGE_TAG:-local}
+        # IMAGE_TAG SĄMONINGAI privalomas (be numatytosios "local" žymos) - ankstesnis incidentas:
+        # rankiniu būdu paleistas "docker compose ... up -d" serveryje, PAMIRŠUS eksportuoti
+        # IMAGE_TAG, tyliai krito atgal į "atsidek:local" (jei ta žyma serveryje jau egzistavo iš
+        # ankstesnio build'o) - pakeitė veikiantį staging konteinerį senu/neteisingu image'u → 502
+        # (žr. B7-staging-checklist.md 3/6 skyrius). Dabar toks praleidimas KRINTA su aiškia klaida,
+        # ne tyliai paleidžia netą image'ą. Lokaliam dev: `IMAGE_TAG=local docker compose ...` (žr.
+        # DEPLOY.md) - deploy/deploy.sh (staging/production) jį eksportuoja pati, visada.
+        GIT_SHA: ${IMAGE_TAG:?nurodyk IMAGE_TAG (pvz. IMAGE_TAG=local lokaliam dev)}
+    image: atsidek:${IMAGE_TAG:?nurodyk IMAGE_TAG (pvz. IMAGE_TAG=local lokaliam dev)}
     restart: unless-stopped
     volumes:
       - ${DATA_DIR:-./data}:/app/data
@@ -79,8 +86,9 @@ services:
       context: ./assistant
       args:
         APP_VERSION: ${APP_VERSION:-1.0.0}
-        GIT_SHA: ${IMAGE_TAG:-local}
-    image: atsidek-assistant:${IMAGE_TAG:-local}
+        # Žr. "app" serviso GIT_SHA komentarą aukščiau - ta pati priežastis (B7-staging-checklist.md 3/6 sk.).
+        GIT_SHA: ${IMAGE_TAG:?nurodyk IMAGE_TAG (pvz. IMAGE_TAG=local lokaliam dev)}
+    image: atsidek-assistant:${IMAGE_TAG:?nurodyk IMAGE_TAG (pvz. IMAGE_TAG=local lokaliam dev)}
     restart: unless-stopped
     depends_on:
       - app

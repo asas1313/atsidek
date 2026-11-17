@@ -527,6 +527,38 @@ Testai: Java 353 / 0 nepavyko (su nauju `RestClientAssistantClientRealHttpTest`)
 šios fazės HTTP/1.1 pataisymo (tik B6.5 wiring commit'ai anksčiau). B6.5 — **BAIGTA**. Toliau — B7
 staging diegimas pagal `B7-staging-checklist.md`, savininko paties vykdomas.
 
+## B6.6 dalis — BAIGTA (2026-11-17)
+
+Spraga (žr. `PLAN-taupymas-agentas.md` B6.6 skyrių): B6.5/B7-wiring padarė `/chat/send` realiai
+veikiantį (tikras agento ciklas), bet NĖ VIENAS puslapis jo nekvietė - pagrindinio puslapio forma
+tebesiuntė į senąjį `/asistentas`, `/taupymo-tikslai` neturėjo pokalbio elemento, o `GET /chat`
+krito į default-deny → nukreipimas į Google OAuth. Savininkas pastebėjo ruošdamas B7 staging
+patikrą. Uždaryta šaka `feat/taupymas-agentas-b6-6-chat-ui` (nuo `main`, B7-wiring merge'o galvos).
+Kas pristatyta pagal PLAN B6.6 AC 1–7:
+
+1. Pagrindinis puslapis ("/", `asistentas.html`): kai `agentChatEnabled` (`ChatModelAdvice`,
+   `atsidek.chat.agent-enabled`) - nauja pokalbio UI (plain `fetch()` į `POST /chat/send`, CSRF
+   meta žymės); kai `false` - senas `/asistentas` blokas byte-identical, tik apvalkalas `th:block
+   th:unless`.
+2. `/taupymo-tikslai`: nuoroda "Klausti AI asistento" į "/", `th:if="${agentChatEnabled}"`.
+3. UI atvaizduoja `reply` lauką kaip yra (jau pilnas šablonas su disclaimer'iu/CTA iš
+   `response_builder.py`), limito atsakymą pažymi atskira CSS klase (`chat-msg-limit`).
+4. `docker-compose.yml`'o `app` servisas dabar skaito TĄ PATĮ host `AGENT_CHAT_ENABLED` kintamąjį
+   kaip ir `assistant` (`ATSIDEK_CHAT_AGENT_ENABLED`) - viena reikšmė valdo abi puses.
+5. Testai: Java MVC (`CalculatorControllerTest`/`HomeAgentChatEnabledTest`/
+   `GoalsPageControllerTest` - abi vėliavos reikšmės), vienas HTTP smoke testas
+   (`ChatSendSavingsTemplateSmokeTest` - anoniminė žinutė per tikrą `/chat/send` → taupymo šablono
+   frazės; ne Playwright, žr. PLAN B6.6 AC 5 pastabą). Java 358 / 0 nepavyko. Python nekeistas (466
+   / 0 nepavyko, 1 skipped - nepaveiktas šios fazės).
+6. `B7-staging-checklist.md` 4 skyrius perrašytas su TIKRU UI žingsniu (pokalbis "/" puslapyje, ne
+   neegzistuojantis "pokalbio langelis /taupymo-tikslai").
+7. Nesusijęs, bet tą pačią dieną rastas incidentas (IMAGE_TAG): `docker-compose.yml`'o
+   `image:`/`GIT_SHA` numatytoji "local" žyma pašalinta (dabar `${IMAGE_TAG:?...}`) - ankstesnis
+   incidentas, kai rankinis `up -d` be eksportuoto `IMAGE_TAG` tyliai paleido `atsidek:local` ir
+   sukėlė 502, dabar krinta su aiškia klaida. `DEPLOY.md` ir `B7-staging-checklist.md` 3/6 skyriai
+   atnaujinti su `IMAGE_TAG` reikalavimu visiems rankiniams `docker compose` kvietimams;
+   `deploy/deploy.sh` (staging/production CI) nepaveiktas, jis jį eksportuoja pati.
+
 ## Prieš produkciją (savininko 2026-11-16/2026-11-17 nurodymas — užfiksuota, bet NEIŠTAISYTA)
 
 Septyni žinomi trūkumai, kuriuos savininkas sąmoningai nusprendė palikti VĖLESNIAM darbui, bet
