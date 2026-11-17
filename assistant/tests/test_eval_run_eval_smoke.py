@@ -343,6 +343,18 @@ def test_run_judge_returns_error_not_fail_when_no_tool_use_block_is_present():
     assert "reason" in verdict
 
 
+def test_run_judge_returns_error_not_fail_when_response_content_is_entirely_empty():
+    """Same ERROR path, no content blocks at all (not even a text one) - tool_choice is "auto",
+    so an empty/no-tool_use response is a real possibility this must not crash on."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+    assert "reason" in verdict
+
+
 def test_run_judge_returns_error_not_fail_on_a_tool_use_block_with_an_unrecognized_verdict():
     run_eval = importlib.import_module("evals.agent.run_eval")
     client = _FakeJudgeClient(_FakeJudgeResponse(
