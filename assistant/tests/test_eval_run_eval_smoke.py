@@ -479,13 +479,26 @@ def test_run_accepts_a_runs_per_case_override_and_uses_it_not_the_module_constan
     run_eval = importlib.import_module("evals.agent.run_eval")
     source = inspect.getsource(run_eval.run)
 
-    assert "def run(model: str, with_judge: bool, concurrency: int = 1, " \
-        "runs_per_case: int = RUNS_PER_CASE)" in source
+    assert "model: str, with_judge: bool, concurrency: int = 1, runs_per_case: int = RUNS_PER_CASE" in source
     assert "for i in range(runs_per_case)" in source
     assert "\"runs_per_case\": runs_per_case," in source
     # The module constant still exists as the documented default (owner decision 3) - just no
     # longer hardcoded into the loop bodies themselves.
     assert "for i in range(RUNS_PER_CASE)" not in source
+
+
+def test_run_accepts_a_via_endpoint_override_defaulting_to_false():
+    """Item 5 (owner instruction 2026-11-17): run() must thread a via_endpoint flag through to
+    which worker/preflight it uses, defaulting to the existing direct-call behavior unless passed."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.run)
+
+    assert "via_endpoint: bool = False" in source
+    assert "_preflight_via_endpoint(base_url, api_key)" in source
+    assert "_execute_case_run_via_endpoint" in source
+    assert "\"via_endpoint\": via_endpoint," in source
 
 
 def test_runs_per_case_cli_flag_defaults_to_the_module_constant():
@@ -505,7 +518,7 @@ def test_main_passes_runs_per_case_through_to_run():
     run_eval = importlib.import_module("evals.agent.run_eval")
     source = inspect.getsource(run_eval.main)
 
-    assert "run(args.model, args.with_judge, args.concurrency, args.runs_per_case)" in source
+    assert "run(args.model, args.with_judge, args.concurrency, args.runs_per_case, args.via_endpoint)" in source
 
 
 def test_concurrency_cli_flag_defaults_to_8():
@@ -523,14 +536,15 @@ def test_concurrency_cli_flag_defaults_to_8():
 
 def test_run_one_and_rescore_both_wire_in_the_response_complete_check():
     """Owner instruction (2026-11-16, after eval a2dbaae, item 3): both the live-run path
-    (`_run_one`) and `--rescore` must score `response_complete` - read directly from source since
-    `_run_one` needs a live backend and `rescore`'s own tests exercise it via stored JSON, not via
-    inspecting which checks got computed."""
+    (`_score_run` - shared by `_run_one` and, since item 5, `_run_one_via_endpoint`) and
+    `--rescore` must score `response_complete` - read directly from source since `_score_run`
+    needs a live backend and `rescore`'s own tests exercise it via stored JSON, not via inspecting
+    which checks got computed."""
     import inspect
 
     run_eval = importlib.import_module("evals.agent.run_eval")
 
-    assert '"response_complete": score_response_complete(result.stop_reason)' in inspect.getsource(run_eval._run_one)
+    assert '"response_complete": score_response_complete(result.stop_reason)' in inspect.getsource(run_eval._score_run)
     assert "score_response_complete(stored_run.get(\"stop_reason\"))" in inspect.getsource(run_eval.rescore)
 
 
@@ -642,6 +656,213 @@ def test_rescore_keeps_a_stored_judge_verdict_unchanged_and_never_recalls_the_ju
     assert run["judge_verdict"] == {"verdict": "FAIL", "reason": "stored verdict"}
     violation_checks = {v["check"] for v in rescored["investment_advice_violations"]}
     assert "llm_judge" in violation_checks
+
+
+# --- item 5 (owner instruction 2026-11-17): --via-endpoint ---------------------------------
+#
+# Pure reconstruction logic (_coerce_decimal_strings/_reconstruct_tool_calls/
+# _reconstruct_final_text_and_status) plus the mocked-httpx session/CSRF helpers - no real
+# network call, no real Java backend, same spirit as the context-token tests above.
+
+def test_coerce_decimal_strings_turns_a_stringified_decimal_back_into_one():
+    from decimal import Decimal
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    # Mirrors exactly what `_dispatch_tool_call`'s `json.dumps(result, default=str)` + a
+    # round-trip `json.loads` produces: a Decimal-origin leaf arrives as a JSON string.
+    coerced = run_eval._coerce_decimal_strings({"revenue": "458.79", "psd_months": 6, "nested": {"x": "12.5"}})
+
+    assert coerced == {"revenue": Decimal("458.79"), "psd_months": 6, "nested": {"x": Decimal("12.5")}}
+
+
+def test_coerce_decimal_strings_leaves_genuinely_non_numeric_strings_alone():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    coerced = run_eval._coerce_decimal_strings({
+        "tier": "PREMIUM", "tax_calc_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    })
+
+    assert coerced == {"tier": "PREMIUM", "tax_calc_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"}
+
+
+def test_coerce_decimal_strings_walks_lists_too():
+    from decimal import Decimal
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    coerced = run_eval._coerce_decimal_strings([{"a": "1.5"}, "2.5", "not-a-number"])
+
+    assert coerced == [{"a": Decimal("1.5")}, Decimal("2.5"), "not-a-number"]
+
+
+def test_reconstruct_tool_calls_matches_a_successful_tool_result_to_its_tool_use():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    from decimal import Decimal
+
+    messages = [
+        {"role": "user", "content": "Kiek mokesčių sumoku nuo 2400 € IV pajamų?"},
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "tu1", "name": "calculate_iv_taxes", "input": {"revenue": 2400}},
+        ]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "tu1", "content": '{"total_tax": "458.79"}'},
+        ]},
+        {"role": "assistant", "content": [{"type": "text", "text": "Štai jūsų mokesčiai."}]},
+    ]
+
+    tool_calls = run_eval._reconstruct_tool_calls(messages)
+
+    assert len(tool_calls) == 1
+    call = tool_calls[0]
+    assert call["id"] == "tu1"
+    assert call["name"] == "calculate_iv_taxes"
+    assert call["input"] == {"revenue": 2400}
+    assert call["result"] == {"total_tax": Decimal("458.79")}
+    assert call["error"] is None
+    assert call["is_error"] is False
+
+
+def test_reconstruct_tool_calls_captures_an_error_tool_result():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    messages = [
+        {"role": "user", "content": "..."},
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "tu1", "name": "calculate_savings_plan", "input": {}},
+        ]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "tu1", "content": "trūksta pajamų", "is_error": True},
+        ]},
+    ]
+
+    tool_calls = run_eval._reconstruct_tool_calls(messages)
+
+    assert tool_calls[0]["result"] is None
+    assert tool_calls[0]["error"] == "trūksta pajamų"
+    assert tool_calls[0]["is_error"] is True
+
+
+def test_reconstruct_tool_calls_preserves_model_issued_order_across_multiple_turns():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    messages = [
+        {"role": "user", "content": "..."},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "tu1", "name": "a", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu1", "content": "{}"}]},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "tu2", "name": "b", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu2", "content": "{}"}]},
+    ]
+
+    tool_calls = run_eval._reconstruct_tool_calls(messages)
+
+    assert [c["name"] for c in tool_calls] == ["a", "b"]
+
+
+def test_reconstruct_final_text_and_status_for_a_completed_text_only_last_turn():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    messages = [
+        {"role": "user", "content": "..."},
+        {"role": "assistant", "content": [{"type": "text", "text": "Štai jūsų mokesčiai."}]},
+    ]
+
+    final_text, status, stop_reason = run_eval._reconstruct_final_text_and_status(messages, "end_turn")
+
+    assert final_text == "Štai jūsų mokesčiai."
+    assert status == "completed"
+    assert stop_reason == "end_turn"
+
+
+def test_reconstruct_final_text_and_status_for_a_max_iterations_exceeded_run():
+    """The real `run_agent_loop` never appends a trailing assistant turn when the iteration limit
+    is hit mid-loop - the LAST element is the final tool-result (user) turn instead."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    messages = [
+        {"role": "user", "content": "..."},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "tu1", "name": "a", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu1", "content": "{}"}]},
+    ]
+
+    final_text, status, stop_reason = run_eval._reconstruct_final_text_and_status(messages, None)
+
+    assert final_text == run_eval.TOO_MANY_STEPS_MESSAGE
+    assert status == "max_iterations_exceeded"
+    assert stop_reason is None
+
+
+def test_mint_eval_session_raises_on_a_tier_mismatch_instead_of_returning_silently(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    import httpx as real_httpx
+
+    class _FakeClient:
+        def post(self, *a, **k):
+            return _FakeResponse(200, {"derivedTier": "FREE", "userId": "x"})
+
+    import pytest
+    with pytest.raises(RuntimeError, match="tikėtasi 'PREMIUM'"):
+        run_eval._mint_eval_session(_FakeClient(), "key", "PREMIUM")
+
+
+def test_mint_eval_session_raises_on_non_2xx():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    class _FakeClient:
+        def post(self, *a, **k):
+            return _FakeResponse(401, {})
+
+    import pytest
+    with pytest.raises(Exception):
+        run_eval._mint_eval_session(_FakeClient(), "key", "FREE")
+
+
+def test_fetch_csrf_parses_the_meta_tags():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    class _FakeHtmlResponse:
+        text = (
+            '<html><head><meta name="_csrf" content="abc123">'
+            '<meta name="_csrf_header" content="X-CSRF-TOKEN"></head></html>'
+        )
+
+        def raise_for_status(self):
+            pass
+
+    class _FakeClient:
+        def get(self, *a, **k):
+            return _FakeHtmlResponse()
+
+    header, token = run_eval._fetch_csrf(_FakeClient())
+
+    assert header == "X-CSRF-TOKEN"
+    assert token == "abc123"
+
+
+def test_fetch_csrf_raises_when_the_meta_tags_are_missing():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    class _FakeHtmlResponse:
+        text = "<html><head></head></html>"
+
+        def raise_for_status(self):
+            pass
+
+    class _FakeClient:
+        def get(self, *a, **k):
+            return _FakeHtmlResponse()
+
+    import pytest
+    with pytest.raises(RuntimeError, match="_csrf"):
+        run_eval._fetch_csrf(_FakeClient())
+
+
+def test_via_endpoint_cli_flag_defaults_to_false():
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.main)
+
+    via_endpoint_block = source[source.index('"--via-endpoint"'):]
+    assert "default=False" in via_endpoint_block.split("args = parser.parse_args()")[0][:300]
 
 
 def test_aggregate_case_results_matches_manual_computation_for_two_cases_two_checks():

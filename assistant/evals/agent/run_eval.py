@@ -13,7 +13,7 @@ Usage:
     export ATSIDEK_API_KEY=...            # Java tool-callback AND /api/v1/eval/token endpoints
     export ATSIDEK_API_URL=http://localhost:8080   # see judgment-call note below
     python evals/agent/run_eval.py [--model claude-haiku-5-5] [--with-judge] [--concurrency N] \
-        [--runs-per-case N]
+        [--runs-per-case N] [--via-endpoint]
 
     # Re-score an EXISTING results file with the current deterministic scorers, no LLM/Java calls,
     # zero cost (e.g. to check a scoring.py fix against a past real run):
@@ -26,10 +26,23 @@ ThreadPoolExecutor instead of one at a time - a fully sequential run took ~17.5 
 (default 3, the historical RUNS_PER_CASE - owner decision 3, reported as a pass RATE across those
 runs). Pass 1 for a cheap smoke run after a small prompt/template tweak.
 
-For `logged_in` cases, the Java backend this points at must either be running with
-`SPRING_PROFILES_ACTIVE=eval-ci` (so `/api/v1/eval/token` exists - see "Context-token minting"
-below) or have `ATSIDEK_CONTEXT_TOKEN_FREE`/`ATSIDEK_CONTEXT_TOKEN_PREMIUM` manually supplied -
-otherwise this script raises immediately rather than silently degrading those cases to anonymous.
+`--via-endpoint` (owner instruction, item 5, 2026-11-17): sends every message through the REAL
+Java `/chat/send` -> Python `/internal/chat` round trip (CSRF token fetched from a real rendered
+page, an eval-ci session for `logged_in` cases - see `_mint_eval_session`/`_fetch_csrf`) instead of
+calling `run_agent_loop()` directly - exercises the B6.5 wiring (tier/key/history relay,
+`AGENT_CHAT_ENABLED`, `chat_limiter`, `usage_logging`) that the default direct-call mode never
+touches at all. `_run_one_via_endpoint` reconstructs an `AgentLoopResult`-shaped object from the
+HTTP response and scores it with the exact same `_score_run` the direct path uses - same checks,
+same result shape, the only difference is what actually produced the data. Needs the Java backend
+running with `SPRING_PROFILES_ACTIVE=eval-ci` (for BOTH `/api/v1/eval/token` and the new
+`/api/v1/eval/session`, even for pure-anon runs - `_preflight_via_endpoint` checks CSRF
+reachability regardless of case mix).
+
+For `logged_in` cases (either mode), the Java backend this points at must either be running with
+`SPRING_PROFILES_ACTIVE=eval-ci` (so `/api/v1/eval/token`/`/api/v1/eval/session` exist - see
+"Context-token minting" below and `_mint_eval_session`) or (direct-call mode only) have
+`ATSIDEK_CONTEXT_TOKEN_FREE`/`ATSIDEK_CONTEXT_TOKEN_PREMIUM` manually supplied - otherwise this
+script raises immediately rather than silently degrading those cases to anonymous.
 
 Judgment call on the Java base URL env var: `app/main.py`'s own default (`ATSIDEK_API_URL`,
 defaulting to `http://app:8080`) is the docker-compose-internal hostname, not reachable from a
@@ -103,11 +116,12 @@ Rezultatas (per-case/per-group pass rate) įrašomas į evals/results/<YYYY-MM-D
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -117,7 +131,7 @@ ASSISTANT_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ASSISTANT_DIR))  # kad veiktų "from app...." importai
 sys.path.insert(0, str(ASSISTANT_DIR.parent))  # kad veiktų "evals.agent...." importai
 
-from app.agent_loop import run_agent_loop  # noqa: E402
+from app.agent_loop import AgentLoopResult, TOO_MANY_STEPS_MESSAGE, run_agent_loop  # noqa: E402
 from app.calculator import AtsidekApi  # noqa: E402
 from app.request_context import RequestContext  # noqa: E402
 from app.response_builder import _last_successful_result, build_response  # noqa: E402
@@ -247,6 +261,15 @@ def _build_registry_and_tools(calculator):
 
 _TEST_USER_KEY_FOR_TIER = {"FREE": "free", "PREMIUM": "premium"}
 
+# --via-endpoint (owner instruction, item 5): sends eval messages through the REAL Java
+# /chat/send -> Python /internal/chat round trip instead of calling run_agent_loop() directly -
+# see _run_one_via_endpoint's own docstring for the full design.
+_CSRF_PAGE_PATH = "/taupymo-tikslai"  # public (permitAll), renders the _csrf meta tags /chat/send needs
+_SAVINGS_PLAN_PREFLIGHT_BODY = {
+    "goal": {"type": "CAR", "amount": 1200, "mode": "WHEN", "monthly_contribution": 100},
+    "net_monthly_income": 3100, "monthly_expenses": 1000,
+}
+
 
 def _mint_context_token(base_url: str, api_key: str, tier: str) -> str:
     """Mints a FRESH, real Java-signed context token for the `tier` CI fixture user, via
@@ -300,6 +323,184 @@ def _preflight_context_tokens(base_url: str, api_key: str) -> None:
     print(f"Preflight OK: kontekstiniai žetonai veikia tier'ams {needed_tiers}", file=sys.stderr)
 
 
+def _mint_eval_session(client: httpx.Client, api_key: str, tier: str) -> None:
+    """--via-endpoint counterpart to `_mint_context_token`: authenticates `client`'s own cookie
+    jar as the `tier` eval-ci fixture user via `POST /api/v1/eval/session`
+    (`eval-ci`-profile-gated `EvalSessionController.java`) - a REAL Spring Security session, not a
+    context token, since `/chat/send` derives tier exclusively from the session
+    (`CurrentAppUser`), never from a request field. Never catches a failure (bad status, network
+    error, tier mismatch) - same "never silently run as anonymous/wrong tier" stance as
+    `_mint_context_token`."""
+    test_user_key = _TEST_USER_KEY_FOR_TIER[tier]
+    response = client.post(
+        "/api/v1/eval/session",
+        json={"testUserKey": test_user_key},
+        headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    derived_tier = response.json()["derivedTier"]
+    if derived_tier != tier:
+        raise RuntimeError(
+            f"/api/v1/eval/session grąžino derivedTier={derived_tier!r}, bet tikėtasi {tier!r}"
+        )
+
+
+_CSRF_TOKEN_RE = re.compile(r'name="_csrf"\s+content="([^"]+)"')
+_CSRF_HEADER_RE = re.compile(r'name="_csrf_header"\s+content="([^"]+)"')
+
+
+def _fetch_csrf(client: httpx.Client) -> tuple[str, str]:
+    """`/chat/send` is deliberately NOT CSRF-ignored (see `ChatController`'s own javadoc) - a real
+    browser gets its token from a rendered page's `<meta>` tags (`taupymo-tikslai.html`'s own
+    `csrfHeaders()` JS helper does exactly this); --via-endpoint mirrors that instead of
+    special-casing CSRF away, so it exercises the SAME protection a real request goes through.
+    Returns (header_name, token_value). Raises if the page's markup ever stops carrying them -
+    never silently sends an unauthenticated-looking POST with no CSRF header at all."""
+    response = client.get(_CSRF_PAGE_PATH, timeout=10.0)
+    response.raise_for_status()
+    header_match = _CSRF_HEADER_RE.search(response.text)
+    token_match = _CSRF_TOKEN_RE.search(response.text)
+    if not header_match or not token_match:
+        raise RuntimeError(f"{_CSRF_PAGE_PATH} negrąžino _csrf meta žymų - CSRF žetono gauti nepavyko")
+    return header_match.group(1), token_match.group(1)
+
+
+def _via_endpoint_client(case, base_url: str, api_key: str) -> httpx.Client:
+    """One throwaway `httpx.Client` (fresh cookie jar) PER (case, run) unit - exactly like opening
+    a brand-new private browser tab. `ChatController` persists conversation history into
+    WHATEVER session a request carries, logged in or not, regardless of whether this harness ever
+    sends a `history` field itself - reusing a client across runs would silently prepend an
+    earlier, unrelated run's exchange into a later case's supposedly-independent one."""
+    client = httpx.Client(base_url=base_url, timeout=20.0)
+    if case.variant == "logged_in":
+        _mint_eval_session(client, api_key, case.tier)
+    return client
+
+
+def _via_endpoint_chat_send(client: httpx.Client, message: str) -> dict:
+    csrf_header, csrf_token = _fetch_csrf(client)
+    response = client.post("/chat/send", json={"message": message}, headers={csrf_header: csrf_token})
+    response.raise_for_status()
+    return response.json()
+
+
+def _coerce_decimal_strings(value: Any) -> Any:
+    """Undoes the one lossy step `agent_loop._dispatch_tool_call` takes when it JSON-encodes a
+    tool result for the wire (`json.dumps(result, default=str)` turns every `Decimal` leaf - the
+    only thing in a tax/savings result `AtsidekApi` doesn't already parse as a plain int/str -
+    into a quoted JSON string, so the model reads e.g. `"458.79"` as a tool result). The DIRECT
+    `run_agent_loop()` call path never loses this (`tool_calls[i]["result"]` is the original
+    Python dict, `Decimal`s included) - without this, every monetary figure reconstructed from a
+    real `/chat/send` response would be a `str`, which `scoring.rendered_numbers()`'s
+    `_numeric_leaves` silently ignores (it only recognizes `int`/`float`/`Decimal` leaves),
+    making `score_no_invented_numbers` fail on numbers the agent never actually invented.
+    Deliberately a plain string->Decimal attempt (no field-name whitelist): the only strings this
+    result shape ever carries that are NOT meant to be read as a quantity (`tax_calc_id` - a UUID,
+    `tier` - "FREE"/"PREMIUM") never parse as a `Decimal` in the first place."""
+    if isinstance(value, str):
+        try:
+            return Decimal(value)
+        except InvalidOperation:
+            return value
+    if isinstance(value, dict):
+        return {k: _coerce_decimal_strings(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_coerce_decimal_strings(v) for v in value]
+    return value
+
+
+def _reconstruct_tool_calls(messages: list[dict]) -> list[dict]:
+    """Rebuilds `AgentLoopResult.tool_calls` (the exact shape every `scoring.py` function expects)
+    from the Messages-API-shaped `messages` list `/chat/send` returns - `_agent_chat` relays
+    `AgentLoopResult.messages` verbatim (B5 decision 7's "opaque blob"), and that is the ONLY form
+    --via-endpoint gets to see; the real HTTP boundary never exposes `run_agent_loop()`'s own
+    `tool_calls` list directly. Walks assistant `tool_use` blocks and matches each one to its
+    `tool_result` in the FOLLOWING user turn by `tool_use_id` - exactly how the Messages API itself
+    pairs them."""
+    tool_calls: list[dict] = []
+    pending: dict[str, dict] = {}
+    for turn in messages:
+        content = turn.get("content")
+        if not isinstance(content, list):
+            continue
+        if turn.get("role") == "assistant":
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    call = {
+                        "id": block["id"], "name": block["name"], "input": block.get("input") or {},
+                        "result": None, "error": None, "is_error": False,
+                    }
+                    tool_calls.append(call)
+                    pending[block["id"]] = call
+        elif turn.get("role") == "user":
+            for block in content:
+                if not isinstance(block, dict) or block.get("type") != "tool_result":
+                    continue
+                call = pending.pop(block.get("tool_use_id"), None)
+                if call is None:
+                    continue
+                if block.get("is_error"):
+                    call["error"] = block.get("content")
+                    call["is_error"] = True
+                else:
+                    call["result"] = _coerce_decimal_strings(json.loads(block["content"]))
+    return tool_calls
+
+
+def _reconstruct_final_text_and_status(
+    messages: list[dict], stop_reason_from_response: Optional[str]
+) -> tuple[Optional[str], str, Optional[str]]:
+    """Mirrors `run_agent_loop`'s own two endings: a "completed" run's LAST turn is always a
+    text-only (no `tool_use`) assistant turn; a "max_iterations_exceeded" run's last turn is
+    instead the final tool-result (user) turn - the assistant turn that WOULD have followed never
+    ran, exactly the same shape `run_agent_loop` itself returns (`final_text` is the hardcoded
+    `TOO_MANY_STEPS_MESSAGE`, `stop_reason=None`, since there never was a final model turn to carry
+    one). Returns (final_text, status, stop_reason)."""
+    last = messages[-1] if messages else None
+    if isinstance(last, dict) and last.get("role") == "assistant":
+        content = last.get("content") or []
+        tool_uses = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
+        if not tool_uses:
+            texts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"]
+            return ("\n".join(texts) if texts else None), "completed", stop_reason_from_response
+    return TOO_MANY_STEPS_MESSAGE, "max_iterations_exceeded", None
+
+
+def _preflight_via_endpoint(base_url: str, api_key: str) -> None:
+    """--via-endpoint counterpart to `_preflight_context_tokens`: before any costed LLM call,
+    confirms (1) the CSRF page itself is reachable and still carries the meta tags `/chat/send`
+    needs, and (2) for every tier a `logged_in` case needs, a freshly-minted eval-ci session
+    ACTUALLY authenticates a later request as that tier - verified via a cheap, non-LLM
+    `/api/v1/savings/plan` call through that same session (never trusting the mint response's own
+    `derivedTier` alone), catching e.g. a non-sticky load balancer or cookie misconfiguration in a
+    real deployment for free, before a single dollar is spent (owner instruction 2026-11-17)."""
+    reachability_client = httpx.Client(base_url=base_url, timeout=10.0)
+    try:
+        _fetch_csrf(reachability_client)
+    finally:
+        reachability_client.close()
+
+    needed_tiers = sorted({c.tier for c in CASES if c.variant == "logged_in"})
+    for tier in needed_tiers:
+        client = httpx.Client(base_url=base_url, timeout=10.0)
+        try:
+            _mint_eval_session(client, api_key, tier)
+            response = client.post(
+                "/api/v1/savings/plan", headers={"X-API-Key": api_key}, json=_SAVINGS_PLAN_PREFLIGHT_BODY,
+            )
+            response.raise_for_status()
+            actual_tier = response.json()["tier"]
+            if actual_tier != tier:
+                raise RuntimeError(
+                    f"Preflight (via-endpoint): {tier!r} sesija per /api/v1/savings/plan grąžino "
+                    f"tier={actual_tier!r} - sesijos/slapuko grandinė sugedusi."
+                )
+        finally:
+            client.close()
+    print(f"Preflight OK (via-endpoint): eval-ci sesijos veikia tier'ams {needed_tiers}", file=sys.stderr)
+
+
 def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: str) -> dict:
     request_context = RequestContext(
         user_id="eval-user" if case.variant == "logged_in" else None,
@@ -317,7 +518,41 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
         system=SYSTEM_PROMPT,
         model=model,
     )
+    return _score_run(result, case, context_token_used=context_token is not None)
 
+
+def _run_one_via_endpoint(case, base_url: str, api_key: str) -> dict:
+    """--via-endpoint counterpart to `_run_one` (owner instruction, item 5): sends `case` through
+    the REAL Java `/chat/send` -> Python `/internal/chat` round trip instead of calling
+    `run_agent_loop()` in-process - exercises the Java tier-derivation/session/history layer AND
+    the real Python HTTP endpoint (`AGENT_CHAT_ENABLED` flag, `chat_limiter`, `usage_logging`),
+    none of which the direct-call path ever touches. Reconstructs an `AgentLoopResult`-shaped
+    object from the HTTP response and hands it to the SAME `_score_run` the direct path uses, so
+    both modes produce identical checks on identical data shapes (never a separate/drifting
+    scoring implementation)."""
+    client = _via_endpoint_client(case, base_url, api_key)
+    try:
+        response_body = _via_endpoint_chat_send(client, case.user_message)
+    finally:
+        client.close()
+    if "messages" not in response_body:
+        raise RuntimeError(
+            f"{case.id}: /chat/send negrąžino 'messages' rakto via-endpoint režimu (dienos "
+            f"limitas pasiektas? Python servisas nesukonfigūruotas? AGENT_CHAT_ENABLED=false?): "
+            f"{response_body!r}"
+        )
+    tool_calls = _reconstruct_tool_calls(response_body["messages"])
+    final_text, status, stop_reason = _reconstruct_final_text_and_status(
+        response_body["messages"], response_body.get("stop_reason")
+    )
+    result = AgentLoopResult(
+        status=status, final_text=final_text, messages=response_body["messages"],
+        tool_calls=tool_calls, stop_reason=stop_reason,
+    )
+    return _score_run(result, case, context_token_used=case.variant == "logged_in")
+
+
+def _score_run(result: AgentLoopResult, case, context_token_used: bool) -> dict:
     # "Rate" checks (owner instruction 2026-11-13): DRAFT_PASS_RATE_THRESHOLD (0.9) applies ONLY
     # to these - tool sequence, number-leakage, anon-premium-gating, missing-income handling, and
     # (monthly-income cases only) the tax-tool-input annualization check. The investment-advice
@@ -356,12 +591,13 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
     had_premium_section = ("premium" in savings_result) if savings_result is not None else None
 
     # A logged_in case whose savings call came back with a DIFFERENT tier than expected means the
-    # context-token pipeline is broken (e.g. minting "succeeded" but Java doesn't honor the token
-    # the way this harness assumes) - never let that pass silently as a mere scoring failure.
+    # identity pipeline is broken (context token OR, in --via-endpoint mode, the eval-ci session -
+    # e.g. minting "succeeded" but Java doesn't honor it the way this harness assumes) - never let
+    # that pass silently as a mere scoring failure.
     if case.variant == "logged_in" and actual_tier_seen is not None and actual_tier_seen != case.tier:
         raise RuntimeError(
             f"{case.id}: Java grąžino tier={actual_tier_seen!r}, bet tikėtasi {case.tier!r} "
-            "(logged_in atvejis) - kontekstinio žetono grandinė sugedusi, eval'as nestabdomas tyliai."
+            "(logged_in atvejis) - tapatybės grandinė sugedusi, eval'as nestabdomas tyliai."
         )
 
     reply = build_response(result.tool_calls, result.final_text)
@@ -380,7 +616,7 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
         # below), so `--rescore` can recompute `response_complete` from a past run without a new
         # live LLM call - mirrors why `tool_calls` itself is stored in full (item 9).
         "stop_reason": result.stop_reason,
-        "context_token_used": context_token is not None,
+        "context_token_used": context_token_used,
         "actual_tier_seen": actual_tier_seen,
         "had_premium_section": had_premium_section,
         "checks": rate_checks,
@@ -446,16 +682,40 @@ def _execute_case_run(client, registry, tools, case, model: str, base_url: str, 
     return run_record
 
 
-def run(model: str, with_judge: bool, concurrency: int = 1, runs_per_case: int = RUNS_PER_CASE) -> dict:
+def _execute_case_run_via_endpoint(client, case, base_url: str, api_key: str, with_judge: bool) -> dict:
+    """--via-endpoint counterpart to `_execute_case_run` - the LLM judge (when passed) is still a
+    DIRECT Anthropic call either way (owner's request was only about the AGENT path going through
+    the real endpoint, not the judge)."""
+    run_record = _run_one_via_endpoint(case, base_url, api_key)
+    if with_judge:
+        run_record["judge_verdict"] = _run_judge(client, case, run_record)
+    return run_record
+
+
+def run(
+    model: str, with_judge: bool, concurrency: int = 1, runs_per_case: int = RUNS_PER_CASE,
+    via_endpoint: bool = False,
+) -> dict:
     import anthropic
 
     client = anthropic.Anthropic()
     base_url = os.getenv("ATSIDEK_API_URL", "http://localhost:8080")
     api_key = os.getenv("ATSIDEK_API_KEY", "")
-    calculator = AtsidekApi(base_url, api_key)
-    registry, tools = _build_registry_and_tools(calculator)
 
-    _preflight_context_tokens(base_url, api_key)
+    if via_endpoint:
+        # No local registry/tools/calculator needed - every agent call goes through the real
+        # Java/Python HTTP boundary instead (see _run_one_via_endpoint).
+        _preflight_via_endpoint(base_url, api_key)
+        worker = lambda item: _execute_case_run_via_endpoint(  # noqa: E731
+            client, _case_by_id(item[0]), base_url, api_key, with_judge
+        )
+    else:
+        calculator = AtsidekApi(base_url, api_key)
+        registry, tools = _build_registry_and_tools(calculator)
+        _preflight_context_tokens(base_url, api_key)
+        worker = lambda item: _execute_case_run(  # noqa: E731
+            client, registry, tools, _case_by_id(item[0]), model, base_url, api_key, with_judge
+        )
 
     # Owner instruction (2026-11-16, item 9): --concurrency overlaps independent (case, run index)
     # units of work via a ThreadPoolExecutor (see `_execute_work_items`) - a live run took ~17.5
@@ -471,13 +731,7 @@ def run(model: str, with_judge: bool, concurrency: int = 1, runs_per_case: int =
     # `_execute_work_items` - case ids are unique (test_eval_cases.py::test_case_ids_are_unique),
     # so `(case.id, i)` is a safe, stable substitute; `_case_by_id` looks the case back up.
     work_items = [(case.id, i) for case in CASES for i in range(runs_per_case)]
-    raw_results = _execute_work_items(
-        work_items,
-        lambda item: _execute_case_run(
-            client, registry, tools, _case_by_id(item[0]), model, base_url, api_key, with_judge
-        ),
-        concurrency,
-    )
+    raw_results = _execute_work_items(work_items, worker, concurrency)
 
     case_results = []
     # Owner instruction 2026-11-13: zero-tolerance for investment-advice checks - every FAIL
@@ -541,6 +795,7 @@ def run(model: str, with_judge: bool, concurrency: int = 1, runs_per_case: int =
         "date": date.today().isoformat(),
         **_git_info(),
         "runs_per_case": runs_per_case,
+        "via_endpoint": via_endpoint,
         "with_judge": with_judge,
         "judge_rubric_version": JUDGE_RUBRIC_VERSION if with_judge else None,
         "concurrency": concurrency,
@@ -756,6 +1011,20 @@ def main() -> None:
             "--model/--with-judge/--concurrency/--runs-per-case are ignored with this flag."
         ),
     )
+    parser.add_argument(
+        "--via-endpoint",
+        action="store_true",
+        default=False,
+        help=(
+            "Sends every message through the REAL Java /chat/send -> Python /internal/chat round "
+            "trip (CSRF token, eval-ci session for logged_in cases) instead of calling "
+            "run_agent_loop() directly - exercises the B6.5 wiring (tier/key/history, "
+            "AGENT_CHAT_ENABLED, chat_limiter, usage_logging) the direct-call mode never touches. "
+            "Same checks, same results shape - see _run_one_via_endpoint. Requires ATSIDEK_API_URL "
+            "to point at a Java backend running with the eval-ci profile (for /api/v1/eval/session) "
+            "and ATSIDEK_API_KEY."
+        ),
+    )
     args = parser.parse_args()
 
     if args.rescore:
@@ -783,7 +1052,7 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    summary = run(args.model, args.with_judge, args.concurrency, args.runs_per_case)
+    summary = run(args.model, args.with_judge, args.concurrency, args.runs_per_case, args.via_endpoint)
     # Real date (item 9): date.today() at the moment of the actual live run - already correct, but
     # confirmed/kept explicit here since --rescore (above) deliberately does NOT use today's date.
     out_path = ASSISTANT_DIR / "evals" / "results" / f"{summary['date']}_agent_{args.model}.json"

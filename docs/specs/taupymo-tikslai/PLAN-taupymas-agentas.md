@@ -180,6 +180,20 @@ Tikrinama:
 
 Eval'ai paleidžiami kiekviename B dalies PR.
 
+### B6.5. `/internal/chat` sujungimas (spraga, rasta 2026-11-17 ruošiant B7)
+
+Nė viena ankstesnė fazė formaliai nepriskyrė užduoties "sujungti B2–B6 komponentus su gyvu `/chat/send` → `/internal/chat` keliu" — B1–B6 buvo parašyti ir ištestuoti izoliuotai (`run_agent_loop` tiesiogiai eval'uose, vienetiniai testai su fake'ais), bet `main.py`'s `/internal/chat` handleris realiai vis dar kvietė tik seną B1-eros vieno įrankio stub'ą. Spraga pastebėta ruošiant B7 staging checklist'ą (savininko pastebėjimas, 2026-11-17) ir uždaryta šia faze, prieš B7 diegimą.
+
+AC (savininko reikalavimai, 2026-11-17):
+
+1. `/internal/chat` naudoja `run_agent_loop` su abiem įrankiais (registry), `SYSTEM_PROMPT`, `response_builder`, `chat_limiter` (1 žinutė = 1 vienetas, limitas pagal tier) ir `usage_logging`. Istorija — iš Java `HttpSession` (ADR-0003 / B5 sprendimas 7). Konteksto token'as perduodamas įrankiams nepakeistas.
+2. Vėliava `AGENT_CHAT_ENABLED` (numatyta `false`): `false` — senas B1 kelias, `true` — naujas agentas. Rollback = vėliavos perjungimas. `/asistentas` nekeičiamas.
+3. Klaidos: Claude API klaida, iteracijų limitas ar įrankio gedimas → vartotojui trumpas tvarkingas pranešimas lietuviškai, ne stack trace; viskas logojama. Limitas viršytas → aiškus pranešimas (anonimui — su kvietimu prisijungti).
+4. Testai: Python — `/internal/chat` su fake modeliu (tax-only, savings-only, combined, missing income, limitas, API klaida, vėliava false/true). Java — `/chat/send` integracinis testas su fake Python servisu (istorija, token'as, tier).
+5. Eval'as per tikrą kelią: `run_eval.py --via-endpoint` režimas, kuris siunčia žinutes per Java `/chat/send` (su eval-ci token'u/sesija), ne tiesiai į `run_agent_loop`. `eval-b6.yml` input'as šiam režimui. Rezultatai — tie patys check'ai.
+
+Įgyvendinta `feat/taupymas-agentas-b7-wiring` šakoje: Python pusė (`main.py`'s `_agent_chat`, `test_internal_chat_agent.py`), Java pusė (`ChatController`/`AssistantClient`/`RestClientAssistantClient`, `ChatControllerTest`), nauja `EvalSessionController`/`EvalSessionService` (eval-ci sesijos minimui `--via-endpoint` režimui), `run_eval.py --via-endpoint` + `eval-b6.yml via_endpoint` input'as.
+
 ### B7. Staging ir B dalies Definition of Done
 
 - Įdiegta į staging.atsidek.eu, eval'ų rezultatai PR'e.

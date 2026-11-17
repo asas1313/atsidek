@@ -87,6 +87,11 @@ services:
       AI_MODEL: ${AI_MODEL:-claude-haiku-5-5}
       AI_RATE_LIMIT_PER_HOUR: ${AI_RATE_LIMIT_PER_HOUR:-10}
       AI_DAILY_CAP: ${AI_DAILY_CAP:-300}
+      # B6.5/B7: false (numatyta, main.py's pačios reikšmės pakartojimas - sąmoningai tas pats
+      # "nenustatyta = false" elgesys, jei ši eilutė kada nors būtų pašalinta) - senas B1 kelias
+      # /internal/chat. true - tikras agento ciklas (run_agent_loop, abu įrankiai, chat_limiter,
+      # usage_logging). Rollback = atgal į false + `docker compose up -d` (jokio kodo pakeitimo).
+      AGENT_CHAT_ENABLED: ${AGENT_CHAT_ENABLED:-false}
     expose:
       - "8000"
     ports:

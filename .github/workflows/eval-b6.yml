@@ -33,6 +33,15 @@ on:
         description: "Kiek kartų kartoti kiekvieną atvejį (numatyta 3 - owner decision 3, pass rate per šiuos pakartojimus). 1 = greitas/pigus patikrinimas."
         type: string
         default: "3"
+      via_endpoint:
+        # Item 5 (owner instruction 2026-11-17): run_eval.py --via-endpoint sends every message
+        # through the REAL Java /chat/send -> Python /internal/chat round trip instead of calling
+        # run_agent_loop() in-process - needs the Python assistant service ALSO running in this
+        # job (the direct-call mode never needs it, since it calls run_agent_loop() in the same
+        # Python process run_eval.py itself runs in).
+        description: "run_eval.py --via-endpoint (B6.5): per tikrą Java /chat/send -> Python /internal/chat kelią, ne tiesiai į run_agent_loop."
+        type: boolean
+        default: false
 
 jobs:
   live-eval:
@@ -94,9 +103,14 @@ jobs:
           # IllegalStateException (fail closed) net ir tada, kai reikšmė čia IŠ TIESŲ nustatyta -
           # tiksliai taip krito pirmas gyvas B6 paleidimas (žr. B6-log.log).
           ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET: ${{ steps.api_key.outputs.token_secret }}
-          # eval-ci profilis: aktyvuoja EvalTokenService/EvalTokenController (žr.
-          # src/main/java/eu/atsidek/evalci/) - TIK šiam CI paleidimui, niekada staging/production.
+          # eval-ci profilis: aktyvuoja EvalTokenService/EvalTokenController IR
+          # EvalSessionService/EvalSessionController (žr. src/main/java/eu/atsidek/evalci/) - TIK
+          # šiam CI paleidimui, niekada staging/production.
           SPRING_PROFILES_ACTIVE: eval-ci
+          # --via-endpoint (item 5) reikalingas visada, ne tik kai įjungtas - docker-compose
+          # vidinis vardas "assistant" šiame runner'yje neišsprendžiamas; nekenksminga ir
+          # direct-call režimui, nes tas niekada nekviečia /chat/send.
+          ATSIDEK_ASSISTANT_BASE_URL: http://localhost:8000
         run: |
           nohup java -jar target/*.jar > /tmp/app.log 2>&1 &
           for i in $(seq 1 60); do
@@ -114,13 +128,46 @@ jobs:
         working-directory: assistant
         run: pip install -r requirements-dev.txt
 
+      - name: Start Python assistant service in the background (--via-endpoint only)
+        if: ${{ inputs.via_endpoint == true }}
+        working-directory: assistant
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Be šios /internal/chat tyliai grąžintų seną B1 stub'ą (jokio "messages" rakto) - tada
+          # --via-endpoint kiekvienam atvejui kristų su RuntimeError (žr. run_eval.py
+          # _run_one_via_endpoint), ne tyliai "praeitų".
+          AGENT_CHAT_ENABLED: "true"
+          ATSIDEK_API_URL: http://localhost:8080
+          ATSIDEK_API_KEY: ${{ steps.api_key.outputs.key }}
+          # Dosniai aukšti CI tik šiam paleidimui (numatytieji 50/100/500 dalinami VISŲ tos pačios
+          # tier'o eval-ci testinio vartotojo sesijų - jos visos turi TĄ PATĮ deterministinį
+          # userId, žr. EvalTokenService#deterministicUserId - tad pilnas --runs-per-case 3
+          # paleidimas, ypač anon'ui, 23 atvejai * 3 = 69 > numatytasis 50, realiai pasiektų
+          # limitą ir kristų su klaidingu "limited" atsakymu, ne tikru patikrinimu).
+          CHAT_ANON_DAILY_CAP: "1000"
+          CHAT_FREE_DAILY_CAP: "1000"
+          CHAT_PREMIUM_DAILY_CAP: "1000"
+        run: |
+          nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/assistant.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/healthz > /dev/null 2>&1; then
+              echo "Assistant servisas atsiliepė po ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Assistant servisas neatsiliepė per 120s - log:"
+          cat /tmp/assistant.log
+          exit 1
+
       - name: Run live agent eval
         working-directory: assistant
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ATSIDEK_API_URL: http://localhost:8080
-          # Taip pat naudojamas /api/v1/eval/token mintimui logged_in (FREE/PREMIUM) atvejams -
-          # žr. run_eval.py docstring "Context-token minting".
+          # Taip pat naudojamas /api/v1/eval/token (ir, --via-endpoint atveju,
+          # /api/v1/eval/session) mintimui logged_in (FREE/PREMIUM) atvejams - žr. run_eval.py
+          # docstring "Context-token minting".
           ATSIDEK_API_KEY: ${{ steps.api_key.outputs.key }}
           AI_MODEL: ${{ inputs.model }}
           RUNS_PER_CASE: ${{ inputs.runs_per_case }}
@@ -128,6 +175,9 @@ jobs:
           args=(evals/agent/run_eval.py --model "$AI_MODEL" --runs-per-case "$RUNS_PER_CASE")
           if [ "${{ inputs.with_judge }}" = "true" ]; then
             args+=(--with-judge)
+          fi
+          if [ "${{ inputs.via_endpoint }}" = "true" ]; then
+            args+=(--via-endpoint)
           fi
           python "${args[@]}"
 
@@ -145,4 +195,12 @@ jobs:
         with:
           name: b6-eval-app-log
           path: /tmp/app.log
+          retention-days: 7
+
+      - name: Upload assistant log (on failure, --via-endpoint only)
+        if: ${{ failure() && inputs.via_endpoint == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: b6-eval-assistant-log
+          path: /tmp/assistant.log
           retention-days: 7

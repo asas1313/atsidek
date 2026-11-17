@@ -4,6 +4,8 @@ import eu.atsidek.auth.ContextTokenService;
 import eu.atsidek.auth.CurrentAppUser;
 import eu.atsidek.goals.plan.SavingsPlanService;
 import eu.atsidek.goals.plan.Tier;
+import jakarta.servlet.http.HttpSession;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,13 +25,19 @@ import org.springframework.web.server.ResponseStatusException;
  * tada minta trumpaamžį pasirašytą kontekstinį žetoną ({@link ContextTokenService#issue}) ir kviečia
  * Python {@code assistant} servisą su juo.
  * <p>
- * B1 taikymo sritis TYČIA siaura (žr. plano "Scope boundary"): tikras daugiapakopis agento ciklas,
- * atsakymo formavimas ir pokalbio istorija yra B3/B4/B5 darbas, NE šio endpoint'o. Čia tik
- * įrodoma, kad žetonas teisingai nukeliauja į Python ir atgal - atsakymas tiesiog perduodamas iš
- * Python pusės (šiuo metu - stub/ack).
+ * B1 taikymo sritis buvo TYČIA siaura (žr. plano "Scope boundary") - tik įrodyti, kad žetonas
+ * teisingai nukeliauja į Python ir atgal. B7 ("sujungimas") pridėjo tai, kas iki tol trūko: tier'as
+ * ir stabilus vartotojo raktas siunčiami Python pusei kaip atskiri, nepasirašyti laukai (Python
+ * NIEKADA nedekoduoja žetono - žr. {@link AssistantClient#chat}), o pokalbio istorija laikoma ČIA,
+ * {@link HttpSession}, ir siunčiama/priimama kaip Python NEINTERPRETUOJAMAS JSON blokas (B5
+ * sprendimas 7) - šis endpoint'as niekada pats neskaito/nekeičia jos turinio, tik laiko ir
+ * persiunčia atgal tiksliai tą patį, ką Python paskutinį kartą grąžino {@code "messages"} rakte.
  */
 @RestController
 public class ChatController {
+
+    /** B7: kur sesijoje laikoma pokalbio istorija (B5 sprendimas 7 - Java, ne Python, ją laiko). */
+    static final String HISTORY_SESSION_ATTR = "atsidek.chat.history";
 
     /**
      * Review round 1 SHOULD #3: be šios ribos žinutės dydis buvo neribotas. Nėra Java pusės
@@ -56,7 +64,7 @@ public class ChatController {
     }
 
     @PostMapping("/chat/send")
-    public Object send(@RequestBody ChatSendRequest request) {
+    public Object send(@RequestBody ChatSendRequest request, HttpSession session) {
         String message = request.message() == null ? "" : request.message().trim();
         if (message.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "message privalomas");
@@ -68,7 +76,17 @@ public class ChatController {
         UUID userId = currentAppUser.optionalId().orElse(null);
         Tier tier = SavingsPlanService.deriveTier(savingsPlanService.lockedFeatures(userId));
         String contextToken = issueContextToken(userId, tier);
-        return assistantClient.chat(contextToken, message);
+        String key = userId == null ? null : userId.toString();
+        Object history = session.getAttribute(HISTORY_SESSION_ATTR);
+        Object response = assistantClient.chat(contextToken, message, tier.name(), key, history);
+        // B7: Python grąžina "messages" TIK sėkmingo agento paleidimo atveju (žr. main.py's
+        // _agent_chat) - nei senas B1 stub (kol AGENT_CHAT_ENABLED=false), nei limito/klaidos
+        // atsakymai šio rakto neturi, tad sesijos istorija jų atveju tiesiog nepaliečiama (nekorumpuojama
+        // nepavykusiu posūkiu). Turinio NEINTERPRETUOJAME - tik laikome ir grąžiname atgal.
+        if (response instanceof Map<?, ?> body && body.get("messages") != null) {
+            session.setAttribute(HISTORY_SESSION_ATTR, body.get("messages"));
+        }
+        return response;
     }
 
     /**

@@ -538,6 +538,94 @@ def test_non_max_tokens_stop_reason_logs_nothing(caplog):
     assert caplog.records == []
 
 
+# --- B7 wiring: usage aggregation --------------------------------------------------------------
+
+def test_usage_defaults_to_all_zeros_when_no_response_carries_a_usage_attribute():
+    registry = ToolRegistry()
+    client = FakeClient([FakeResponse([text_block("ok")])])  # FakeResponse never sets .usage
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "labas")
+
+    assert result.usage == {
+        "input_tokens": 0, "cache_creation_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0,
+    }
+
+
+def test_usage_is_read_from_a_single_turns_response():
+    registry = ToolRegistry()
+    response = FakeResponse([text_block("ok")])
+    response.usage = SimpleNamespace(
+        input_tokens=100, output_tokens=20, cache_creation_input_tokens=5, cache_read_input_tokens=7,
+    )
+    client = FakeClient([response])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "labas")
+
+    assert result.usage == {
+        "input_tokens": 100, "cache_creation_tokens": 5, "cache_read_tokens": 7, "output_tokens": 20,
+    }
+
+
+def test_usage_sums_across_every_turn_of_a_multi_turn_run():
+    registry = ToolRegistry()
+    registry.register("noop", lambda tool_input, ctx, token=None: {"ok": True})
+    turn1 = FakeResponse([tool_use_block("tu1", "noop", {})])
+    turn1.usage = SimpleNamespace(
+        input_tokens=100, output_tokens=10, cache_creation_input_tokens=50, cache_read_input_tokens=0,
+    )
+    turn2 = FakeResponse([text_block("galutinis")])
+    turn2.usage = SimpleNamespace(
+        input_tokens=120, output_tokens=15, cache_creation_input_tokens=0, cache_read_input_tokens=50,
+    )
+    client = FakeClient([turn1, turn2])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "labas")
+
+    assert result.usage == {
+        "input_tokens": 220, "cache_creation_tokens": 50, "cache_read_tokens": 50, "output_tokens": 25,
+    }
+
+
+def test_usage_tolerates_a_none_cache_field_same_as_agent_client_py():
+    """Real `Usage` objects can have `cache_creation_input_tokens=None`/`cache_read_input_tokens=
+    None` when caching wasn't used that call (agent_client.py's own getattr defends against the
+    SAME thing) - must be treated as 0, never crash with a TypeError adding None to an int."""
+    registry = ToolRegistry()
+    response = FakeResponse([text_block("ok")])
+    response.usage = SimpleNamespace(
+        input_tokens=10, output_tokens=5, cache_creation_input_tokens=None, cache_read_input_tokens=None,
+    )
+    client = FakeClient([response])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "labas")
+
+    assert result.usage == {
+        "input_tokens": 10, "cache_creation_tokens": 0, "cache_read_tokens": 0, "output_tokens": 5,
+    }
+
+
+def test_usage_is_populated_even_when_the_iteration_limit_is_exceeded():
+    registry = ToolRegistry()
+    registry.register("noop", lambda tool_input, ctx, token=None: {"ok": True})
+    response = FakeResponse([tool_use_block("tu1", "noop", {})])
+    response.usage = SimpleNamespace(
+        input_tokens=10, output_tokens=5, cache_creation_input_tokens=0, cache_read_input_tokens=0,
+    )
+    client = FakeClient([response, response, response])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "labas", max_iterations=3)
+
+    assert result.status == "max_iterations_exceeded"
+    assert result.usage == {
+        "input_tokens": 30, "cache_creation_tokens": 0, "cache_read_tokens": 0, "output_tokens": 15,
+    }
+
+
 def test_max_iterations_exceeded_leaves_stop_reason_as_none():
     """`max_iterations_exceeded` never reaches a real "final" text-only turn - `stop_reason` stays
     at its default rather than reflecting some earlier tool-use turn's own stop_reason."""
