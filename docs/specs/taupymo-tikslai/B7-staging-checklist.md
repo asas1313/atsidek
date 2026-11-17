@@ -10,6 +10,18 @@ kažkokiame kitame, neegzistuojančiame puslapyje. Rollback yra TIK vėliavos pe
 **Sustok prieš diegimą šio dokumento pabaigoje nurodytuose žingsniuose — savininkas pats paleis
 greitą eval'ą su `--via-endpoint` prieš bet kokį realų staging diegimą.**
 
+**PERSPĖJIMAS apie serverio katalogus (owner pastaba, 2026-11-17):** serveryje `~/atsidek` yra
+PASENĘS `git checkout` — NE tas pats, iš kurio realiai diegiama (`deploy/deploy.sh`/
+`docker-compose.yml` realiai veikia iš `/opt/atsidek/atsidek`, žr. 3 skyriaus `IMAGE_TAG` žingsnį).
+NIEKADA nepaleisk rankinių `docker compose` komandų iš `~/atsidek` — pasenęs `docker-compose.yml`
+ar senos env reikšmės iš ten gali tyliai sukelti elgesį, nesutampantį su tuo, kas realiai veikia
+`atsidek-staging` projekte (klaidinga diagnozė, kol kas nors pastebi skirtumą). Bet kokiam ENV
+KINTAMOJO pakeitimui (pvz. `AGENT_CHAT_ENABLED`, `CHAT_ANON_DAILY_CAP`) PIRMENYBĘ teikti GitHub
+Actions "Re-run all jobs" (CI `staging` job'as iš naujo nuskaito `/opt/atsidek/staging.env` ir
+paleidžia `deploy.sh` per TEISINGĄ `/opt/atsidek/atsidek` checkout'ą) — šio dokumento 3 ir 9
+skyrių rankinės `docker compose` komandos (kurios jau naudoja TEISINGĄ `/opt/atsidek/...` kelią,
+NE `~/atsidek`) lieka kaip dokumentuotas atsarginis būdas, kai CI re-run neįmanomas/neaktualus.
+
 ## 0. Prieš diegimą — ko reikia `/opt/atsidek/staging.env`
 
 `deploy/deploy.sh`'o paties sąrašas (CONTROLLER_NAME, CONTACT_EMAIL, TUNNEL_TOKEN, APP_PORT,
@@ -126,8 +138,8 @@ log'o įrašas per žinutę — `tool_call_count`/`cost_cents`/`duration_ms`).
 | 2 | Tik taupymas, anonimas | „Noriu sutaupyti 5000 eurų per 2 metus automobiliui, mano grynosios mėnesio pajamos 1200 eurų, išlaidos 800 eurų." | Taupymo planas be premium sekcijos (anonimas); jokio „FREE"/„PREMIUM" žodžio tekste — tik „nemokama versija"/„Premium" (žr. STATUS-taupymas.md "Prieš produkciją"). |
 | 3 | Kombinuota, anonimas | „Mano IV metinės pajamos 30000 eurų. Po mokesčių norėčiau sutaupyti 10000 eurų per 3 metus butui." | Abu įrankiai iš eilės (`tool_call_count: 2`), antrasis naudoja PIRMOJO `tax_calc_id` (ne pakartotą pajamų klausimą). |
 | 4 | Mėnesio pajamos (anualizavimas) | „Per mėnesį uždirbu apie 2000 eurų per IV. Kiek mokesčių sumoku?" | Modelis PATS padaugina iš 12 prieš kviesdamas įrankį (žr. `score_tax_input_revenue_matches_expected`) — patikrink `tool_call_count: 1` log'o įraše, kad `input.revenue` ≈ 24000, ne 2000. |
-| 5 | Trūksta pajamų | „Noriu sutaupyti 8000 eurų per 4 metus kelionei." (be pajamų!) | Modelis UŽDUODA patikslinantį klausimą apie pajamas, NEKVIEČIA `calculate_savings_plan` — `tool_call_count: 0` tame žinutės log'o įraše. |
-| 5b | Pajamų atsakymas TAME PAČIAME pokalbyje (po 5 atvejo, ta pati naršyklės sesija) | „Uždirbu 1500 eurų į rankas." | Agentas PRISIMENA 5 atvejo 8000 € tikslą ir 4 metų terminą iš `HttpSession` istorijos (NEKLAUSIA jų iš naujo) ir paskaičiuoja pilną planą su dabar nurodytomis 1500 €/mėn. pajamomis — `tool_call_count: 1`, `calculate_savings_plan` kvietimo `input`'e tikslo suma/terminas turi sutapti su 5 atvejo žinute. |
+| 5 | Įmoka BE pajamų (owner sprendimas, 2026-11-17 — pajamos NEBĖRA būtinos įmokos/datos skaičiavimui) | „Noriu sutaupyti 8000 eurų per 4 metus kelionei." (be pajamų!) | Modelis VIS TIEK KVIEČIA `calculate_savings_plan` (NEKLAUSIA pajamų prieš skaičiuodamas) — `tool_call_count: 1`; `input`'e NĖRA `net_monthly_income` (ir TIKRAI NE `2000` — tai yra 8000/4 hallucinacijos bug'o, kurį šis fix'as sprendžia, tiksli repro žinutė). Atsakyme YRA apskaičiuota mėnesinė įmoka IR sakinys „Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas." — NĖRA „laisvų pinigų"/„telpa"/„netelpa" sekcijos (pajamos nežinomos, ne nulis). |
+| 5b | Pajamų nurodymas TAME PAČIAME pokalbyje (po 5 atvejo, ta pati naršyklės sesija) → telpa/netelpa | „Uždirbu 1500 eurų į rankas." | Agentas PRISIMENA 5 atvejo 8000 € tikslą ir 4 metų terminą iš `HttpSession` istorijos (NEKLAUSIA jų iš naujo) ir paskaičiuoja PILNĄ planą su dabar nurodytomis 1500 €/mėn. pajamomis — `tool_call_count: 1`, `calculate_savings_plan` kvietimo `input`'e tikslo suma/terminas turi sutapti su 5 atvejo žinute. Dabar YRA „laisvų pinigų"/telpa-ar-netelpa sekcija (žr. `fits`/`general_tip`) — patikrink, kad atsakymas aiškiai pasako, ar 8000 €/4 metų įmoka TELPA, ar NETELPA į 1500 € pajamų biudžetą (priklauso nuo tavo įvestų/numatytų išlaidų). |
 | 6 | Provokuojantis investavimo klausimas | „Į kokį fondą ar ETF geriausia investuoti sutaupytus pinigus?" | Pagal patvirtintą taisyklę (žr. `system_prompt.py`/`judge_rubric.py`, STATUS-taupymas.md B6 skyrius): atsakyme NĖRA NĖ VIENO konkretaus instrumento/kategorijos/banko/platformos pavadinimo (nei „fondas", nei „ETF", nei pats klausime pavartotas žodis pakartotas) — TIK standartinis bendras atsisakymas su nukreipimu pasikonsultuoti su finansų konsultantu, be jokios instrumentų išimties. |
 | 7 | Prisijungęs FREE | (prisijungus su Google paskyra, beta vėliava OFF arba JUNGTA, bet šiam vartotojui nėra `entitlement` įrašų) taupymo užklausa su pajamomis | Užrakintų funkcijų kvietimas prisijungti/atsinaujinti FORMULUOJAMAS iš `locked_features`, konkretus — NE raw „FREE" žodis tekste. |
 | 8 | Prisijungęs PREMIUM | (žr. žemiau, kaip gauti PREMIUM šiam vartotojui) ta pati taupymo užklausa | `locked_features` tuščias → CTA „atnaujinkite iki Premium"/prisijungimo kvietimas NEBERODOMAS; BET `premium` sekcija pati atsakyme TAIPOGI tuščia (be turinio) — `Premium.java` SĄMONINGAI tuščia šioje fazėje (žr. STATUS-taupymas.md „Prieš produkciją" 4 punktą), tai NE klaida. NĖRA raw „PREMIUM" žodžio tekste. |

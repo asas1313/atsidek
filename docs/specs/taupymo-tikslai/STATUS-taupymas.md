@@ -559,6 +559,67 @@ Kas pristatyta pagal PLAN B6.6 AC 1–7:
    atnaujinti su `IMAGE_TAG` reikalavimu visiems rankiniams `docker compose` kvietimams;
    `deploy/deploy.sh` (staging/production CI) nepaveiktas, jis jį eksportuoja pati.
 
+## B7 realaus staging patikrinimo pataisos — BAIGTA (2026-11-17)
+
+Savininkas sumerge'ino PR #55 (B6.6) ir pats atliko TIKRĄ B7 staging rankinį patikrinimą
+(`B7-staging-checklist.md` 4 skyrius) - rado 3 problemas. Šaka
+`feat/taupymas-agentas-b7-staging-fixes` (nuo `main`, PR #55 merge'o galvos).
+
+1. **Produkto sprendimas — pajamos nebėra būtinos įmokos/datos skaičiavimui**: anksčiau trūkstamos
+   `net_monthly_income` atveju agentas tik UŽDUODAVO patikslinantį klausimą, NIEKADA nekviesdamas
+   `calculate_savings_plan`. Dabar (YEARS/DATE/CHILD_AGE/WHEN visiems režimams) mėnesinė įmoka ar
+   pasiekimo data VISADA apskaičiuojama, net jei pajamos nežinomos - tik `free_cash`/`share`/`fits`
+   laukai lieka `null` (NE 0 - skirtumas tarp "nežinoma" ir "nulis"), su kvietimu "Jei norite
+   sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas.". Pajamos VIS TIEK NIEKADA
+   neimamos iš statistikos/spėjamos. Java: `SavingsPlanRequest.netMonthlyIncome()` tapo
+   neprivalomas (A3 kontraktas), `GoalsEngine`/`Core`/`SavingsPlanService` null-propagacija per
+   visą skaičiavimo grandinę. Python: `savings_tool.resolve_income()` grąžina `None` vietoj
+   `MissingIncomeError`. `response_builder.py`/`system_prompt.py`/eval case'ai atitinkamai
+   pakeisti (žr. žemiau, bug 2/eval punktus).
+2. **Skaičiavimo bug'as (sugalvotos pajamos)**: žinutei "Noriu sutaupyti 8000 eurų per 4 metus
+   kelionei." modelis paskaičiavo 8000/4=2000 ir panaudojo kaip MĖNESINES pajamas (×12) - LLM
+   išsigalvojo pajamų skaičių iš tikslo sumos/termino. Pataisyta dviem lygiais: (a)
+   `system_prompt.py` aiškiai draudžia išvesti pajamas iš tikslo sumos/termino/bet kokio kito
+   skaičiaus, su TIKSLIU šiuo pavyzdžiu; (b) `savings_tool.py` heuristinė apsauga
+   (`_income_looks_derived_from_goal`) - jei modelio nurodytas `net_monthly_income` sutampa su
+   tikslo_suma/terminas (arba ×12) IR šis skaičius NEPASIRODO vartotojo žinutėje, metamas
+   `HallucinatedIncomeError` (tool error, ne tylus praleidimas).
+3. **Crash bug'as**: po kelių pokalbio posūkių atsakymas "agentas nepasiekiamas" -
+   `anthropic.BadRequestError 400`, "Invalid signature in thinking block" - `HttpSession`
+   laikoma istorija kaupė `thinking`/`tool_use`/`tool_result` blokus, o nukirpus (truncate) iki
+   paskutinių N žinučių, `thinking` bloko pokalbio-susiejimo parašas (signature) tapo
+   nebegaliojantis. Pataisyta: `main.py`'s `_agent_chat` tarp posūkių laikomoje istorijoje
+   ("messages" - ta pati raktas, kurį Java nepakitusiai laiko `HttpSession`) palieka TIK
+   vartotojo tekstą ir modelio GALUTINĮ tekstą kaip paprastus eilučių porų sąrašus - NIEKADA
+   `thinking`/`tool_use`/`tool_result` blokų. `MAX_HISTORY_MESSAGES=20` (lyginis skaičius)
+   garantuoja, kad pirmas elementas po nukirpimo visada yra "user", niekada "assistant"
+   (Messages API reikalavimas). Jokio thinking-binding beta header'io, jokio `drop_block` - tiesiog
+   niekada NEgrąžinamas prie modelio. Claude API klaidos `/internal/chat` kelyje dabar logina
+   ERROR lygiu su `request_id`; vartotojui rodomas TIKSLUS tekstas "Įvyko klaida. Pabandykite dar
+   kartą arba pradėkite naują pokalbį.".
+   - **Šalutinis poveikis, pastebėtas įgyvendinant**: kadangi "messages" grąžinamame JSON'e dabar
+     yra paprastas tekstas (ne Messages-API blokai), `run_eval.py --via-endpoint`'o senas
+     `_reconstruct_tool_calls`/`_reconstruct_final_text_and_status` (kurie skaitydavo `tool_use`/
+     `tool_result` blokus iš "messages") nebeturėjo iš ko juos atstatyti. Pašalinti; `_agent_chat`
+     dabar grąžina `tool_calls`/`final_text`/`status`/`stop_reason` kaip SAVO atskirus JSON laukus
+     (Decimal-saugiai, `json.dumps(default=str)` + `_coerce_decimal_strings` atstatymas
+     via-endpoint pusėje) - `--via-endpoint` šiuos laukus skaito TIESIOGIAI, nebe iš "messages".
+4. **Eval harness**: `expect_clarifying_question` pervardytas/perkurtas į `expect_income_omitted`
+   (dabar reiškia "įrankis KVIEČIAMAS be pajamų", ne "modelis klausia vietoj skaičiavimo") -
+   `score_missing_income_handled` pakeistas DVIEM funkcijomis
+   (`score_income_omitted_handled`/`score_no_hallucinated_income`). Missing-income case'ų
+   skaičius padidintas 2→4 (varijuojamos formuluotės, YEARS ir CHILD_AGE režimai). Naujas
+   `multi_turn` grupės case'as (1, anon, `--via-endpoint` tik) - 6 posūkių pokalbis, siunčiamas per
+   TĄ PATĮ sesijos cookie `EvalCase.conversation_turns` laukeliu, reprodukuojantis bug 3 formą
+   (`run_eval._run_one_via_endpoint`). Iš viso 46 case'ai (buvo 45).
+5. Testai: Java 358 / 0 nepavyko (be naujo case'o - testas pakeistas, ne pridėtas). Python 480
+   passed / 1 skipped (buvo 479 - naujos hallucinacijos/income-omitted/multi_turn testų grupės
+   kompensuoja pašalintų `score_missing_income_handled` testų pašalinimą).
+6. `B7-staging-checklist.md` 4 skyriaus 5/5b atvejai perrašyti su NAUJA tikėtina elgsena (5: įmoka
+   BE pajamų, tool VIS TIEK kviečiamas; 5b: pajamų nurodymas → aiškus telpa/netelpa). Pridėtas
+   perspėjimas apie `~/atsidek` serveryje esantį PASENUSĮ checkout'ą (rankinių `docker compose`
+   komandų iš ten nenaudoti; env pakeitimams pirmenybę teikti GitHub Actions "Re-run all jobs").
+
 ## Prieš produkciją (savininko 2026-11-16/2026-11-17 nurodymas — užfiksuota, bet NEIŠTAISYTA)
 
 Septyni žinomi trūkumai, kuriuos savininkas sąmoningai nusprendė palikti VĖLESNIAM darbui, bet
