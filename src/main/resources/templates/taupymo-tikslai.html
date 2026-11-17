@@ -201,6 +201,12 @@
     </div>
 
     <div class="goals-col-right">
+        <!-- B6.6: nuoroda į naują pokalbio UI pagrindiniame puslapyje, TIK kai AGENT_CHAT_ENABLED=true -
+             kai false, pagrindiniame puslapyje nėra pokalbio, tad nuorodos rodyti nėra kam (PLAN
+             PLAN-taupymas-agentas.md B6.6). -->
+        <p class="card chat-ask-link" th:if="${agentChatEnabled}">
+            <a href="/">Klausti AI asistento</a> – aprašyk savo tikslą ir pajamas žodžiais, gausi skaičius pokalbyje.
+        </p>
         <!-- CTA rodomas tik atsijungusiems - prisijungusiam ROLE_USER savo tikslą jau matosi
              /mano-tikslas nuorodoje (nav), šis blokas jam nebereikalingas (PLAN.md §5/§6 task 11/12). -->
         <section class="card" id="save-progress-cta" th:unless="${loggedIn}">

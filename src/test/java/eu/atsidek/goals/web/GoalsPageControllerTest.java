@@ -69,6 +69,14 @@ class GoalsPageControllerTest {
         assertThat(html).contains("<meta name=\"_csrf\"").contains("<meta name=\"_csrf_header\"");
     }
 
+    /** B6.6: AGENT_CHAT_ENABLED=false (numatyta) - nėra pokalbio pagrindiniame puslapyje, tad nuorodos nėra. */
+    @Test
+    void noChatLinkWhenAgentChatDisabled() throws Exception {
+        mvc.perform(get("/taupymo-tikslai"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("Klausti AI asistento"))));
+    }
+
     /** "Išsaugok ir sek progresą - prisijunk" CTA rodomas tik atsijungusiems. */
     @Test
     void saveProgressCtaShownOnlyWhenLoggedOut() throws Exception {

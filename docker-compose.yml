@@ -27,6 +27,10 @@ services:
       # šios paslapties NIEKADA neturi.
       ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET: ${CHAT_TOKEN_SECRET:-}
       ATSIDEK_ASSISTANT_BASE_URL: http://assistant:8000
+      # B6.6: TA PATI reikšmė, kuri žemiau nustato Python assistant's AGENT_CHAT_ENABLED - vienas
+      # host .env raktas valdo abi puses (Java sprendžia, kokia UI rodoma; Python sprendžia, ar
+      # /internal/chat kviečia tikrą agento ciklą), kad jos NIEKADA negalėtų nesutapti.
+      ATSIDEK_CHAT_AGENT_ENABLED: ${AGENT_CHAT_ENABLED:-false}
       # Numatytosios reikšmės taiko TIK šio compose "postgres" servisą (žemiau) – tik lokaliam dev.
       # Staging/prod SPRING_DATASOURCE_* ateina iš deploy aplinkos (atskiras Postgres LXC 192.168.68.106),
       # šis compose servisas jų niekada nepaveikia.
