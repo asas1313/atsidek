@@ -78,6 +78,14 @@ public class StatDefaultsService {
     /**
      * Tikslus (members,workers) segmentas, jei yra; kitaip artimiausias pagal dydį; jei members/workers
      * visai nenurodyti – bendras ({@code "general"}) segmentas, apskaičiuotas kaip žinomų segmentų vidurkis.
+     * <p>
+     * {@code needsReview} (žr. {@link StatDefaultValue#needsReview()}) NEBEATMETA eilučių iš atitikimo
+     * (owner instrukcija, 2026-11-16, stat_defaults sprendimas #2 - supersedes trumpalaikį V10/703748c
+     * sprendimą atmesti jas): kadangi DABAR needs_review=TRUE pažymėtos VISOS esamos eilutės
+     * ({@code V11__stat_defaults_needs_review_all.sql}), atmetimas būtų grąžinęs tuščią rezultatą
+     * kiekvienam segmentui - needs_review liko GRYNAI ženklinimo (label) signalas vartotojui matomam
+     * tekstui, ne atitikimo filtras. Bendras ({@code "general"}) segmentas, naudojamas kai namų ūkio
+     * sudėtis nenurodyta, savininko aiškiai patvirtintas "naudojamas toliau".
      */
     private StatDefaultValue resolveHousehold(String key, Integer members, Integer workers) {
         List<StatDefaultsStore.Row> rows = store.findAllByKey(key);
@@ -138,11 +146,11 @@ public class StatDefaultsService {
     }
 
     private static StatDefaultValue assumption(BigDecimal value) {
-        return new StatDefaultValue(value, "PERCENT", ASSUMPTION_ORIGIN, ASSUMPTION_SOURCE, null, null, false);
+        return new StatDefaultValue(value, "PERCENT", ASSUMPTION_ORIGIN, ASSUMPTION_SOURCE, null, null, false, null);
     }
 
     private static StatDefaultValue toValue(StatDefaultsStore.Row row) {
         return new StatDefaultValue(row.value(), row.unit(), STATISTICS_ORIGIN, row.source(), row.sourceUrl(),
-                row.asOf(), row.illustrative());
+                row.asOf(), row.illustrative(), row.needsReview());
     }
 }

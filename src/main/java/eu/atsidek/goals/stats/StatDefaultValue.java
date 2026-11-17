@@ -17,6 +17,11 @@ import java.time.LocalDate;
  *                      grynai iliustracinė vidinė reikšmė be atitikmens realiame šaltinyje)
  * @param asOf          duomenų data; {@code null}, kai nėra realios duomenų datos
  * @param illustrative  ar reikšmė iliustracinė (neparemta patikrinta statistika)
+ * @param needsReview   ar reikšmė dar nepatvirtinta iš oficialaus, datuoto šaltinio (owner
+ *                      instrukcija, 2026-11-16: kol {@code true}, vartotojui matomas tekstas ją
+ *                      žymi "Iliustracinė prielaida", ne "Statistika" - žr.
+ *                      {@code StatDefaultsService.toValue}/{@code assumption}); {@code null} kai
+ *                      neaktualu ({@code ASSUMPTION} kilmei - tai ne {@code stat_defaults} eilutė)
  */
 public record StatDefaultValue(
         BigDecimal value,
@@ -25,5 +30,6 @@ public record StatDefaultValue(
         String source,
         String sourceUrl,
         LocalDate asOf,
-        boolean illustrative) {
+        boolean illustrative,
+        Boolean needsReview) {
 }

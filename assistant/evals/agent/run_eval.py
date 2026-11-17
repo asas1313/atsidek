@@ -12,7 +12,19 @@ Usage:
     export ANTHROPIC_API_KEY=sk-...
     export ATSIDEK_API_KEY=...            # Java tool-callback AND /api/v1/eval/token endpoints
     export ATSIDEK_API_URL=http://localhost:8080   # see judgment-call note below
-    python evals/agent/run_eval.py [--model claude-haiku-5-5] [--with-judge]
+    python evals/agent/run_eval.py [--model claude-haiku-5-5] [--with-judge] [--concurrency N] \
+        [--runs-per-case N]
+
+    # Re-score an EXISTING results file with the current deterministic scorers, no LLM/Java calls,
+    # zero cost (e.g. to check a scoring.py fix against a past real run):
+    python evals/agent/run_eval.py --rescore evals/results/2026-11-16_agent_claude-haiku-5-5.json
+
+`--concurrency N` (owner instruction, item 9) runs N (case, run-index) units in parallel via a
+ThreadPoolExecutor instead of one at a time - a fully sequential run took ~17.5 minutes.
+
+`--runs-per-case N` (owner instruction, 2026-11-17) overrides how many times each case is run
+(default 3, the historical RUNS_PER_CASE - owner decision 3, reported as a pass RATE across those
+runs). Pass 1 for a cheap smoke run after a small prompt/template tweak.
 
 For `logged_in` cases, the Java backend this points at must either be running with
 `SPRING_PROFILES_ACTIVE=eval-ci` (so `/api/v1/eval/token` exists - see "Context-token minting"
@@ -27,8 +39,15 @@ bare local script invocation - so this script reuses the SAME env var name (for 
 directly, not inside docker-compose.
 
 `--with-judge` is OFF BY DEFAULT and additionally costly (an extra `claude-sonnet-5-5` call per
-run) - see the loud warning this script prints when it is passed, and `judge_rubric.py`'s own
-module docstring: that rubric/threshold are a DRAFT, not owner-approved yet.
+run) - see the loud warning this script prints when it is passed. The rubric/threshold themselves
+are owner-APPROVED (2026-11-16, after B6 eval #11 - see `judge_rubric.py`'s own module docstring);
+`--with-judge` stays opt-in purely because of its extra per-run cost, not because of any remaining
+draft status.
+
+Owner instruction (2026-11-16): `judge_rubric.JUDGE_RUBRIC_VERSION` is stamped onto every
+`judge_verdict` AND the summary's top-level `judge_rubric_version` field, so a results JSON always
+shows which rubric wording actually produced it - bump that constant whenever the rubric prompt
+text changes.
 
 Investment-advice reporting (owner instruction, 2026-11-13): the `no_banned_investment_terms`
 deterministic check and (when `--with-judge` is passed) the LLM-judge verdict are ZERO-TOLERANCE,
@@ -76,15 +95,21 @@ cases, and raises if they disagree - catching a broken token pipeline even if mi
 mismatch). Every run's `actual_tier_seen`/`had_premium_section` fields are written to the result
 JSON regardless (`null` when no savings call was made, e.g. `tax_only` cases).
 
-Rezultatas (per-case/per-group pass rate) įrašomas į evals/results/<YYYY-MM-DD>_agent_<modelis>.json.
+Rezultatas (per-case/per-group pass rate) įrašomas į evals/results/<YYYY-MM-DD>_agent_<modelis>.json
+- data VISADA tikra (realaus paleidimo diena; --rescore atveju paimama iš PERSKAITYTO failo paties
+"date" lauko, NE šios dienos, kad failo vardas tyliai nemeluotų apie naują gyvą paleidimą), su
+"_rescored" priesaga, kai naudotas --rescore.
 """
 import argparse
 import json
 import os
+import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import httpx
 
@@ -105,17 +130,112 @@ from app.tax_tool import TOOL_NAME as TAX_TOOL_NAME  # noqa: E402
 from app.tax_tool import make_calculate_iv_taxes_tool  # noqa: E402
 from app.tools import ToolRegistry  # noqa: E402
 from evals.agent.cases import CASES  # noqa: E402
-from evals.agent.judge_rubric import build_judge_request  # noqa: E402
+from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION, build_judge_request  # noqa: E402
 from evals.agent.scoring import (  # noqa: E402
     score_anon_no_premium,
+    score_missing_amount_handled,
     score_missing_income_handled,
     score_no_banned_investment_terms,
     score_no_invented_numbers,
+    score_response_complete,
     score_tax_input_revenue_matches_expected,
     score_tool_sequence,
 )
 
 RUNS_PER_CASE = 3  # owner decision 3: each case runs 3 times, reported as a pass RATE.
+
+
+def _git_info() -> dict[str, Optional[str]]:
+    """Owner instruction (second B6 live-eval round): record exactly which code a run tested, so
+    the results JSON is self-describing without cross-referencing the Actions run log. Prefers
+    `GITHUB_SHA`/`GITHUB_REF_NAME` (set by GitHub Actions for every job) - falls back to a local
+    `git rev-parse` for a manual/local invocation, where those env vars are unset. Never raises:
+    a git lookup failing (not a repo, no git binary) must not crash the whole eval run over a
+    metadata field."""
+    sha = os.getenv("GITHUB_SHA")
+    branch = os.getenv("GITHUB_REF_NAME")
+    if not sha:
+        try:
+            sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=ASSISTANT_DIR,
+                capture_output=True, text=True, check=True, timeout=5,
+            ).stdout.strip()
+        except Exception:
+            sha = None
+    if not branch:
+        try:
+            branch = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=ASSISTANT_DIR,
+                capture_output=True, text=True, check=True, timeout=5,
+            ).stdout.strip()
+        except Exception:
+            branch = None
+    return {"git_sha": sha, "git_branch": branch}
+
+
+def _json_default(o: Any):
+    """`AtsidekApi` parses every Java JSON response with `parse_float=Decimal` (see
+    `app/calculator.py`), so a stored run's `tool_calls` (item 9: now kept in full, for
+    `--rescore`) carries real `Decimal` values - not JSON-serializable by default. Encodes as a
+    string (not float), matching `calculator._json_default_decimal_as_str`'s own rationale: avoid
+    float rounding error round-tripping through JSON."""
+    if isinstance(o, Decimal):
+        return str(o)
+    raise TypeError(f"Object of type {type(o)} is not JSON serializable")
+
+
+def _write_results(summary: dict, out_path: Path) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8"
+    )
+
+
+def _execute_work_items(work_items: list, worker: Callable[[Any], Any], concurrency: int) -> dict:
+    """Runs `worker(item)` for each item in `work_items`, sequentially when `concurrency <= 1`
+    (the historical, default behaviour - cases execute in `CASES` order, one LLM call at a time)
+    or via a `ThreadPoolExecutor` when `concurrency > 1` (owner instruction, item 9: a live run
+    took ~17.5 minutes; each (case, run index) pair is an independent LLM/Java round-trip, so
+    running several concurrently cuts wall-clock time). Returns `{item: worker(item)}` for every
+    item - an exception from any one worker propagates immediately (never swallowed), matching
+    this module's existing "never let a broken case pass silently" stance (see `_run_one`'s own
+    tier-mismatch check).
+    """
+    if concurrency <= 1:
+        return {item: worker(item) for item in work_items}
+    results: dict = {}
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        future_to_item = {pool.submit(worker, item): item for item in work_items}
+        for future in as_completed(future_to_item):
+            results[future_to_item[future]] = future.result()
+    return results
+
+
+def _aggregate_case_results(case_results: list[dict]) -> dict:
+    """Shared by `run()` and `--rescore` (`_rescore`): turns a list of per-case result dicts (each
+    with `group`/`pass_rate`/`check_pass_rates`) into `group_pass_rates`/`overall_check_pass_rates`/
+    `overall_pass_rate` - the exact same aggregation either way, so a rescored file's summary stats
+    are computed identically to a live run's, never a separate/drifting implementation."""
+    groups = {cr["group"] for cr in case_results}
+    all_check_names = {name for cr in case_results for name in cr["check_pass_rates"]}
+
+    def _per_check_rates(cases_subset: list[dict]) -> dict:
+        per_check = {}
+        for name in all_check_names:
+            rates = [cr["check_pass_rates"][name] for cr in cases_subset if name in cr["check_pass_rates"]]
+            per_check[name] = sum(rates) / len(rates) if rates else None
+        return per_check
+
+    group_pass_rates = {
+        group: _per_check_rates([cr for cr in case_results if cr["group"] == group]) for group in groups
+    }
+    return {
+        "group_pass_rates": group_pass_rates,
+        "overall_check_pass_rates": _per_check_rates(case_results),
+        "overall_pass_rate": (
+            sum(cr["pass_rate"] for cr in case_results) / len(case_results) if case_results else None
+        ),
+    }
 
 
 def _build_registry_and_tools(calculator):
@@ -204,11 +324,20 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
     # check is deliberately NOT in this dict - see `no_banned_investment_terms` below and `run()`.
     rate_checks = {
         "tool_sequence": score_tool_sequence(result.tool_calls, case.expected_tool_sequence),
-        "no_invented_numbers": score_no_invented_numbers(result.final_text, result.tool_calls),
+        "no_invented_numbers": score_no_invented_numbers(
+            result.final_text, result.tool_calls, case.user_message
+        ),
         "anon_no_premium": score_anon_no_premium(result.tool_calls, case.variant),
+        "response_complete": score_response_complete(result.stop_reason),
     }
     if case.expect_clarifying_question:
-        rate_checks["missing_income_handled"] = score_missing_income_handled(result.tool_calls, result.final_text)
+        rate_checks["missing_income_handled"] = score_missing_income_handled(
+            result.tool_calls, result.final_text, case.user_message
+        )
+    if case.expect_amount_clarifying_question:
+        rate_checks["missing_amount_handled"] = score_missing_amount_handled(
+            result.tool_calls, result.final_text, case.user_message
+        )
     if case.expected_annual_revenue is not None:
         rate_checks["tax_input_revenue_matches_expected"] = score_tax_input_revenue_matches_expected(
             result.tool_calls, case.expected_annual_revenue
@@ -241,6 +370,16 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
         "final_text": result.final_text,
         "reply": reply,
         "tool_names_called": [c["name"] for c in result.tool_calls],
+        # Owner instruction (2026-11-16, item 9): the FULL tool_calls (not just names) are kept
+        # too, so `--rescore` can re-run every deterministic scoring function against a past run
+        # without re-calling the LLM/Java backend - `tool_names_called` alone wasn't enough to
+        # reconstruct e.g. score_no_invented_numbers' rendered-number comparison or
+        # score_anon_no_premium's "premium" key check.
+        "tool_calls": result.tool_calls,
+        # Owner instruction (2026-11-16, item 3): stored too (not just folded into `checks`
+        # below), so `--rescore` can recompute `response_complete` from a past run without a new
+        # live LLM call - mirrors why `tool_calls` itself is stored in full (item 9).
+        "stop_reason": result.stop_reason,
         "context_token_used": context_token is not None,
         "actual_tier_seen": actual_tier_seen,
         "had_premium_section": had_premium_section,
@@ -250,19 +389,64 @@ def _run_one(client, registry, tools, case, model: str, base_url: str, api_key: 
     }
 
 
+_VALID_JUDGE_VERDICTS = ("PASS", "FAIL")
+
+
 def _run_judge(client, case, run_record: dict) -> dict:
-    """Owner-gated, DRAFT (see judge_rubric.py) - only called when --with-judge is passed."""
+    """Owner-approved rubric (see judge_rubric.py) - only called when --with-judge is passed
+    (opt-in purely for its extra per-run cost, not because of any remaining draft status).
+
+    Owner instruction (second B6 live-eval round): a judge TECHNICAL failure (empty/truncated/
+    invalid JSON, or valid JSON missing a recognized "verdict") is a distinct {"verdict": "ERROR"}
+    - it must NEVER be reported as {"verdict": "FAIL"} (a real investment-advice violation) and
+    must NEVER land in `investment_advice_violations` (that list is for actual content
+    violations, read verbatim for manual review - mixing in infra noise would defeat its point).
+    `run()` collects ERRORs separately and marks the whole run as broken (`main()` exits non-zero)
+    - a judge technical error means the CHECK didn't run, not that the agent's reply passed.
+
+    Owner instruction (2026-11-16): every returned dict (PASS/FAIL AND each ERROR path) carries
+    `rubric_version` (`judge_rubric.JUDGE_RUBRIC_VERSION`), so a results JSON always shows which
+    rubric wording actually produced a given verdict - including a technical-error verdict, since
+    even that still used (and failed to get a usable answer from) a specific rubric version.
+    """
     request = build_judge_request(case.user_message, run_record["reply"])
     response = client.messages.create(**request)
     text = "".join(block.text for block in response.content if block.type == "text")
+    if not text.strip():
+        return {
+            "reason": "judge grąžino tuščią text bloką (žr. max_tokens/thinking)",
+            "verdict": "ERROR",
+            "rubric_version": JUDGE_RUBRIC_VERSION,
+        }
     try:
         verdict = json.loads(text)
     except json.JSONDecodeError:
-        return {"reason": f"nevalidus judge JSON atsakymas: {text!r}", "verdict": "FAIL"}
+        return {
+            "reason": f"nevalidus judge JSON atsakymas: {text!r}",
+            "verdict": "ERROR",
+            "rubric_version": JUDGE_RUBRIC_VERSION,
+        }
+    if not isinstance(verdict, dict) or verdict.get("verdict") not in _VALID_JUDGE_VERDICTS:
+        return {
+            "reason": f"judge JSON neturi atpažinto 'verdict' lauko: {text!r}",
+            "verdict": "ERROR",
+            "rubric_version": JUDGE_RUBRIC_VERSION,
+        }
+    verdict["rubric_version"] = JUDGE_RUBRIC_VERSION
     return verdict
 
 
-def run(model: str, with_judge: bool) -> dict:
+def _execute_case_run(client, registry, tools, case, model: str, base_url: str, api_key: str, with_judge: bool) -> dict:
+    """One (case, run) unit of work: `_run_one` plus, when `--with-judge` is passed, the judge
+    call for that same run - kept together so `--concurrency` overlaps BOTH the agent call and the
+    judge call for a given run, not just the agent call."""
+    run_record = _run_one(client, registry, tools, case, model, base_url, api_key)
+    if with_judge:
+        run_record["judge_verdict"] = _run_judge(client, case, run_record)
+    return run_record
+
+
+def run(model: str, with_judge: bool, concurrency: int = 1, runs_per_case: int = RUNS_PER_CASE) -> dict:
     import anthropic
 
     client = anthropic.Anthropic()
@@ -273,26 +457,52 @@ def run(model: str, with_judge: bool) -> dict:
 
     _preflight_context_tokens(base_url, api_key)
 
+    # Owner instruction (2026-11-16, item 9): --concurrency overlaps independent (case, run index)
+    # units of work via a ThreadPoolExecutor (see `_execute_work_items`) - a live run took ~17.5
+    # minutes with everything sequential. Each unit's own LLM/Java calls are unaffected; only the
+    # SCHEDULING across units changes. `work_items` fixes a stable, hashable key per unit so
+    # results can be looked back up in `CASES` order below regardless of actual completion order.
+    #
+    # Bug fix (2026-11-16, live CI run `TypeError: unhashable type: 'list'`): the key must be
+    # `case.id` (a str), NOT the `EvalCase` instance itself - `EvalCase` is a frozen dataclass, but
+    # its auto-generated `__hash__` hashes every field including `expected_tool_sequence` (a
+    # `list`), which is itself unhashable. `(case, i)` tuples as dict keys therefore crashed on
+    # the FIRST lookup/insertion, in both the sequential and ThreadPoolExecutor paths of
+    # `_execute_work_items` - case ids are unique (test_eval_cases.py::test_case_ids_are_unique),
+    # so `(case.id, i)` is a safe, stable substitute; `_case_by_id` looks the case back up.
+    work_items = [(case.id, i) for case in CASES for i in range(runs_per_case)]
+    raw_results = _execute_work_items(
+        work_items,
+        lambda item: _execute_case_run(
+            client, registry, tools, _case_by_id(item[0]), model, base_url, api_key, with_judge
+        ),
+        concurrency,
+    )
+
     case_results = []
     # Owner instruction 2026-11-13: zero-tolerance for investment-advice checks - every FAIL
     # (deterministic noun scorer AND, when --with-judge, the LLM judge) collected here verbatim,
-    # never blended into a pass-rate. Manual review reads this list, not a percentage.
+    # never blended into a pass-rate. Manual review reads this list, not a percentage. Collected
+    # in CASES order below (not raw completion order) so the list stays deterministic regardless
+    # of --concurrency.
     investment_advice_violations: list[dict] = []
+    # Owner instruction (second B6 live-eval round): judge TECHNICAL errors (empty/invalid JSON)
+    # are collected separately from `investment_advice_violations` - they mean the check didn't
+    # run, not that it passed or failed. Any entry here marks the whole run as broken (see
+    # `main()`'s exit code).
+    judge_errors: list[dict] = []
     for case in CASES:
-        runs = []
-        for _ in range(RUNS_PER_CASE):
-            run_record = _run_one(client, registry, tools, case, model, base_url, api_key)
+        runs = [raw_results[(case.id, i)] for i in range(runs_per_case)]
 
+        for run_record in runs:
             if not run_record["no_banned_investment_terms"]:
                 investment_advice_violations.append({
                     "case_id": case.id,
                     "check": "no_banned_investment_terms",
                     "final_text": run_record["final_text"],
                 })
-
-            if with_judge:
-                judge_verdict = _run_judge(client, case, run_record)
-                run_record["judge_verdict"] = judge_verdict
+            judge_verdict = run_record.get("judge_verdict")
+            if judge_verdict is not None:
                 if judge_verdict.get("verdict") == "FAIL":
                     investment_advice_violations.append({
                         "case_id": case.id,
@@ -300,79 +510,167 @@ def run(model: str, with_judge: bool) -> dict:
                         "final_text": run_record["final_text"],
                         "reason": judge_verdict.get("reason"),
                     })
+                elif judge_verdict.get("verdict") == "ERROR":
+                    judge_errors.append({
+                        "case_id": case.id,
+                        "final_text": run_record["final_text"],
+                        "reason": judge_verdict.get("reason"),
+                    })
 
-            runs.append(run_record)
         pass_rate = sum(1 for r in runs if r["rate_checks_passed"]) / len(runs)
+        # Owner instruction (second B6 live-eval round): the blended per-case pass_rate above
+        # hides WHICH check is failing (e.g. missing_income_handled going 0/6 was invisible next
+        # to tool_sequence/no_invented_numbers passing fine). Compute a pass rate PER CHECK NAME
+        # too - a check's presence is constant across a case's RUNS_PER_CASE runs (it depends only
+        # on fixed case properties like expect_clarifying_question), never flaky per-run.
+        check_names = {name for r in runs for name in r["checks"]}
+        check_pass_rates = {
+            name: sum(1 for r in runs if r["checks"][name]) / len(runs) for name in check_names
+        }
         case_results.append({
             "id": case.id,
             "group": case.group,
             "variant": case.variant,
             "pass_rate": pass_rate,
+            "check_pass_rates": check_pass_rates,
             "runs": runs,
         })
-
-    group_pass_rates: dict[str, float] = {}
-    for group in {c.group for c in CASES}:
-        rates = [cr["pass_rate"] for cr in case_results if cr["group"] == group]
-        group_pass_rates[group] = sum(rates) / len(rates) if rates else None
 
     return {
         "model": model,
         "date": date.today().isoformat(),
-        "runs_per_case": RUNS_PER_CASE,
+        **_git_info(),
+        "runs_per_case": runs_per_case,
         "with_judge": with_judge,
+        "judge_rubric_version": JUDGE_RUBRIC_VERSION if with_judge else None,
+        "concurrency": concurrency,
         "cases": len(CASES),
-        "group_pass_rates": group_pass_rates,
-        "overall_pass_rate": (
-            sum(cr["pass_rate"] for cr in case_results) / len(case_results) if case_results else None
-        ),
+        **_aggregate_case_results(case_results),
         "investment_advice_violations": investment_advice_violations,
+        "judge_errors": judge_errors,
+        "run_broken": bool(judge_errors),
         "case_results": case_results,
     }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", default=os.getenv("AI_MODEL", "claude-haiku-5-5"))
-    parser.add_argument(
-        "--with-judge",
-        action="store_true",
-        default=False,
-        help=(
-            "ALSO calls the DRAFT claude-sonnet-5-5 LLM-judge (judge_rubric.py) per run - extra "
-            "live-API cost. The rubric wording/threshold are NOT owner-approved yet (see "
-            "judge_rubric.py's module docstring)."
-        ),
-    )
-    args = parser.parse_args()
+def _case_by_id(case_id: str):
+    for case in CASES:
+        if case.id == case_id:
+            return case
+    raise KeyError(f"Nežinomas case id {case_id!r} - evals/agent/cases.py nebeturi šio atvejo.")
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        print("Reikia ANTHROPIC_API_KEY aplinkos kintamojo tikram eval'ui paleisti.", file=sys.stderr)
-        sys.exit(1)
 
-    if args.with_judge:
-        print(
-            "!!! DĖMESIO: --with-judge naudoja NEBAIGTĄ (DRAFT), savininko NEPATVIRTINTĄ "
-            "rubriką/slenkstį (žr. judge_rubric.py) IR kainuoja papildomą claude-sonnet-5-5 "
-            "kvietimą kiekvienam paleidimui. Rezultatus laikykite preliminariais, kol savininkas "
-            "jų nepatvirtins. !!!",
-            file=sys.stderr,
-        )
+def rescore(results_path: Path) -> dict:
+    """`--rescore <path>`: re-runs every DETERMINISTIC scoring function (never the LLM judge, and
+    NEVER calls the live Anthropic/Java backends) against an EXISTING results JSON's own stored
+    `tool_calls`/`final_text`, so a scorer code fix (e.g. item 8's missing_income_handled fix) can
+    be checked against a past real live run without spending any more LLM cost.
 
-    summary = run(args.model, args.with_judge)
-    out_dir = ASSISTANT_DIR / "evals" / "results"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{summary['date']}_agent_{args.model}.json"
-    out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    A stored `judge_verdict` (if the original run used --with-judge) is carried over UNCHANGED -
+    rescoring never re-judges, only re-applies the deterministic checks.
 
+    Owner instruction (2026-11-16, item 9): the rescored output keeps the ORIGINAL run's own
+    `date`/`git_sha`/`git_branch` (it describes what was actually tested against a live LLM, which
+    rescoring does not repeat) and the output filename is built from that SAME original date, not
+    today's - stamping today's date on a rescore would misleadingly suggest a fresh live run.
+    """
+    original = json.loads(results_path.read_text(encoding="utf-8"), parse_float=Decimal)
+
+    case_results = []
+    investment_advice_violations: list[dict] = []
+    judge_errors: list[dict] = list(original.get("judge_errors", []))
+    for case_result in original["case_results"]:
+        case = _case_by_id(case_result["id"])
+        runs = []
+        for stored_run in case_result["runs"]:
+            tool_calls = stored_run["tool_calls"]
+            final_text = stored_run["final_text"]
+
+            rate_checks = {
+                "tool_sequence": score_tool_sequence(tool_calls, case.expected_tool_sequence),
+                "no_invented_numbers": score_no_invented_numbers(final_text, tool_calls, case.user_message),
+                "anon_no_premium": score_anon_no_premium(tool_calls, case.variant),
+                # .get(), not [] - older results files (predating item 3) have no "stop_reason"
+                # key at all; defaulting to None passes (score_response_complete(None) is True).
+                "response_complete": score_response_complete(stored_run.get("stop_reason")),
+            }
+            if case.expect_clarifying_question:
+                rate_checks["missing_income_handled"] = score_missing_income_handled(
+                    tool_calls, final_text, case.user_message
+                )
+            if case.expect_amount_clarifying_question:
+                rate_checks["missing_amount_handled"] = score_missing_amount_handled(
+                    tool_calls, final_text, case.user_message
+                )
+            if case.expected_annual_revenue is not None:
+                rate_checks["tax_input_revenue_matches_expected"] = score_tax_input_revenue_matches_expected(
+                    tool_calls, case.expected_annual_revenue
+                )
+            no_banned_investment_terms = score_no_banned_investment_terms(final_text)
+
+            run_record = dict(stored_run)
+            run_record["checks"] = rate_checks
+            run_record["rate_checks_passed"] = all(rate_checks.values())
+            run_record["no_banned_investment_terms"] = no_banned_investment_terms
+
+            if not no_banned_investment_terms:
+                investment_advice_violations.append({
+                    "case_id": case.id,
+                    "check": "no_banned_investment_terms",
+                    "final_text": final_text,
+                })
+            judge_verdict = run_record.get("judge_verdict")
+            if judge_verdict is not None and judge_verdict.get("verdict") == "FAIL":
+                investment_advice_violations.append({
+                    "case_id": case.id,
+                    "check": "llm_judge",
+                    "final_text": final_text,
+                    "reason": judge_verdict.get("reason"),
+                })
+
+            runs.append(run_record)
+
+        pass_rate = sum(1 for r in runs if r["rate_checks_passed"]) / len(runs)
+        check_names = {name for r in runs for name in r["checks"]}
+        check_pass_rates = {
+            name: sum(1 for r in runs if r["checks"][name]) / len(runs) for name in check_names
+        }
+        case_results.append({
+            "id": case.id,
+            "group": case.group,
+            "variant": case_result.get("variant", case.variant),
+            "pass_rate": pass_rate,
+            "check_pass_rates": check_pass_rates,
+            "runs": runs,
+        })
+
+    return {
+        **{k: v for k, v in original.items() if k not in ("case_results", "investment_advice_violations")},
+        **_aggregate_case_results(case_results),
+        "investment_advice_violations": investment_advice_violations,
+        "judge_errors": judge_errors,
+        "run_broken": bool(judge_errors),
+        "case_results": case_results,
+        "rescored": True,
+        "rescored_at": date.today().isoformat(),
+        "rescore_source": str(results_path),
+    }
+
+
+def _print_summary(summary: dict, out_path: Path) -> None:
     overall = summary["overall_pass_rate"]
     print(
         f"Bendras pass rate (TIK ne-investavimo-patarimo matams): {overall:.1%}"
         if overall is not None
         else "Bendras pass rate: n/a"
     )
-    for group, rate in summary["group_pass_rates"].items():
-        print(f"  {group}: {rate:.1%}" if rate is not None else f"  {group}: n/a")
+    # Owner instruction (second B6 live-eval round): group_pass_rates is now PER CHECK, so a
+    # single failing check (e.g. missing_income_handled) is visible by name, not hidden inside a
+    # blended group average.
+    for group, check_rates in summary["group_pass_rates"].items():
+        print(f"  {group}:")
+        for check, rate in check_rates.items():
+            print(f"    {check}: {rate:.1%}" if rate is not None else f"    {check}: n/a")
 
     violations = summary["investment_advice_violations"]
     if violations:
@@ -387,11 +685,114 @@ def main() -> None:
     else:
         print("\nInvestavimo patarimo pažeidimų nerasta (0 FAIL).")
 
+    # Owner instruction (second B6 live-eval round): a judge TECHNICAL error (empty/invalid JSON)
+    # must mark the whole run as broken, distinct from a real content violation above.
+    judge_errors = summary["judge_errors"]
+    if judge_errors:
+        print(
+            f"\n!!! {len(judge_errors)} JUDGE TECHNINĖS KLAIDOS (tuščias/nevalidus JSON, NE "
+            "turinio pažeidimas) - PALEIDIMAS SUGEDĘS: !!!",
+            file=sys.stderr,
+        )
+        for e in judge_errors:
+            print(f"  case={e['case_id']}: {e['reason']}", file=sys.stderr)
+
     print(f"Rezultatas įrašytas: {out_path}")
+
+    if summary["run_broken"]:
+        sys.exit(2)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--model", default=os.getenv("AI_MODEL", "claude-haiku-5-5"))
+    parser.add_argument(
+        "--with-judge",
+        action="store_true",
+        default=False,
+        help=(
+            f"LLM judge (claude-sonnet-5-5, patvirtinta rubrika {JUDGE_RUBRIC_VERSION}) - "
+            "papildoma kaina; žymėti, kai keičiamas system prompt, agento ciklas ar įrankiai."
+        ),
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        # Owner instruction (2026-11-16, after eval a2dbaae, item 6): default bumped from 1 to 8 -
+        # a fully sequential run took ~17.5 minutes; each (case, run) unit is an independent
+        # LLM/Java round-trip, so running 8 at once is the new default instead of opt-in. Still
+        # overridable (e.g. --concurrency 1 to go back to the old sequential behaviour).
+        default=8,
+        help=(
+            "How many (case, run) units to execute in parallel (default 8). A fully sequential "
+            "run (--concurrency 1) took ~17.5 minutes - each unit is an independent LLM/Java "
+            "round-trip, so e.g. --concurrency 5 cuts wall-clock time roughly 5x. Ignored with "
+            "--rescore (no LLM calls are made at all)."
+        ),
+    )
+    parser.add_argument(
+        "--runs-per-case",
+        type=int,
+        # Owner instruction (2026-11-17): no way existed to run fewer than the historical 3
+        # repetitions per case (e.g. a cheap 1x smoke run) without editing RUNS_PER_CASE in the
+        # source - added as a proper CLI flag/workflow input instead. Default stays 3 (owner
+        # decision 3: each case runs 3 times, reported as a pass RATE) - unaffected unless passed.
+        default=RUNS_PER_CASE,
+        help=(
+            f"How many times each case is run (default {RUNS_PER_CASE}, reported as a pass "
+            "RATE across those runs). Pass 1 for a cheap smoke run (no rate, just pass/fail). "
+            "Ignored with --rescore (no LLM calls are made at all)."
+        ),
+    )
+    parser.add_argument(
+        "--rescore",
+        metavar="RESULTS_JSON",
+        default=None,
+        help=(
+            "Re-runs every DETERMINISTIC scoring function against an EXISTING results JSON's own "
+            "stored tool_calls/final_text - no live LLM/Java calls, zero cost. Use after a scorer "
+            "code fix to check it against a past real run without re-spending money. A stored "
+            "judge_verdict (--with-judge runs) is carried over unchanged, never re-judged. "
+            "--model/--with-judge/--concurrency/--runs-per-case are ignored with this flag."
+        ),
+    )
+    args = parser.parse_args()
+
+    if args.rescore:
+        results_path = Path(args.rescore)
+        if not results_path.is_file():
+            print(f"--rescore failas nerastas: {results_path}", file=sys.stderr)
+            sys.exit(1)
+        summary = rescore(results_path)
+        # Real date (item 9): the ORIGINAL run's own date, never today's - a rescore is not a new
+        # live run, so stamping today's date on the filename would misleadingly suggest one.
+        out_path = ASSISTANT_DIR / "evals" / "results" / f"{summary['date']}_agent_{summary['model']}_rescored.json"
+        _write_results(summary, out_path)
+        _print_summary(summary, out_path)
+        return
+
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("Reikia ANTHROPIC_API_KEY aplinkos kintamojo tikram eval'ui paleisti.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.with_judge:
+        print(
+            f"LLM judge (claude-sonnet-5-5, patvirtinta rubrika {JUDGE_RUBRIC_VERSION}, žr. "
+            "judge_rubric.py, patvirtinta 2026-11-16 po B6 eval #11) - papildoma kaina; "
+            "žymėti, kai keičiamas system prompt, agento ciklas ar įrankiai.",
+            file=sys.stderr,
+        )
+
+    summary = run(args.model, args.with_judge, args.concurrency, args.runs_per_case)
+    # Real date (item 9): date.today() at the moment of the actual live run - already correct, but
+    # confirmed/kept explicit here since --rescore (above) deliberately does NOT use today's date.
+    out_path = ASSISTANT_DIR / "evals" / "results" / f"{summary['date']}_agent_{args.model}.json"
+    _write_results(summary, out_path)
+    _print_summary(summary, out_path)
 
 
 if __name__ == "__main__":
     main()
 
 
-__all__ = ["main", "run"]
+__all__ = ["main", "rescore", "run"]

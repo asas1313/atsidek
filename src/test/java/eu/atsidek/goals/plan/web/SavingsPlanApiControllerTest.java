@@ -123,7 +123,8 @@ class SavingsPlanApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tier").value("FREE"))
                 .andExpect(jsonPath("$.core.monthly_contribution").exists())
-                .andExpect(jsonPath("$.core.free_cash_monthly").value(850.00))
+                // B6 incident fix: 3100 - 1350 = 1750 (monthly_tax_setaside=900 is display-only).
+                .andExpect(jsonPath("$.core.free_cash_monthly").value(1750.00))
                 .andExpect(jsonPath("$.core.disclaimer")
                         .value("Skaičiavimai informaciniai, tai nėra finansinis ar investavimo patarimas."))
                 .andExpect(jsonPath("$.locked_features", org.hamcrest.Matchers.containsInAnyOrder(
@@ -137,6 +138,40 @@ class SavingsPlanApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.core.monthly_contribution").value(100.00))
                 .andExpect(jsonPath("$.premium").doesNotExist());
+    }
+
+    @Test
+    void whenModeCoreReportsReachableAndAReachDate() throws Exception {
+        // Owner instruction (2026-11-16, after B6 eval #11): WHEN mode must surface the goal-reach
+        // date as a core (free) field - amount 1200, 100/month, 2.5% default inflation reaches the
+        // target a bit after month 12 (inflation keeps nudging the target up).
+        plan(WHEN_REQUEST)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.core.reachable").value(true))
+                .andExpect(jsonPath("$.core.reach_date").exists())
+                .andExpect(jsonPath("$.core.reach_date").value(java.time.LocalDate.now().plusMonths(13).toString()));
+    }
+
+    @Test
+    void whenModeUnreachableWithin50YearsReportsReachableFalseAndNullReachDate() throws Exception {
+        // Owner instruction: "arba nepasiekiama per 50 m." - a tiny contribution against a huge
+        // goal never catches up (GoalsEngine caps the search at 600 months).
+        String unreachable = """
+                {"goal":{"type":"CAR","amount":1000000,"mode":"WHEN","monthly_contribution":1},
+                 "net_monthly_income":3100,"monthly_expenses":1000}
+                """;
+        plan(unreachable)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.core.reachable").value(false))
+                .andExpect(jsonPath("$.core.reach_date").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void yearsModeCoreIsAlwaysReachableWithNullReachDateSinceTermIsAnInputThere() throws Exception {
+        plan(YEARS_REQUEST)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.core.reachable").value(true))
+                .andExpect(jsonPath("$.core.reach_date").value(org.hamcrest.Matchers.nullValue()));
     }
 
     @Test
@@ -270,17 +305,18 @@ class SavingsPlanApiControllerTest {
     }
 
     @Test
-    void negativeDerivedIncomeIsRejectedNamingRealRequestFields() throws Exception {
+    void netMonthlyIncomeSmallerThanTaxSetasideIsNoLongerAnErrorSinceTaxSetasideIsDisplayOnly() throws Exception {
+        // B6 incident fix: monthly_tax_setaside no longer enters the free-cash calculation, so
+        // net_monthly_income < monthly_tax_setaside is a legitimate NO_FREE_CASH result, not 400.
         plan("""
                 {"goal":{"type":"CAR","amount":1200,"mode":"YEARS","years":5},
                  "net_monthly_income":500,"monthly_tax_setaside":900,"monthly_expenses":100}
                 """)
-                .andExpect(status().isBadRequest())
-                .andExpect(status().reason(org.hamcrest.Matchers.allOf(
-                        org.hamcrest.Matchers.containsString("net_monthly_income"),
-                        org.hamcrest.Matchers.containsString("monthly_tax_setaside"),
-                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(
-                                "income negali būti neigiamas")))));
+                .andExpect(status().isOk())
+                // laisvi pinigai = 500 - 100 = 400 (still positive - fits, since this goal's
+                // required monthly contribution is small relative to it).
+                .andExpect(jsonPath("$.core.free_cash_monthly").value(400.00))
+                .andExpect(jsonPath("$.core.fits").value(true));
     }
 
     /**
@@ -304,7 +340,8 @@ class SavingsPlanApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tier").value("FREE"))
                 .andExpect(jsonPath("$.core.monthly_contribution").exists())
-                .andExpect(jsonPath("$.core.free_cash_monthly").value(850.00))
+                // B6 incident fix: 3100 - 1350 = 1750 (monthly_tax_setaside=900 is display-only).
+                .andExpect(jsonPath("$.core.free_cash_monthly").value(1750.00))
                 .andExpect(jsonPath("$.premium").doesNotExist());
     }
 

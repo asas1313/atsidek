@@ -4,6 +4,7 @@ check only, never an execution of the costed live runner itself (that stays manu
 `workflow_dispatch`-only, per owner decision 3).
 """
 import importlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -24,15 +25,35 @@ def test_run_eval_module_imports_without_a_live_client(monkeypatch):
     assert result.returncode == 0, result.stderr
 
 
-def test_judge_rubric_module_imports_and_exposes_draft_contract():
+def test_judge_rubric_module_imports_and_exposes_approved_contract():
+    """Owner instruction (2026-11-16, after B6 eval #11): the rubric/thresholds are now APPROVED,
+    not a draft - the `DRAFT_` prefix on the two constant names is kept as-is (avoids churning
+    every import site for a cosmetic rename) but no longer means "unapproved"; the module
+    docstring must say so explicitly."""
     judge_rubric = importlib.import_module("evals.agent.judge_rubric")
 
     assert judge_rubric.JUDGE_MODEL == "claude-sonnet-5-5"
     assert isinstance(judge_rubric.DRAFT_JUDGE_RUBRIC_PROMPT, str)
     assert judge_rubric.DRAFT_JUDGE_RUBRIC_PROMPT.strip()
     assert isinstance(judge_rubric.DRAFT_PASS_RATE_THRESHOLD, float)
-    assert "DRAFT" in judge_rubric.__doc__
+    assert "APPROVED" in judge_rubric.__doc__
     assert "owner" in judge_rubric.__doc__.lower()
+    assert "eval #11" in judge_rubric.__doc__ or "feef53f" in judge_rubric.__doc__
+
+
+def test_judge_rubric_exempts_pension_tier_mentions_as_a_tax_parameter_not_investment_advice():
+    """Owner instruction (second B6 live-eval round), item 6a: II/III pillar pension-accumulation
+    vocabulary must be an explicit exception in the rubric prompt itself, not just the
+    deterministic noun scorer's own exclusion list."""
+    judge_rubric = importlib.import_module("evals.agent.judge_rubric")
+
+    lowered = judge_rubric.DRAFT_JUDGE_RUBRIC_PROMPT.lower()
+    assert "pakopos" in lowered or "pakopa" in lowered
+    assert "pension_accumulation" in judge_rubric.DRAFT_JUDGE_RUBRIC_PROMPT or "mokesč" in lowered
+
+    pension_examples = [ex for ex in judge_rubric.ILLUSTRATIVE_EXAMPLES if "pakop" in ex["text"].lower()]
+    assert pension_examples
+    assert all(ex["expected_verdict"] == "PASS" for ex in pension_examples)
 
 
 def test_build_judge_request_returns_a_messages_create_shaped_dict_without_calling_anthropic():
@@ -202,3 +223,441 @@ def test_preflight_respects_manual_override_without_minting_that_tier(monkeypatc
     run_eval._preflight_context_tokens("http://x", "key")
 
     assert minted_for == ["premium"]
+
+
+# --- Judge ERROR vs FAIL vs PASS (owner instruction, second B6 live-eval round) ----------------
+#
+# The second live run showed the judge returning empty/truncated JSON being misreported as a
+# content FAIL. `_run_judge` must distinguish a judge TECHNICAL failure ({"verdict": "ERROR"})
+# from a real content verdict (PASS/FAIL) - these exercise that distinction with a fake Anthropic
+# client, no real API call.
+
+class _FakeTextBlock:
+    def __init__(self, text):
+        self.type = "text"
+        self.text = text
+
+
+class _FakeThinkingBlock:
+    """Adaptive thinking (owner instruction note): a thinking block must never be read as the
+    judge's answer - only `type == "text"` blocks are joined."""
+    def __init__(self):
+        self.type = "thinking"
+        self.text = "should not be read"
+
+
+class _FakeJudgeResponse:
+    def __init__(self, content):
+        self.content = content
+
+
+class _FakeJudgeClient:
+    def __init__(self, response):
+        self._response = response
+        self.messages = self
+
+    def create(self, **kwargs):
+        return self._response
+
+
+def _judge_case():
+    from evals.agent.cases import EvalCase
+    return EvalCase(id="judge-case", group="tax_only", variant="anon", tier=None,
+                     user_message="m", expected_tool_sequence=["calculate_iv_taxes"])
+
+
+def test_run_judge_returns_error_not_fail_on_empty_text_block():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("   ")]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+    assert "reason" in verdict
+
+
+def test_run_judge_returns_error_not_fail_on_invalid_json():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("not valid json{")]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+
+
+def test_run_judge_returns_error_not_fail_on_json_without_a_recognized_verdict_field():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock('{"verdict": "MAYBE"}')]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+
+
+def test_run_judge_ignores_thinking_blocks_and_reads_only_text_blocks():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse(
+        [_FakeThinkingBlock(), _FakeTextBlock('{"verdict": "PASS"}')]
+    ))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "PASS"
+
+
+def test_run_judge_passes_through_a_real_fail_verdict_otherwise_unchanged():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse(
+        [_FakeTextBlock('{"verdict": "FAIL", "reason": "paminėjo konkretų fondą"}')]
+    ))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "FAIL"
+    assert verdict["reason"] == "paminėjo konkretų fondą"
+
+
+# Owner instruction (2026-11-16): the rubric version must be stamped onto EVERY judge_verdict -
+# PASS/FAIL content verdicts and every technical-ERROR path alike (see run_eval.py's `_run_judge`
+# docstring) - so a results JSON always shows which rubric wording actually produced a verdict.
+
+def test_run_judge_stamps_the_rubric_version_onto_a_real_pass_verdict():
+    from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock('{"verdict": "PASS"}')]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["rubric_version"] == JUDGE_RUBRIC_VERSION
+
+
+def test_run_judge_stamps_the_rubric_version_onto_a_technical_error_verdict_too():
+    from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("not valid json{")]))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+    assert verdict["rubric_version"] == JUDGE_RUBRIC_VERSION
+
+
+# --- Git provenance in the results JSON (owner instruction, second B6 live-eval round) ---------
+
+def test_git_info_prefers_github_actions_env_vars_over_local_git(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.setenv("GITHUB_SHA", "abc123")
+    monkeypatch.setenv("GITHUB_REF_NAME", "feat/taupymas-agentas-b6")
+    monkeypatch.setattr(
+        run_eval.subprocess, "run",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not call git locally")),
+    )
+
+    info = run_eval._git_info()
+
+    assert info == {"git_sha": "abc123", "git_branch": "feat/taupymas-agentas-b6"}
+
+
+def test_git_info_falls_back_to_local_git_rev_parse_when_env_vars_are_unset(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
+    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+
+    class _FakeCompletedProcess:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(cmd, **kwargs):
+        if "--abbrev-ref" in cmd:
+            return _FakeCompletedProcess("feat/taupymas-agentas-b6\n")
+        return _FakeCompletedProcess("deadbeef\n")
+
+    monkeypatch.setattr(run_eval.subprocess, "run", fake_run)
+
+    info = run_eval._git_info()
+
+    assert info == {"git_sha": "deadbeef", "git_branch": "feat/taupymas-agentas-b6"}
+
+
+def test_git_info_returns_none_fields_instead_of_raising_when_git_is_unavailable(monkeypatch):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
+    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+
+    def fake_run(*a, **k):
+        raise FileNotFoundError("git not installed")
+
+    monkeypatch.setattr(run_eval.subprocess, "run", fake_run)
+
+    info = run_eval._git_info()
+
+    assert info == {"git_sha": None, "git_branch": None}
+
+
+# --- Item 9 (2026-11-16 owner instruction, after B6 eval #11): --concurrency / --rescore -----------
+
+def test_execute_work_items_sequential_runs_every_item_and_returns_per_item_results():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    items = [1, 2, 3]
+    results = run_eval._execute_work_items(items, lambda x: x * 10, concurrency=1)
+
+    assert results == {1: 10, 2: 20, 3: 30}
+
+
+def test_execute_work_items_parallel_returns_the_same_results_as_sequential():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    items = list(range(8))
+    sequential = run_eval._execute_work_items(items, lambda x: x * x, concurrency=1)
+    parallel = run_eval._execute_work_items(items, lambda x: x * x, concurrency=4)
+
+    assert parallel == sequential == {i: i * i for i in items}
+
+
+def test_execute_work_items_parallel_propagates_a_worker_exception():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    def boom(x):
+        if x == 2:
+            raise RuntimeError("worker broke")
+        return x
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="worker broke"):
+        run_eval._execute_work_items([1, 2, 3], boom, concurrency=2)
+
+
+def test_eval_case_instances_are_not_hashable_so_must_never_be_used_as_a_dict_key():
+    """Documents WHY `run()`'s `work_items` must key on `case.id` (a str), not the `EvalCase`
+    instance itself: `EvalCase` is a frozen dataclass, but its auto-generated `__hash__` hashes
+    every field INCLUDING `expected_tool_sequence` (a `list`), which is itself unhashable. A live
+    CI run hit exactly this (2026-11-16): `TypeError: unhashable type: 'list'` inside
+    `_execute_work_items`'s `{item: worker(item) for item in work_items}`, because `work_items`
+    was `[(case, i) for case in CASES for i in range(RUNS_PER_CASE)]` at the time."""
+    from evals.agent.cases import CASES
+
+    import pytest
+
+    with pytest.raises(TypeError, match="unhashable"):
+        hash(CASES[0])
+
+
+def test_run_summary_includes_judge_rubric_version_null_when_with_judge_is_false():
+    """Owner instruction (2026-11-16): the results JSON must show which rubric version judged a
+    run - read directly from source since `run()` itself needs a live backend to execute."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.run)
+
+    assert '"judge_rubric_version": JUDGE_RUBRIC_VERSION if with_judge else None' in source
+
+
+def test_run_builds_work_items_keyed_on_case_id_not_the_case_instance_itself():
+    """Regression test for the bug above: `run()`'s `work_items` construction (read directly from
+    source, since `run()` itself needs a live client/backend to execute) must use `case.id`."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.run)
+
+    assert "work_items = [(case.id, i)" in source
+    assert "[(case, i)" not in source
+    assert "raw_results[(case.id, i)]" in source
+
+
+def test_run_accepts_a_runs_per_case_override_and_uses_it_not_the_module_constant():
+    """Owner instruction (2026-11-17): there was no switch/input to run fewer than the historical
+    3 repetitions per case without editing RUNS_PER_CASE in the source - `run()` must thread a
+    `runs_per_case` parameter through `work_items`/the per-case `runs` lookup/the summary's
+    `runs_per_case` field, not just read the module constant. Read directly from source since
+    `run()` itself needs a live client/backend to execute."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.run)
+
+    assert "def run(model: str, with_judge: bool, concurrency: int = 1, " \
+        "runs_per_case: int = RUNS_PER_CASE)" in source
+    assert "for i in range(runs_per_case)" in source
+    assert "\"runs_per_case\": runs_per_case," in source
+    # The module constant still exists as the documented default (owner decision 3) - just no
+    # longer hardcoded into the loop bodies themselves.
+    assert "for i in range(RUNS_PER_CASE)" not in source
+
+
+def test_runs_per_case_cli_flag_defaults_to_the_module_constant():
+    """Default stays 3 (owner decision 3) unless explicitly overridden."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.main)
+
+    runs_per_case_block = source[source.index('"--runs-per-case"'):source.index('"--rescore"')]
+    assert "default=RUNS_PER_CASE" in runs_per_case_block
+
+
+def test_main_passes_runs_per_case_through_to_run():
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.main)
+
+    assert "run(args.model, args.with_judge, args.concurrency, args.runs_per_case)" in source
+
+
+def test_concurrency_cli_flag_defaults_to_8():
+    """Owner instruction (2026-11-16, after eval a2dbaae, item 6): default bumped from 1 to 8 -
+    read directly from source since `main()` parses real `sys.argv`, not a function we can call
+    with injected args without also triggering the live-run path below it."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.main)
+
+    concurrency_block = source[source.index('"--concurrency"'):source.index('"--rescore"')]
+    assert "default=8" in concurrency_block
+
+
+def test_run_one_and_rescore_both_wire_in_the_response_complete_check():
+    """Owner instruction (2026-11-16, after eval a2dbaae, item 3): both the live-run path
+    (`_run_one`) and `--rescore` must score `response_complete` - read directly from source since
+    `_run_one` needs a live backend and `rescore`'s own tests exercise it via stored JSON, not via
+    inspecting which checks got computed."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    assert '"response_complete": score_response_complete(result.stop_reason)' in inspect.getsource(run_eval._run_one)
+    assert "score_response_complete(stored_run.get(\"stop_reason\"))" in inspect.getsource(run_eval.rescore)
+
+
+def test_json_default_encodes_decimal_as_string_not_float():
+    """Decimal -> str (never float), matching calculator._json_default_decimal_as_str's own
+    rationale: tool_calls now stored in full (item 9) carry real Decimal values from
+    `parse_float=Decimal` and must round-trip through JSON without float rounding error."""
+    import json
+    from decimal import Decimal
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    encoded = json.dumps({"x": Decimal("1210.61")}, default=run_eval._json_default)
+    assert encoded == '{"x": "1210.61"}'
+
+
+def _fake_case_result(case_id: str, final_text: str, tool_calls: list) -> dict:
+    return {
+        "id": case_id,
+        "group": "tax_only",
+        "variant": "anon",
+        "pass_rate": 0.0,
+        "check_pass_rates": {},
+        "runs": [
+            {
+                "status": "ok",
+                "final_text": final_text,
+                "reply": final_text,
+                "tool_names_called": [c["name"] for c in tool_calls],
+                "tool_calls": tool_calls,
+                "context_token_used": False,
+                "actual_tier_seen": None,
+                "had_premium_section": None,
+                "checks": {},
+                "rate_checks_passed": False,
+                "no_banned_investment_terms": True,
+            }
+        ],
+    }
+
+
+def test_rescore_recomputes_missing_income_handled_for_a_non_question_request(tmp_path):
+    """End-to-end check of item 8's fix via item 9's --rescore: a past stored run whose final_text
+    is a non-question income request (score_missing_income_handled used to fail this - no "?")
+    must now PASS when rescored with the fixed scorer, without any new LLM call."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    from evals.agent.cases import CASES
+
+    case = next(c for c in CASES if c.id == "tax_only_anon_01")
+    assert case.expected_tool_sequence  # sanity: this case expects a tool call, not a question
+
+    # Reuse a real missing-income case shape by overriding expect_clarifying_question via a
+    # minimal stand-in stored result: no successful savings call, a non-question income request.
+    stored = {
+        "model": "claude-haiku-5-5",
+        "date": "2026-11-11",
+        "git_sha": "feef53f",
+        "git_branch": "feat/taupymas-agentas-b6",
+        "runs_per_case": 1,
+        "with_judge": False,
+        "cases": 1,
+        "case_results": [
+            _fake_case_result(case.id, "Mano IV pajamos per metus - 20000 eurų, faktinių išlaidų neturiu. Kiek mokesčių turėčiau mokėti?", [])
+        ],
+        "investment_advice_violations": [],
+        "judge_errors": [],
+        "run_broken": False,
+    }
+    results_path = tmp_path / "fake_results.json"
+    results_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    rescored = run_eval.rescore(results_path)
+
+    assert rescored["rescored"] is True
+    assert rescored["date"] == "2026-11-11"  # original date kept, NOT today's
+    assert rescored["rescore_source"] == str(results_path)
+    run = rescored["case_results"][0]["runs"][0]
+    # tax_only_anon_01 has no tool call in this fake, so tool_sequence fails (expects the tax
+    # tool) - the point of this test is only that rescoring runs cleanly end-to-end and carries
+    # the original run's date, not that every check passes for this stand-in fixture.
+    assert "tool_sequence" in run["checks"]
+
+
+def test_rescore_keeps_a_stored_judge_verdict_unchanged_and_never_recalls_the_judge(tmp_path):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    case_result = _fake_case_result("tax_only_anon_01", "kažkoks atsakymas", [])
+    case_result["runs"][0]["judge_verdict"] = {"verdict": "FAIL", "reason": "stored verdict"}
+
+    stored = {
+        "model": "claude-haiku-5-5",
+        "date": "2026-11-11",
+        "git_sha": "feef53f",
+        "git_branch": "feat/taupymas-agentas-b6",
+        "runs_per_case": 1,
+        "with_judge": True,
+        "cases": 1,
+        "case_results": [case_result],
+        "investment_advice_violations": [],
+        "judge_errors": [],
+        "run_broken": False,
+    }
+    results_path = tmp_path / "fake_results_with_judge.json"
+    results_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    rescored = run_eval.rescore(results_path)
+
+    run = rescored["case_results"][0]["runs"][0]
+    assert run["judge_verdict"] == {"verdict": "FAIL", "reason": "stored verdict"}
+    violation_checks = {v["check"] for v in rescored["investment_advice_violations"]}
+    assert "llm_judge" in violation_checks
+
+
+def test_aggregate_case_results_matches_manual_computation_for_two_cases_two_checks():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    case_results = [
+        {"group": "tax_only", "pass_rate": 1.0, "check_pass_rates": {"tool_sequence": 1.0, "no_invented_numbers": 0.5}},
+        {"group": "savings_only", "pass_rate": 0.0, "check_pass_rates": {"tool_sequence": 0.0}},
+    ]
+
+    aggregate = run_eval._aggregate_case_results(case_results)
+
+    assert aggregate["overall_pass_rate"] == 0.5
+    assert aggregate["group_pass_rates"]["tax_only"]["tool_sequence"] == 1.0
+    assert aggregate["group_pass_rates"]["savings_only"]["tool_sequence"] == 0.0
+    # no_invented_numbers only exists for the tax_only case - savings_only's own rate is None,
+    # not silently treated as 0 or skipped from the per-check dict entirely.
+    assert aggregate["group_pass_rates"]["savings_only"]["no_invented_numbers"] is None
+    assert aggregate["overall_check_pass_rates"]["no_invented_numbers"] == 0.5

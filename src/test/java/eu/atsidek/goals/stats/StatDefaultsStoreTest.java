@@ -66,6 +66,19 @@ class StatDefaultsStoreTest {
     }
 
     @Test
+    void everySeededRowIsFlaggedNeedsReview() {
+        // Owner instruction (2026-11-16, stat_defaults sprendimas #2, V11__stat_defaults_needs_
+        // review_all.sql): ALL seeded rows (income/expenses/typical_amount, every segment,
+        // including the mockup's own literal figures and the general averages) are illustrative/
+        // unverified against an official dated source - needs_review=true for every single row,
+        // superseding V10's earlier partial (4-row-only) flagging.
+        List<StatDefaultsStore.Row> all = store.findAll();
+        assertThat(all).isNotEmpty();
+        assertThat(all).allSatisfy(row -> assertThat(row.needsReview())
+                .as("key=%s segment=%s needs_review", row.key(), row.segment()).isTrue());
+    }
+
+    @Test
     void everySeededRowHasTraceableSourceOrIsIllustrative() {
         // PLAN-taupymas-agentas.md A2 / A0 sprendimas #5: kiekviena V4__seed_stat_defaults.sql eilutė turi
         // turėti netuščią source IR (as_of datą ARBA is_illustrative=true). Šis testas sulaužtų bet kokią

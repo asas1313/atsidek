@@ -3,6 +3,7 @@ package eu.atsidek.goals.plan;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -17,6 +18,13 @@ import java.util.List;
  * @param generalTip           deterministinis patarimo šablonas, priklausantis nuo verdikto
  * @param assumptions          reikšmės, kurių vartotojas nenurodė (žr. {@link AssumptionEntry})
  * @param disclaimer           fiksuotas teisinis atsiribojimas
+ * @param reachable            ar tikslas pasiekiamas su nurodyta įmoka per 50 m. (owner instrukcija,
+ *                             2026-11-16, po B6 eval #11); visada {@code true} ne-WHEN režimuose
+ *                             (ten terminas yra įvestis, ne {@code GoalsEngine} paskaičiuojamas
+ *                             rezultatas) - žr. {@link eu.atsidek.goals.GoalResult#reachable()}
+ * @param reachDate            data, kada tikslas pasiekiamas su nurodyta įmoka; pildoma TIK WHEN
+ *                             režimui (kitaip {@code null}, nes terminas tada yra vartotojo įvestis,
+ *                             ne išvestis) - žr. {@link eu.atsidek.goals.GoalResult#reachDate()}
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record Core(
@@ -26,5 +34,7 @@ public record Core(
         boolean fits,
         String generalTip,
         List<AssumptionEntry> assumptions,
-        String disclaimer) {
+        String disclaimer,
+        boolean reachable,
+        LocalDate reachDate) {
 }

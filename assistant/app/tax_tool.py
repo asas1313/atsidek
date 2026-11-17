@@ -107,6 +107,8 @@ def make_calculate_iv_taxes_tool(
         )
         tax_calc_id = request_context.store_result(java_result)
         better = java_result["better"]
+        flat = java_result["flat"]
+        actual = java_result["actual"]
         return {
             "tax_calc_id": tax_calc_id,
             "method": better["method"],
@@ -114,6 +116,17 @@ def make_calculate_iv_taxes_tool(
             "monthly_tax_setaside": better["monthlyReserve"],
             # AC-B1-2: surfaced EXACTLY as Java computed it - no Python-side arithmetic.
             "net_monthly_income": better["netMonthlyIncome"],
+            # Owner instruction (2026-11-16, after eval a2dbaae's judge FAIL): besides the chosen
+            # `method`, also surface BOTH methods' own annual tax total, so the model/template can
+            # explain WHY FLAT_30 was chosen over actual expenses instead of saying "I don't know
+            # why" (see system_prompt.py's matching clause and response_builder.py's
+            # `_build_taxes_section`). `actual_expenses_total_tax_per_year` is null when the user
+            # never stated actual expenses at all (comparing against an implicit zero-expenses
+            # ACTUAL total would be meaningless, not an honest comparison).
+            "flat_30_total_tax_per_year": flat["total"],
+            "actual_expenses_total_tax_per_year": (
+                actual["total"] if parsed.actual_expenses is not None else None
+            ),
         }
 
     return handle

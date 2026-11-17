@@ -4,6 +4,7 @@ import eu.atsidek.entitlement.EntitlementService;
 import eu.atsidek.entitlement.Feature;
 import eu.atsidek.goals.Assumptions;
 import eu.atsidek.goals.GoalInput;
+import eu.atsidek.goals.GoalMode;
 import eu.atsidek.goals.GoalResult;
 import eu.atsidek.goals.Household;
 import eu.atsidek.goals.Origin;
@@ -56,10 +57,12 @@ public class SavingsPlanService {
      * dubliuoti visą {@code GoalsService.validate()} logiką čia (su savo ribomis, pvz. {@code
      * MAX_YEARS}/{@code MAX_AGE}) sukurtų antrą tiesos šaltinį, kurį reikėtų sinchronizuoti ranka -
      * vertimo lentelė yra siauresnė, lengviau peržiūrima pokyčio rizika (tik pavadinimai, ne ribos).
-     * {@code income} čia defensyviai įtrauktas, nors praktiškai nepasiekiamas - {@link #validate}
-     * patikrina {@code net_monthly_income - monthly_tax_setaside} PRIEŠ delegavimą, todėl neigiamas
-     * {@code income} niekada nenukeliauja iki {@code GoalsService.validate()}; įrašas paliktas, kad
-     * naujas patikrinimas tyliai nenutekėtų, jei šis defensyvus apribojimas kada pasikeistų.
+     * {@code income} čia defensyviai įtrauktas, nors nepasiekiamas - B6 incident pataisa (žr.
+     * {@link #plan}) pašalino ankstesnį kryžminį {@code net_monthly_income}/
+     * {@code monthly_tax_setaside} patikrinimą, nes {@code income} DABAR yra tiesiog
+     * {@code request.netMonthlyIncome()} (privalomas ir jau patikrintas {@link #checkAmount}, kad
+     * nebūtų neigiamas) - niekada nenukeliauja neigiamas iki {@code GoalsService.validate()}; įrašas
+     * paliktas, kad naujas patikrinimas tyliai nenutekėtų, jei šis apribojimas kada pasikeistų.
      * {@code expenses} TAI PRIEŠINGAI YRA REALIAI PASIEKIAMAS (review finding, round 2): kai
      * {@code monthly_expenses} praleistas, reikšmę skaičiuoja {@link #resolveMonthlyExpenses} per
      * {@code StatDefaultsService.resolve()} (statistika) - ta reikšmė NEIŠVENGIA {@link #checkAmount}
@@ -109,7 +112,16 @@ public class SavingsPlanService {
 
         List<AssumptionEntry> assumptions = new ArrayList<>();
         BigDecimal monthlyExpenses = resolveMonthlyExpenses(request, assumptions);
-        BigDecimal income = nz(request.netMonthlyIncome()).subtract(nz(request.monthlyTaxSetaside()));
+        // B6 live-eval incident (2026-11-13, žr. docs/specs/taupymo-tikslai/B6-log.log): ANKSČIAU
+        // čia buvo `.subtract(nz(request.monthlyTaxSetaside()))` - bet `net_monthly_income` (B1,
+        // TaxResult.netMonthlyIncome = (revenue - actualExpenses - total) / 12, patikslinta owner
+        // instrukcija 2026-11-16) JAU yra grynosios pajamos PO mokesčių IR faktinių IV išlaidų, o
+        // `monthly_tax_setaside` (TaxResult.monthlyReserve = total / 12) yra TA PATI
+        // mokesčių suma - atimant abu, mokesčiai buvo atimami du kartus (pvz. real case
+        // combined_logged_in_02: 365,07 vietoj teisingo 815,87). `monthly_tax_setaside` yra TIK
+        // rodymui (jau parodyta vartotojui per mokesčių skaičiavimo žingsnį) - laisviems pinigams
+        // niekada nenaudojamas. Žr. A3 kontrakto aprašą (PLAN-taupymas-agentas.md) dėl formulės.
+        BigDecimal income = nz(request.netMonthlyIncome());
 
         GoalInput goalInput = toGoalInput(request, income, monthlyExpenses);
         GoalResult result = calculate(goalInput);
@@ -117,7 +129,7 @@ public class SavingsPlanService {
         addAssumptionIfNotUserProvided(assumptions, "annual_return_pct", result, "annualReturn");
         addAssumptionIfNotUserProvided(assumptions, "annual_inflation_pct", result, "annualInflation");
 
-        Core core = buildCore(result, assumptions);
+        Core core = buildCore(result, assumptions, goalInput.mode());
 
         List<Feature> locked = lockedFeatures(currentUserId);
         Tier tier = deriveTier(locked);
@@ -190,17 +202,12 @@ public class SavingsPlanService {
         checkAmount("net_monthly_income", request.netMonthlyIncome(), errors);
         checkAmount("monthly_tax_setaside", request.monthlyTaxSetaside(), errors);
         checkAmount("monthly_expenses", request.monthlyExpenses(), errors);
-        // Patikrinta PRIEŠ delegavimą į GoalsService.calculate() (review rastas bug'as): income =
-        // net_monthly_income - monthly_tax_setaside yra VIDINIS laukas, kurio GoalsService.validate()
-        // nežino nieko apie SavingsPlanRequest schemą - jei šis skirtumas neigiamas, GoalsService
-        // grąžintų "income negali būti neigiamas", o "income" NĖRA viešos užklausos lauko vardas
-        // (tikrieji laukai - net_monthly_income/monthly_tax_setaside), todėl klientas negalėtų
-        // suprasti, kurį iš jų taisyti. Tikrinama ČIA, PRIEŠ skaičiavimą, kad klaida įvardintų
-        // tikruosius laukus.
-        if (request.netMonthlyIncome() != null && request.monthlyTaxSetaside() != null
-                && nz(request.netMonthlyIncome()).subtract(nz(request.monthlyTaxSetaside())).signum() < 0) {
-            errors.add("net_monthly_income turi būti bent lygus monthly_tax_setaside");
-        }
+        // B6 incident pataisa pašalino ankstesnį "net_monthly_income turi būti bent lygus
+        // monthly_tax_setaside" kryžminį patikrinimą - jis gynė VIDINĮ income = net_monthly_income
+        // - monthly_tax_setaside skaičiavimą, kurio DABAR nebėra (monthly_tax_setaside tik
+        // rodymui, žr. #plan). Tas patikrinimas pats savaime neturėjo prasmės: TaxResult'e
+        // netMonthlyIncome + monthlyReserve = revenue/12, todėl netMonthlyIncome < monthlyReserve
+        // yra visiškai normalus atvejis (efektyvus mokesčių tarifas > 50 %), ne klaida.
     }
 
     private static void checkAmount(String name, BigDecimal v, List<String> errors) {
@@ -229,7 +236,7 @@ public class SavingsPlanService {
         StatDefaultValue expenses = statDefaultsService.resolve(members, workers, null, goalType).expenses();
         assumptions.add(new AssumptionEntry("monthly_expenses", expenses.value(), Origin.STATISTICS,
                 expenses.source(), expenses.asOf() == null ? null : expenses.asOf().toString(),
-                expenses.illustrative()));
+                expenses.illustrative(), expenses.needsReview()));
         return expenses.value();
     }
 
@@ -244,7 +251,7 @@ public class SavingsPlanService {
         var resolved = result.resolvedInputs().get(resolvedKey);
         if (resolved != null && resolved.origin() == Origin.ASSUMPTION) {
             assumptions.add(new AssumptionEntry(field, (BigDecimal) resolved.value(), Origin.ASSUMPTION,
-                    resolved.source(), resolved.asOf(), null));
+                    resolved.source(), resolved.asOf(), null, null));
         }
     }
 
@@ -262,23 +269,39 @@ public class SavingsPlanService {
                 null);
     }
 
-    private static Core buildCore(GoalResult result, List<AssumptionEntry> assumptions) {
+    private static Core buildCore(GoalResult result, List<AssumptionEntry> assumptions, GoalMode mode) {
         boolean fits = result.verdict() != Verdict.UNREALISTIC && result.verdict() != Verdict.NO_FREE_CASH;
         BigDecimal sharePct = result.share().multiply(PERCENT_SCALE).setScale(2, RoundingMode.HALF_UP);
-        return new Core(result.monthly(), result.freeCash(), sharePct, fits, generalTip(result.verdict()),
-                List.copyOf(assumptions), DISCLAIMER);
+        return new Core(result.monthly(), result.freeCash(), sharePct, fits, generalTip(result.verdict(), mode),
+                List.copyOf(assumptions), DISCLAIMER, result.reachable(), result.reachDate());
     }
 
-    /** Deterministiniai šablonai pagal {@code GoalsEngine.Verdict} ribas (NE AI tekstas, žr. PLAN.md A3). */
-    private static String generalTip(Verdict verdict) {
+    /**
+     * Deterministiniai šablonai pagal {@code GoalsEngine.Verdict} ribas (NE AI tekstas, žr. PLAN.md A3).
+     * <p>
+     * Owner instrukcija (2026-11-16, po eval'o a2dbaae, 4b punktas): WHEN režimui "apsvarstykite ilgesnį
+     * terminą" patarimas neturi prasmės - WHEN pats suranda datą fiksuotai įmokai, terminas yra IŠVESTIS,
+     * ne įvestis, kurią būtų galima "pailginti". WHEN režimui vietoj to patariama mažesnė įmoka.
+     * <p>
+     * Owner instrukcija (2026-11-16, po eval'o fae9e00, 2 punktas): dėl tos pačios priežasties UNREALISTIC
+     * atveju "su šiuo terminu tikslas greičiausiai nerealus" taip pat netinka WHEN režimui (terminas - ne
+     * vartotojo įvestis) - WHEN režimui šis "terminu" žodis taip pat pašalinamas.
+     */
+    private static String generalTip(Verdict verdict, GoalMode mode) {
+        String adjustAdvice = mode == GoalMode.WHEN
+                ? "apsvarstykite mažesnę įmoką"
+                : "apsvarstykite ilgesnį terminą arba mažesnę sumą";
+        String unrealisticClause = mode == GoalMode.WHEN
+                ? "tikslas greičiausiai nerealus"
+                : "su šiuo terminu tikslas greičiausiai nerealus";
         return switch (verdict) {
             case NO_FREE_CASH -> "Laisvų pinigų nėra arba jie neigiami – pirmiausia peržiūrėkite išlaidas, "
                     + "kad atsirastų, iš ko taupyti.";
             case COMFORTABLE -> "Šis tikslas atrodo pasiekiamas – įmoka sudaro nedidelę dalį jūsų laisvų pinigų.";
             case TIGHT -> "Šis tikslas pasiekiamas, bet pareikalaus nemažos dalies laisvų pinigų – "
-                    + "apsvarstykite ilgesnį terminą arba mažesnę sumą.";
-            case UNREALISTIC -> "Reikalinga įmoka viršija pusę jūsų laisvų pinigų – su šiuo terminu tikslas "
-                    + "greičiausiai nerealus, apsvarstykite ilgesnį terminą arba mažesnę sumą.";
+                    + adjustAdvice + ".";
+            case UNREALISTIC -> "Reikalinga įmoka viršija pusę jūsų laisvų pinigų – " + unrealisticClause
+                    + ", " + adjustAdvice + ".";
         };
     }
 

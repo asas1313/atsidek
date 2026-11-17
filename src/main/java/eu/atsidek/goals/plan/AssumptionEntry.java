@@ -19,6 +19,11 @@ import java.math.BigDecimal;
  * @param sourceDate     duomenų data (ISO, {@code yyyy-MM-dd}); {@code null}, kai nėra realios datos
  * @param isIllustrative ar reikšmė iliustracinė (A2: {@code stat_defaults.is_illustrative}); {@code null},
  *                       kai neaktualu ({@code ASSUMPTION} kilmei - tai ne statistika)
+ * @param needsReview    ar reikšmė dar nepatvirtinta iš oficialaus, datuoto šaltinio (owner
+ *                       instrukcija, 2026-11-16: {@code stat_defaults.needs_review}) - kol
+ *                       {@code true}, šablonas (response_builder.py) ją žymi "Iliustracinė
+ *                       prielaida", ne "Statistika"; {@code null}, kai neaktualu ({@code ASSUMPTION}
+ *                       kilmei)
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record AssumptionEntry(
@@ -27,5 +32,6 @@ public record AssumptionEntry(
         Origin origin,
         String source,
         String sourceDate,
-        Boolean isIllustrative) {
+        Boolean isIllustrative,
+        Boolean needsReview) {
 }

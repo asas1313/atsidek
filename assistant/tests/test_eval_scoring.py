@@ -13,11 +13,14 @@ from evals.agent.scoring import (
     extract_numbers,
     rendered_numbers,
     score_anon_no_premium,
+    score_missing_amount_handled,
     score_missing_income_handled,
     score_no_banned_investment_terms,
     score_no_invented_numbers,
+    score_response_complete,
     score_tax_input_revenue_matches_expected,
     score_tool_sequence,
+    tool_input_numbers,
 )
 
 
@@ -132,6 +135,24 @@ def test_extract_numbers_text_with_no_numbers_returns_empty_set():
     assert extract_numbers("Sveika, kuo galiu padėti?") == set()
 
 
+def test_extract_numbers_parses_a_thousands_grouped_whole_number_without_decimals():
+    """Owner instruction (second B6 live-eval round): the second live run's no_invented_numbers
+    check failed 119/126 - traced to this exact gap. The OLD regex's thousands-grouped
+    alternative required a trailing comma+decimal part ("1 234,56"), so a round whole-euro figure
+    the model writes WITHOUT decimals ("20 000 €" - a very common way to state a round sum) fell
+    through to the bare `\\d+` alternative and was split into TWO separate numbers (20 and 000=0),
+    neither of which is the real value 20000."""
+    assert extract_numbers("Tikslas yra 20 000 € per 10 metų.") == {Decimal("20000"), Decimal("10")}
+
+
+def test_extract_numbers_treats_a_non_breaking_and_narrow_non_breaking_space_as_a_thousands_separator():
+    """Same gap, non-ASCII-whitespace variant: some rendered/generated text uses U+00A0 (non-
+    breaking space) or U+202F (narrow no-break space) instead of a plain space for thousands
+    grouping - both must parse identically to the plain-space form."""
+    assert extract_numbers("Suma: 20 000 €.") == {Decimal("20000")}
+    assert extract_numbers("Suma: 20 000 €.") == {Decimal("20000")}
+
+
 # --- rendered_numbers ------------------------------------------------------------------------------
 
 def test_rendered_numbers_collects_numeric_leaves_from_last_successful_tax_result():
@@ -189,6 +210,43 @@ def test_score_no_invented_numbers_passes_when_free_text_has_no_numbers_at_all()
     assert score_no_invented_numbers("Štai tavo suvestinė, kaip paprašei.", calls) is True
 
 
+def test_score_no_invented_numbers_passes_when_free_text_echoes_a_tool_call_input():
+    """Owner instruction (second B6 live-eval round): allowed numbers = tool RESULTS union tool
+    INPUTS union user-message numbers union a small constants list. A number the model itself
+    just sent as a tool input (e.g. the revenue it passed to calculate_iv_taxes) is not invented,
+    even before that tool's result comes back."""
+    calls = [{**tax_call(), "input": {"revenue": 24000}}]
+    assert score_no_invented_numbers("Paskaičiuosiu nuo 24000 eurų pajamų.", calls) is True
+
+
+def test_score_no_invented_numbers_passes_when_free_text_echoes_the_users_own_message():
+    final_text = "Norite sutaupyti 20000 eurų per 10 metų - kiek pajamų gaunate per mėnesį?"
+    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
+    assert score_no_invented_numbers(final_text, [], user_message) is True
+
+
+def test_score_no_invented_numbers_still_fails_on_a_number_absent_from_every_allowed_source():
+    final_text = "Norite sutaupyti 20000 eurų, bet manau pakaks vos 50 eurų per mėnesį."
+    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
+    assert score_no_invented_numbers(final_text, [], user_message) is False
+
+
+def test_score_no_invented_numbers_passes_on_small_allowed_constants_without_any_tool_or_user_number():
+    """A model stating a trivial general-knowledge constant (12 months/year, a 30% flat-rate
+    fact) on its own, with no tool call and no user-stated figure, must not be flagged - this is
+    the deliberately tiny allowlist, not a loophole for real money figures."""
+    assert score_no_invented_numbers("Metuose yra 12 mėnesių.", []) is True
+    assert score_no_invented_numbers("Taikoma 30 % išlaidų norma.", []) is True
+
+
+def test_tool_input_numbers_collects_numeric_leaves_from_every_calls_input():
+    calls = [
+        {**tax_call(call_id="t1"), "input": {"revenue": 24000}},
+        {**savings_call(call_id="s1"), "input": {"monthly_expenses": 850}},
+    ]
+    assert tool_input_numbers(calls) == {Decimal("24000"), Decimal("850")}
+
+
 # --- score_anon_no_premium (AC-B6-5) ---------------------------------------------------------------
 
 def test_score_anon_no_premium_fails_if_anon_successful_result_carries_premium_key():
@@ -234,14 +292,119 @@ def test_score_missing_income_handled_fails_if_question_text_contains_a_number()
     assert score_missing_income_handled([], final_text) is False
 
 
-def test_score_missing_income_handled_fails_if_text_has_no_question_mark():
+def test_score_missing_income_handled_recognizes_a_direct_non_question_income_request():
+    """Owner instruction (2026-11-16, after B6 eval #11, item 8): a genuine income request isn't
+    always phrased as a question - this used to fail purely for lacking "?", even though it
+    clearly asks for income ("reikėtų" + "pajamas")."""
     final_text = "Reikėtų žinoti tavo pajamas."
+    assert score_missing_income_handled([], final_text) is True
+
+
+def test_score_missing_income_handled_still_fails_on_text_that_merely_mentions_income_in_passing():
+    """Merely containing "pajamos" is not enough - no "?" and no request stem (reik/pasaky/nurody/
+    praš/trūksta) means this isn't actually asking the user for anything."""
+    final_text = "Pajamos šiais laikais svyruoja daug."
+    assert score_missing_income_handled([], final_text) is False
+
+
+def test_score_missing_income_handled_fails_on_text_with_no_question_mark_and_no_income_mention():
+    final_text = "Ačiū, duomenis patikrinsiu vėliau."
     assert score_missing_income_handled([], final_text) is False
 
 
 def test_score_missing_income_handled_fails_on_empty_text():
     assert score_missing_income_handled([], "") is False
     assert score_missing_income_handled([], None) is False
+
+
+def test_score_missing_income_handled_tolerates_echoing_the_users_own_goal_amount_and_term():
+    """Owner instruction (second B6 live-eval round): this check failed 6/6 even though the agent
+    DID ask for income every time. Root cause - the real missing-income cases' own user_message
+    (`evals/agent/cases.py`, e.g. "Noriu sutaupyti vaikui 20000 eurų per 10 metų...") states a
+    goal amount and a term that a perfectly legitimate clarifying question naturally echoes back
+    while confirming the goal. The exact wording below is a RECONSTRUCTED, illustrative example
+    (no real run's output text was available to copy verbatim) built around that real case's own
+    numbers - not a literal captured transcript - but it reproduces the same shape of echo that
+    caused the 6/6 failure: numbers from the user's message, not a calendar year, previously
+    caused an automatic fail."""
+    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
+    final_text = (
+        "Norėdamas padėti apskaičiuoti, kiek atsidėti per mėnesį 20000 eurų tikslui per 10 metų, "
+        "turiu žinoti jūsų pajamas - kiek pajamų gaunate per mėnesį?"
+    )
+    assert score_missing_income_handled([], final_text, user_message) is True
+
+
+def test_score_missing_income_handled_still_fails_if_question_states_a_genuinely_invented_number():
+    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
+    final_text = "Apie 300 eurų per mėnesį turėtų pakakti - kokios jūsų pajamos?"
+    assert score_missing_income_handled([], final_text, user_message) is False
+
+
+# Owner instruction (2026-11-16, after B6 eval #11, item 8): "testai su šio paleidimo 6 tekstais" -
+# this eval run's own local sandbox has no network access to the real Anthropic/Java backends and
+# no copy of run #11's results JSON, so these 6 texts are RECONSTRUCTED, illustrative examples (not
+# literal captured transcripts) built directly around the owner's own quoted example
+# ("man reikia jūsų grynųjų mėnesio pajamų") and plausible variant phrasings of the same
+# direct-request pattern - each one deliberately has NO "?", which is exactly what the old
+# question-mark-only check missed.
+_RUN_RECONSTRUCTED_NON_QUESTION_INCOME_REQUESTS = [
+    "Man reikia jūsų grynųjų mėnesio pajamų, kad galėčiau paskaičiuoti planą.",
+    "Pasakykite savo grynąsias mėnesio pajamas, tada tęsiu skaičiavimą.",
+    "Nurodykite mėnesio pajamas - be jų tikslo neapskaičiuosiu.",
+    "Šiuo metu trūksta jūsų pajamų duomenų, jų reikės toliau.",
+    "Prašau pajamų - be šios informacijos negaliu tęsti.",
+    "Pirmiausia reikės jūsų grynųjų pajamų sumos per mėnesį.",
+]
+
+
+def test_score_missing_income_handled_passes_on_six_reconstructed_non_question_income_requests():
+    for final_text in _RUN_RECONSTRUCTED_NON_QUESTION_INCOME_REQUESTS:
+        assert "?" not in final_text, final_text
+        assert score_missing_income_handled([], final_text) is True, final_text
+
+
+# --- score_missing_amount_handled (owner instruction 2026-11-16, stat_defaults sprendimas #4) -------
+
+def test_score_missing_amount_handled_passes_on_a_clean_clarifying_question():
+    final_text = "Kokią sumą norėtumėte sutaupyti?"
+    assert score_missing_amount_handled([], final_text) is True
+
+
+def test_score_missing_amount_handled_passes_on_a_direct_non_question_amount_request():
+    final_text = "Reikia žinoti, kokią sumą norite sutaupyti."
+    assert score_missing_amount_handled([], final_text) is True
+
+
+def test_score_missing_amount_handled_fails_if_a_successful_savings_result_exists():
+    calls = [savings_call(result=SAVINGS_RESULT_NO_PREMIUM)]
+    final_text = "Kokią sumą norėtumėte sutaupyti?"
+    assert score_missing_amount_handled(calls, final_text) is False
+
+
+def test_score_missing_amount_handled_fails_on_text_that_merely_mentions_a_sum_in_passing():
+    final_text = "Ši suma priklauso nuo jūsų pasirinkto termino."
+    assert score_missing_amount_handled([], final_text) is False
+
+
+def test_score_missing_amount_handled_fails_on_empty_text():
+    assert score_missing_amount_handled([], "") is False
+    assert score_missing_amount_handled([], None) is False
+
+
+def test_score_missing_amount_handled_tolerates_echoing_the_users_own_income_and_term():
+    user_message = "Mano grynosios pajamos 1800 eurų per mėnesį, norėčiau pradėti taupyti automobiliui per 4 metus."
+    final_text = (
+        "Kad galėčiau paskaičiuoti planą su 1800 eurų pajamomis per 4 metus, kokią sumą norėtumėte "
+        "sutaupyti?"
+    )
+    assert score_missing_amount_handled([], final_text, user_message) is True
+
+
+def test_score_missing_amount_handled_still_fails_if_question_states_a_genuinely_invented_number():
+    user_message = "Mano grynosios pajamos 1800 eurų per mėnesį, norėčiau pradėti taupyti automobiliui per 4 metus."
+    final_text = "Apie 10000 eurų turėtų pakakti - kokią sumą norėtumėte sutaupyti?"
+    assert score_missing_amount_handled([], final_text, user_message) is False
 
 
 # --- score_no_banned_investment_terms (AC-B6-4, deterministic half) ---------------------------------
@@ -438,3 +601,19 @@ def test_score_tool_sequence_fails_when_an_unknown_tool_name_appears():
     tool name silently matching via some lax comparison)."""
     calls = [{"id": "x1", "name": "some_other_tool", "input": {}, "result": {}, "error": None, "is_error": False}]
     assert score_tool_sequence(calls, [TAX_TOOL_NAME]) is False
+
+
+# --- score_response_complete (owner instruction 2026-11-16, after eval a2dbaae, item 3) --------
+
+def test_score_response_complete_fails_on_max_tokens():
+    assert score_response_complete("max_tokens") is False
+
+
+def test_score_response_complete_passes_on_end_turn():
+    assert score_response_complete("end_turn") is True
+
+
+def test_score_response_complete_passes_on_none():
+    """None covers both a test fake without stop_reason and a max_iterations_exceeded run (no
+    real "final" turn, see agent_loop.AgentLoopResult's own docstring)."""
+    assert score_response_complete(None) is True

@@ -82,6 +82,37 @@ def test_assumptions_schema_field_names_match_assumptions_input_exactly():
     assert set(ASSUMPTIONS_SCHEMA["properties"].keys()) == set(AssumptionsInput.model_fields.keys())
 
 
+# --- Owner-reported live eval crash (2026-11-17): household/assumptions must allow JSON null ---
+
+def test_household_schema_type_allows_null_since_the_field_is_optional():
+    """A live eval run crashed with a pydantic ValidationError because the model sent the STRING
+    "null" for `household` - a valid JSON `null` was not representable since this object's own
+    schema `type` only listed "object", not ["object", "null"], unlike every scalar optional
+    field in this module (which all use `_nullable()`). Fixing the schema so a real `null` is a
+    legal token removes the model's incentive to improvise a string instead."""
+    assert HOUSEHOLD_SCHEMA["type"] == ["object", "null"]
+
+
+def test_assumptions_schema_type_allows_null_since_the_field_is_optional():
+    assert ASSUMPTIONS_SCHEMA["type"] == ["object", "null"]
+
+
+def test_accepts_explicit_null_household_and_assumptions():
+    parsed = CalculateSavingsPlanInput.model_validate({
+        "goal": goal(), "household": None, "assumptions": None,
+    })
+    assert parsed.household is None
+    assert parsed.assumptions is None
+
+
+def test_still_rejects_the_stringified_null_that_actually_crashed_the_live_eval():
+    """The schema fix stops the MODEL from needing to produce this - but pydantic itself must
+    still fail loudly (not silently coerce) if a literal string "null" ever reaches the handler,
+    per CLAUDE.md's "fail loudly" rule."""
+    with pytest.raises(ValidationError):
+        CalculateSavingsPlanInput.model_validate({"goal": goal(), "household": "null"})
+
+
 def test_goal_schema_enums_match_goal_input_literals_exactly():
     """Review round 1 SHOULD #3 equivalent for the hand-written schema: GoalInput.type/mode are
     Literals mirroring Java's GoalType/GoalMode enums - the schema's enum lists must not drift."""

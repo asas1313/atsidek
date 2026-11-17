@@ -25,9 +25,13 @@ public class StatDefaultsStore {
      * @param sourceUrl      nuoroda į konkretų puslapį; {@code null}, kai nėra išorinio šaltinio
      * @param asOf           duomenų data; {@code null}, kai nėra realios duomenų datos (iliustracinė reikšmė)
      * @param illustrative   ar reikšmė iliustracinė (neparemta patikrinta statistika)
+     * @param needsReview    owner instrukcija (2026-11-16, po B6 eval #11): reikšmė gauta ekstrapoliuojant
+     *                       nepatvirtintu metodu (pvz. OECD ekvivalentiškumo skale nuo maketo reikšmės) -
+     *                       {@link StatDefaultsService} tokios eilutės NIEKADA negrąžina, kol savininkas
+     *                       jos nepatvirtins (žr. V10__stat_defaults_needs_review.sql)
      */
     public record Row(String key, String segment, BigDecimal value, String unit, String source, String sourceUrl,
-                      LocalDate asOf, boolean illustrative) {
+                      LocalDate asOf, boolean illustrative, boolean needsReview) {
 
         /**
          * A0 sprendimas #5 / PLAN-taupymas-agentas.md A2: kiekviena eilutė turi turėti netuščią šaltinį IR
@@ -46,14 +50,14 @@ public class StatDefaultsStore {
     }
 
     public Optional<Row> find(String key, String segment) {
-        return jdbc.query("SELECT key, segment, value, unit, source, source_url, as_of, is_illustrative"
+        return jdbc.query("SELECT key, segment, value, unit, source, source_url, as_of, is_illustrative, needs_review"
                         + " FROM stat_defaults WHERE key = ? AND segment = ?",
                 StatDefaultsStore::map, key, segment).stream().findFirst();
     }
 
     /** Visos eilutės duotam raktui, stabilia tvarka (pagal id), kad fallback pasirinkimas būtų deterministinis. */
     public List<Row> findAllByKey(String key) {
-        return jdbc.query("SELECT key, segment, value, unit, source, source_url, as_of, is_illustrative"
+        return jdbc.query("SELECT key, segment, value, unit, source, source_url, as_of, is_illustrative, needs_review"
                 + " FROM stat_defaults WHERE key = ? ORDER BY id", StatDefaultsStore::map, key);
     }
 
@@ -63,13 +67,13 @@ public class StatDefaultsStore {
      * {@code is_illustrative} žymės, sulaužytų testą.
      */
     public List<Row> findAll() {
-        return jdbc.query("SELECT key, segment, value, unit, source, source_url, as_of, is_illustrative"
+        return jdbc.query("SELECT key, segment, value, unit, source, source_url, as_of, is_illustrative, needs_review"
                 + " FROM stat_defaults ORDER BY id", StatDefaultsStore::map);
     }
 
     private static Row map(ResultSet rs, int n) throws SQLException {
         java.sql.Date asOf = rs.getDate(7);
         return new Row(rs.getString(1), rs.getString(2), rs.getBigDecimal(3), rs.getString(4), rs.getString(5),
-                rs.getString(6), asOf == null ? null : asOf.toLocalDate(), rs.getBoolean(8));
+                rs.getString(6), asOf == null ? null : asOf.toLocalDate(), rs.getBoolean(8), rs.getBoolean(9));
     }
 }

@@ -57,10 +57,15 @@ class SavingsPlanServiceTest {
     }
 
     private static StatDefaultsService statsResolvingExpensesTo(BigDecimal value, boolean illustrative) {
+        return statsResolvingExpensesTo(value, illustrative, true);
+    }
+
+    private static StatDefaultsService statsResolvingExpensesTo(BigDecimal value, boolean illustrative,
+                                                                  boolean needsReview) {
         StatDefaultsService stats = mock(StatDefaultsService.class);
         StatDefaultValue expensesValue = new StatDefaultValue(value, "EUR_PER_MONTH", "STATISTICS",
                 "VDA namų ūkių biudžetų tyrimas", "https://osp.stat.gov.lt/example", LocalDate.of(2026, 1, 1),
-                illustrative);
+                illustrative, needsReview);
         StatDefaultsResponse response = new StatDefaultsResponse(null, expensesValue, null, null, null);
         when(stats.resolve(any(), any(), any(), any())).thenReturn(response);
         return stats;
@@ -132,8 +137,27 @@ class SavingsPlanServiceTest {
         assertThat(expensesEntry.source()).isEqualTo("VDA namų ūkių biudžetų tyrimas");
         assertThat(expensesEntry.sourceDate()).isEqualTo("2026-01-01");
         assertThat(expensesEntry.isIllustrative()).isTrue();
-        // laisvi pinigai = 3100 - 900 - 1350 = 850
-        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("850.00");
+        assertThat(expensesEntry.needsReview()).isTrue();
+        // B6 incident fix: laisvi pinigai = net_monthly_income - monthly_expenses = 3100 - 1350 =
+        // 1750 (monthly_tax_setaside yra TIK rodymui - net_monthly_income JAU yra po mokesčių).
+        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("1750.00");
+    }
+
+    @Test
+    void monthlyExpensesOmittedAndConfirmedFromOfficialSourcePropagatesNeedsReviewFalse() {
+        // Owner instruction (2026-11-16, stat_defaults sprendimas #1-2): kai needs_review=false
+        // (ateityje, po tikro VDA importo - žr. item 5), šablonas rodo "Statistika", ne
+        // "Iliustracinė prielaida" - needsReview turi pasiekti AssumptionEntry teisingai ABIEM
+        // atvejais, ne tik needs_review=true (žr. testą aukščiau).
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), false, false));
+
+        SavingsPlanResponse response = service.plan(
+                request(yearsGoal("15000", 5), "3100", "900", null), null);
+
+        AssumptionEntry expensesEntry = response.core().assumptions().stream()
+                .filter(e -> e.field().equals("monthly_expenses")).findFirst().orElseThrow();
+        assertThat(expensesEntry.needsReview()).isFalse();
     }
 
     @Test
@@ -145,7 +169,23 @@ class SavingsPlanServiceTest {
                 request(yearsGoal("15000", 5), "3100", "900", "1350"), null);
 
         assertThat(response.core().assumptions()).noneMatch(e -> e.field().equals("monthly_expenses"));
-        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("850.00");
+        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("1750.00");
+    }
+
+    @Test
+    void freeCashNeverSubtractsMonthlyTaxSetasideOnlyNetIncomeMinusExpenses() {
+        // B6 live-eval incident (2026-11-13, docs/specs/taupymo-tikslai/B6-log.log), owner-supplied
+        // real numbers from the actually-failing case: net_monthly_income=2215.87,
+        // monthly_expenses=1400, monthly_tax_setaside=450.80. Correct laisvi pinigai = 2215.87 -
+        // 1400 = 815.87. The pre-fix bug additionally subtracted monthly_tax_setaside, producing
+        // 2215.87 - 450.80 - 1400 = 365.07 - the incident's own observed (wrong) output.
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+
+        SavingsPlanResponse response = service.plan(
+                request(yearsGoal("15000", 5), "2215.87", "450.80", "1400"), null);
+
+        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("815.87");
     }
 
     @Test
@@ -198,19 +238,21 @@ class SavingsPlanServiceTest {
     }
 
     @Test
-    void negativeDerivedIncomeIsRejectedNamingRealRequestFieldsNotInternalIncome() {
+    void netMonthlyIncomeSmallerThanTaxSetasideIsNoLongerAValidationErrorSinceTaxSetasideIsDisplayOnly() {
+        // B6 incident fix removed the old cross-field check here: net_monthly_income (500) <
+        // monthly_tax_setaside (900) used to 400 because the OLD buggy formula would have derived
+        // a negative internal "income". monthly_tax_setaside is now display-only and never enters
+        // the free-cash calculation, so this combination is just a (perfectly legitimate, if high
+        // effective tax rate) NO_FREE_CASH result, not a validation error.
         SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
                 statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
-        // net_monthly_income (500) - monthly_tax_setaside (900) = -400: vidinis "income" laukas taptų
-        // neigiamas, bet klientas niekada nerašė lauko pavadinimu "income" - klaida turi įvardinti
-        // tikruosius SavingsPlanRequest laukus, ne GoalInput.household().income().
         SavingsPlanRequest req = request(yearsGoal("15000", 5), "500", "900", "1350");
 
-        assertThatThrownBy(() -> service.plan(req, null))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("net_monthly_income")
-                .hasMessageContaining("monthly_tax_setaside")
-                .hasMessageNotContaining("income negali būti neigiamas");
+        SavingsPlanResponse response = service.plan(req, null);
+
+        // laisvi pinigai = 500 - 1350 = -850 (monthly_tax_setaside=900 plays no part at all).
+        assertThat(response.core().freeCashMonthly()).isEqualByComparingTo("-850.00");
+        assertThat(response.core().fits()).isFalse();
     }
 
     @Test
@@ -397,6 +439,80 @@ class SavingsPlanServiceTest {
 
         assertThat(response.core().fits()).isTrue();
         assertThat(response.core().generalTip()).isNotBlank();
+    }
+
+    @Test
+    void whenModeUnrealisticVerdictAdvisesASmallerContributionNotALongerTerm() {
+        // Owner instruction (2026-11-16, after eval a2dbaae, item 4b): WHEN mode finds the date
+        // for a FIXED contribution - there is no term input to "lengthen", so generalTip must
+        // never suggest "ilgesnį terminą" for WHEN; "mažesnę įmoką" instead.
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+        // laisvi: 3100-0-1000=2100; 1200/2100 = 57,1% > 50% -> UNREALISTIC
+        SavingsPlanResponse response = service.plan(
+                request(whenGoal("20000", "1200"), "3100", "0", "1000"), null);
+
+        assertThat(response.core().fits()).isFalse();
+        assertThat(response.core().generalTip()).contains("mažesnę įmoką");
+        assertThat(response.core().generalTip()).doesNotContain("ilgesnį terminą");
+        // Owner instruction (2026-11-16, after eval fae9e00, item 2): "su šiuo terminu tikslas
+        // greičiausiai nerealus" has the same "term is not a WHEN-mode input" problem as
+        // "ilgesnį terminą" - the whole word "termin*" must be absent for WHEN, not just that
+        // one phrase.
+        assertThat(response.core().generalTip()).doesNotContain("termin");
+    }
+
+    @Test
+    void nonWhenModeUnrealisticVerdictStillAdvisesALongerTermOrASmallerAmount() {
+        // Same overflow, but YEARS mode DOES have a term input that can meaningfully be
+        // lengthened - the pre-existing wording stays unchanged there.
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+        SavingsPlanResponse response = service.plan(
+                request(yearsGoal("50000", 3), "3100", "0", "1000"), null);
+
+        assertThat(response.core().fits()).isFalse();
+        assertThat(response.core().generalTip()).contains("ilgesnį terminą arba mažesnę sumą");
+        assertThat(response.core().generalTip()).contains("su šiuo terminu");
+    }
+
+    @Test
+    void whenModeCorePropagatesReachableAndReachDateFromGoalsEngine() {
+        // Owner instruction (2026-11-16, after B6 eval #11): the core (free) response must surface
+        // the WHEN-mode reach date (the fix wires GoalResult.reachable()/reachDate() into Core,
+        // which SavingsPlanService.buildCore previously dropped entirely).
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+
+        SavingsPlanResponse response = service.plan(
+                request(whenGoal("1200", "100"), "3100", "0", "1000"), null);
+
+        assertThat(response.core().reachable()).isTrue();
+        assertThat(response.core().reachDate()).isEqualTo(LocalDate.now().plusMonths(13));
+    }
+
+    @Test
+    void whenModeUnreachableWithin50YearsHasFalseReachableAndNullReachDate() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(BigDecimal.ZERO, false));
+
+        SavingsPlanResponse response = service.plan(
+                request(whenGoal("1000000", "1"), "3100", "0", "1000"), null);
+
+        assertThat(response.core().reachable()).isFalse();
+        assertThat(response.core().reachDate()).isNull();
+    }
+
+    @Test
+    void yearsModeCoreIsAlwaysReachableWithNullReachDate() {
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+
+        SavingsPlanResponse response = service.plan(
+                request(yearsGoal("15000", 5), "3100", "900", "1350"), null);
+
+        assertThat(response.core().reachable()).isTrue();
+        assertThat(response.core().reachDate()).isNull();
     }
 
     @Test

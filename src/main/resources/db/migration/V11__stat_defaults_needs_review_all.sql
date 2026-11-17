@@ -1,0 +1,15 @@
+-- Owner instruction (2026-11-16, po B6 eval #11 patvirtinimo, stat_defaults sprendimai #1-2):
+-- VISOS esamos stat_defaults eilutės (income, expenses, typical_amount - visi segmentai) yra arba
+-- iš patvirtinto maketo (iliustracinė reikšmė, aiškiai pažymėta makete), arba šio projekto paties
+-- įvertintos (OECD ekvivalentiškumo skalė, proporcija pagal dirbančiųjų skaičių) - NĖ VIENA dar
+-- nėra patikrinta oficialaus, datuoto šaltinio (VDA/Lietuvos banko) reikšmė. V10 pažymėjo tik 4
+-- OECD-ekstrapoliuotas "expenses" eilutes; ši migracija išplečia needs_review=TRUE VISOMS eilutėms,
+-- įskaitant maketo tiesiogines reikšmes (members=4;workers=2, general) ir typical_amount - jos irgi
+-- nėra oficialus patvirtintas šaltinis, tik maketo/projekto paties pasirinkta iliustracinė suma.
+--
+-- SVARBU: needs_review NEBEATMETA eilučių iš StatDefaultsService.resolveHousehold() atitikimo
+-- (žr. tos klasės pakeitimą šiame commit'e) - ankstesnė (V10) "atmesti needs_review eilutes"
+-- logika būtų grąžinusi TUŠČIĄ rezultatą visiems segmentams, kai VISOS eilutės pažymėtos. Dabar
+-- needs_review yra GRYNAI ženklinimo (label) signalas vartotojui matomam tekstui ("Iliustracinė
+-- prielaida" vs "Statistika (šaltinis, metai)") - žr. response_builder.py/_build_assumptions_section.
+UPDATE stat_defaults SET needs_review = TRUE WHERE needs_review = FALSE;

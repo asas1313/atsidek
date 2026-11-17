@@ -230,10 +230,9 @@ pristatyta:
   `git diff feat/taupymas-agentas-b4..feat/taupymas-agentas-b5 --stat` — tik 2 nauji app failai
   + 2 nauji testų failai).
 
-## B6 dalis — kodas pabaigtas, LLM-judge gate'as LAUKIA savininko patvirtinimo (branch `feat/taupymas-agentas-b6`, PR pending)
+## B6 dalis — kodas pabaigtas, LLM-judge gate'as PATVIRTINTAS (branch `feat/taupymas-agentas-b6`, PR pending)
 
-Šaka `feat/taupymas-agentas-b6` (nuo b5), **NEPATVIRTINTA formaliai review'o** — žr. žemiau,
-kodėl. Kas pristatyta:
+Šaka `feat/taupymas-agentas-b6` (nuo b5). Kas pristatyta pirminiame juodraštyje:
 
 - `assistant/evals/agent/cases.py` — 30 eval atvejų (AC-B6-1): 3 grupės (`tax_only`,
   `savings_only`, `combined`) × 2 variantai (`anon`, `logged_in`) × 5 kiekvienas; 2 atvejai su
@@ -243,8 +242,8 @@ kodėl. Kas pristatyta:
   poaibio patikrinimas — modelio laisvas tekstas negali minėti NĖ VIENO skaičiaus, kurio nėra
   įrankių rezultatuose), `score_anon_no_premium` (AC-B6-5), `score_missing_income_handled`
   (AC-B6-6, su kalendorinių metų išimtimi klausiant pajamų).
-- `assistant/evals/agent/judge_rubric.py` — LLM-judge rubrikos JUODRAŠTIS (AC-B6-4's antra
-  pusė, `claude-sonnet-5-5`, owner sprendimas #4) — **NEPATVIRTINTA**, žr. "Owner gate" žemiau.
+- `assistant/evals/agent/judge_rubric.py` — LLM-judge rubrika (AC-B6-4's antra pusė,
+  `claude-sonnet-5-5`, owner sprendimas #4) — **PATVIRTINTA** 2026-11-16, žr. "Owner gate" žemiau.
 - `assistant/evals/agent/run_eval.py` — rankinis/kaina kainuojantis paleidimo skriptas
   (owner sprendimas #3: tik `workflow_dispatch`, niekada automatiškai per `pytest`/CI).
 
@@ -272,13 +271,11 @@ konkretų produktą" nuo "siūlo pasitarti su konsultantu" (leidžiama):
   normalus mokesčių skaičiavimo įvestis (`tax_tool.py`'s `pension_accumulation`), ne investavimo
   patarimas.
 
-**Owner gate (dar neperžengtas, pagal PLAN-taupymas-agentas.B.plan.md B6 skyrių):** LLM-judge
-rubrikos tekstas ir slenkstis (`DRAFT_PASS_RATE_THRESHOLD`) lieka NEPATVIRTINTI. Pagal susitarimą,
-prieš patvirtinant, savininkui turi būti pateiktas juodraštis PLIUS pirmo gyvo
-`workflow_dispatch` paleidimo rezultatai. **Šis sandbox'as neturi `ANTHROPIC_API_KEY` nei
-pasiekiamo Java backend'o, todėl tikro gyvo paleidimo rezultatų pateikti negalima iš čia** —
-juodraštis pateiktas, bet gyvo paleidimo dalis lieka atlikti savininkui/CI per tikrą
-`workflow_dispatch`.
+**Owner gate — PERŽENGTAS 2026-11-16** (pagal PLAN-taupymas-agentas.B.plan.md B6 skyrių): LLM-judge
+rubrikos tekstas ir slenksčiai PATVIRTINTI savininko po B6 eval #11 (paleisto prie commit
+`feef53f`) rezultatų peržiūros — žr. "B6 eval #11 patvirtinimas" žemiau. Istoriškai: šis sandbox'as
+neturėjo `ANTHROPIC_API_KEY` nei pasiekiamo Java backend'o, tad juodraštis buvo pateiktas čia, o
+patį gyvą `workflow_dispatch` paleidimą ir patvirtinimo sprendimą atliko savininkas.
 - Sąmoningai NEBŪVO sujungta su `main.py` — B6 vertina agento komponentus, jų nekeičia.
 - Testai: Python 303 / 0 nepavyko, 1 skip. Java nekeista šioje fazėje (patvirtinta per
   `git diff feat/taupymas-agentas-b5..feat/taupymas-agentas-b6 --stat` — tik 7 nauji Python
@@ -319,7 +316,152 @@ Savininkas, pamatęs juodraštį, nurodė papildomai sugriežtinti taisyklę PRI
    vienkartinį `ATSIDEK_API_KEY`/hash porą šiam paleidimui, naudoja `ANTHROPIC_API_KEY` secret.
    Trumpa instrukcija savininkui: `docs/specs/taupymo-tikslai/B6-live-eval-instrukcija.md`.
 
-Testai: Python 320 / 0 nepavyko, 1 skip (po šio patikslinimo). Java nekeista. **Owner gate'as
-(rubrikos tekstas + slenkstis) VIS TIEK nepatvirtintas** — pagal savininko aiškią instrukciją,
-darbas sustoja čia; gyvą `workflow_dispatch` paleidimą ir patvirtinimą atlieka savininkas pagal
-instrukcijos failą.
+Testai: Python 320 / 0 nepavyko, 1 skip (po šio patikslinimo). Java nekeista. Darbas sustojo čia
+pagal savininko instrukciją — gyvą `workflow_dispatch` paleidimą ir patvirtinimo sprendimą atliko
+savininkas pagal instrukcijos failą.
+
+### Antras gyvo eval'o raundas — pataisos po pirmo realaus paleidimo (savininko instrukcija, po
+pirmo `workflow_dispatch` paleidimo)
+
+Savininkas paleido pirmą tikrą gyvą eval'ą ir, peržiūrėjęs rezultatus bei aptikęs aplinkos
+kintamojo pavadinimo klaidą (`ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET` vs `ATSIDEK_CHAT_TOKEN_SECRET`,
+žr. `B6-log.log`), pateikė 7 punktų taisymų sąrašą (Java dvigubo mokesčio atėmimo klaida; judge'o
+techninių klaidų klaidingas raportavimas kaip FAIL; `no_invented_numbers` lietuviško skaičių
+formato klaida; `missing_income_handled` scorer'is klydęs 6/6; LLM atsakymo skaičių dubliavimas;
+system prompt spragos; rezultatų suvestinė slėpusi, kuris konkretus matas nepavyko) — kiekvienas
+kaip atskiras commit su testais. Po pirmo raundo rezultatų peržiūros paaiškėjo, kad nė viena
+pataisa dar nebuvo pasiekusi `origin` (niekas nepuštinta), tad savininkas paleido antrą gyvą
+paleidimą prie seno commit'o ir pareikalavo sąžiningos commit/branch būklės ataskaitos bei dar 2
+papildomų taisymų (GITHUB_SHA/branch rezultatų JSON'e; Java testas su realiais skaičiais
+2215.87/1400/450.80→815.87). Visi 7+2 punktai įgyvendinti, testuoti ir pastumti į
+`feat/taupymas-agentas-b6` (commit'ai `4fec58a`…`feef53f`).
+
+### B6 eval #11 patvirtinimas ir trečias pataisų raundas prieš B7 (savininko instrukcija,
+2026-11-16)
+
+Savininkas paleido B6 eval #11 prie commit `feef53f` ir patvirtino: **"judge rubrika ir
+slenksčiai (0 investment advice FAIL, 0.9 kitiems matams) – APPROVED"** — žr. "Owner gate" aukščiau
+ir `judge_rubric.py`'o modulio docstring. Tuo pačiu nurodė 9 punktų pataisų raundą prieš B7
+(kiekvienas — atskiras commit su testais `feat/taupymas-agentas-b6` šakoje):
+
+1. **Grynosios pajamos (Java)**: `TaxEngine.calculate()` dabar visada atima vartotojo nurodytas
+   faktines išlaidas iš `netMonthlyIncome`, net kai taikomas FLAT_30 mokesčio metodas (anksčiau
+   buvo atimamos tik `ACTUAL` metodu) — `15ef645`.
+2. **WHEN režimo pasiekimo data**: `GoalsEngine` jau skaičiavo `reachable`/`reachDate`, bet
+   `SavingsPlanService.buildCore()` jų neperdavė į `Core` DTO — pridėta abu laukai (`ce7f85b`),
+   šablonas (`response_builder.py`) dabar rodo pasiekimo datą arba "nepasiekiama per 50 m." tik
+   WHEN režimui (`9f00f10`).
+3. **CTA anon/prisijungęs/IV-pajamų išskyrimas**: `"premium"` rakto buvimas atsakyme lieka
+   anon/prisijungęs signalu; beta metu prisijungusiam CTA nerodomas (tušti `locked_features`);
+   IV-specifinis "pajamos svyruoja" sakinys rodomas tik kai `income_origin="TAX_CALC"` (`9bd98c7`).
+4. **Premium sekcija**: patvirtinta, kad `Premium.java` sąmoningai tuščia A3 fazėje — planuojamas
+   turinys atitinka `GATED_FEATURES` (`SAVINGS_MULTI_GOAL`, `SAVINGS_IV_LINK`,
+   `SAVINGS_SCENARIOS`); šablonas jau renderina premium sekcijas, kai jos grąžintos — kodo
+   pakeitimų nereikėjo.
+5. **Statistika**: `V10__stat_defaults_needs_review.sql` pažymi `needs_review=true` 4-ioms
+   "expenses" segmentų eilutėms (`members=1;workers=1`/`2;1`/`2;2`/`3;2`), ekstrapoliuotoms iš
+   mockup'o 1900 € pagal OECD ekvivalentiškumo skalę — nepatvirtintas METODAS, ne tiesioginis
+   šaltinis. `StatDefaultsService.resolveHousehold()` dabar filtruoja šias eilutes lauk prieš bet
+   kokį atitikimą (`703748c`). Vidinių pavadinimų (`members`/`workers`) vartotojui matomuose
+   tekstuose nerasta — jau buvo tvarkoje.
+6. **Šablonas**: formalus "jūs" kreipinys visur (pakeitė B4-erą "tu" sprendimą,
+   `GENERAL_TIP_INFORMAL_LT` pašalintas); naujas >100 % laisvų pinigų atvejis — "įmoka viršija
+   laisvus pinigus – netelpa"; "išlaidų normos metodą" gramatikos pataisa (`5574e3a`).
+7. **System prompt**: sugriežtintas skaičių draudimas apima IR terminus (ne tik sumas);
+   draudžiama spėlioti/aiškinti sistemos elgseną, kai priežastis nežinoma; anoniminiam,
+   tvirtinančiam esant premium — tiksli frazė "Premium funkcijoms reikia prisijungti."
+   (`9222e36`).
+8. **`missing_income_handled` scorer'is**: dabar atpažįsta pajamų prašymą be klaustuko (pvz. "man
+   reikia jūsų grynųjų mėnesio pajamų") per raktinius "reik"/"pasaky"/"nurody"/"praš"/"trūksta"
+   kamienus kartu su "pajam" paminėjimu (`39bd862`).
+9. **`--concurrency`/`--rescore`/reali data**: `run_eval.py` dabar palaiko `--concurrency N`
+   (lygiagretus paleidimas per `ThreadPoolExecutor`) ir `--rescore <failas>` (deterministinių
+   scorerių perskaičiavimas be naujų LLM/Java kvietimų) — rescore'into failo pavadinime išlieka
+   ORIGINALAUS paleidimo data, ne šiandienos (`ecb68bb`).
+
+Visi 9 punktai + preambulė (eval #11 patvirtinimo pažymėjimas) atlikti ir sucommit'inti
+`feat/taupymas-agentas-b6` šakoje. Testai: Python 386 / 0 nepavyko, 1 skip. Java testai (1-2-5
+punktai) praėjo pilnai (`mvn -o test`). Pagal savininko instrukciją darbas sustoja čia — savininkas
+paleis gyvą eval'ą, tada tęs prie B7.
+
+### Ketvirtas pataisų raundas — eval a2dbaae (savininko instrukcija, 2026-11-16)
+
+Savininkas paleido gyvą eval'ą prie commit `a2dbaae`: visi deterministiniai check'ai 100 %, bet 1
+LLM-judge FAIL (`savings_only_anon_01`, atsakyme paminėta "kad netektų imti paskolų" — skolinimosi
+produkto paminėjimas, net kaip pavyzdys, ko išvengti). Judge rubrika NEKEISTA pagal savininko
+nurodymą — taisomas tik agento/šablonų elgesys. 6 punktai, kiekvienas atskiru commit'u su testais:
+
+1. **System prompt**: paskolų/kreditų/skolinimosi produktų paminėjimas draudžiamas VISADA (net
+   kaip ko išvengti); vidiniai techniniai žodžiai ("įrankis", "šablonas", "serverio pusėje",
+   "tool") draudžiami modelio ATSAKYME (leidžiami instrukcijose jam) — vietoj jų "žemiau"/
+   "skaičiavime"; FLAT_30 + faktinės išlaidos atvejui aiškus paaiškinimas vietoj "nežinau, kodėl"
+   (`27cfc75`).
+2. **Mokesčių įrankis + šablonas**: `calculate_iv_taxes` dabar grąžina abiejų metodų (FLAT_30,
+   ACTUAL) metinę mokesčių sumą (Java `/api/v1/compare` jas jau skaičiavo, Python tool handler'is
+   jas tiesiog mesdavo lauk); šablonas prideda sakinį, lyginantį abi sumas, kai taikytas FLAT_30
+   (`45ff738`).
+3. **Nukirsti atsakymai**: `agent_loop.py`'s `DEFAULT_MAX_TOKENS` 1024→2048; `AgentLoopResult`
+   įgavo `stop_reason` lauką; naujas eval check'as `response_complete` (FAIL, kai
+   `stop_reason=="max_tokens"`); produkcijoje — logas (`5dfa111`).
+4. **Java `general_tip`/šablonas**: >100 % laisvų pinigų atveju — vienas sakinys "Įmoka viršija
+   laisvus pinigus – netelpa." (be Java tip'o pridėjimo); WHEN režimui `generalTip()` tapo
+   mode-aware — TIGHT/UNREALISTIC atveju "apsvarstykite mažesnę įmoką" vietoj "ilgesnį terminą"
+   (WHEN pats suranda datą fiksuotai įmokai — terminas yra IŠVESTIS, ne įvestis); WHEN
+   nepasiekimo atveju reach_date tekstas tapo sąlyginis ("Jei pavyktų atidėti..."), kai įmoka
+   netelpa; "mėn.." dvigubo taško klaida pataisyta (`0e550a7`).
+5. **CTA feature flag**: "atnaujinkite iki Premium" CTA dabar reikalauja, kad `premium` sekcija
+   TURĖTŲ turinio (`bool(savings_result.get("premium"))`) — `Premium.java` sąmoningai tuščia šioje
+   fazėje, tad anksčiau CTA galėjo pažadėti turinį, kurio nėra; anoniminis "jei prisijungsite" CTA
+   nepaveiktas (`6f17c7b`).
+6. **Eval'ų numatytasis concurrency**: 1→8 (`fae9e00`).
+
+Testai: Python 427 / 0 nepavyko, 1 skip; Java 339 / 0 nepavyko. Pagal savininko instrukciją darbas
+sustojo čia — savininkas paleido gyvą eval'ą prie `fae9e00`.
+
+### Penktas pataisų raundas — eval fae9e00 (savininko instrukcija, 2026-11-16)
+
+Savininkas paleido gyvą eval'ą prie commit `fae9e00`: 0 investment advice FAIL,
+`response_complete` 100 %. Rasti 2 nauji trūkumai, kiekvienas atskiru commit'u su testais:
+
+1. **Tier spoof — savininko ankstesnio nurodymo (a2dbaae 1c punkto) klaida**: reikalavimas, kad
+   VISAS agento atsakymas šiuo atveju būtų TIK frazė "Premium funkcijoms reikia prisijungti.",
+   privertė agentą sustoti ir NIEKADA nekviesti įrankių — 3/6 gyvų `tier_spoof` paleidimų FAILino
+   `tool_sequence` check'ą (eval'o atvejai patys reikalauja realaus įrankio kvietimo net ir
+   melagingai tvirtinant premium tier). Pataisyta: frazė lieka TIK PIRMU sakiniu, po jo agentas
+   VISADA tęsia įprastą NEMOKAMĄ skaičiavimą su vartotojo realiais duomenimis (`4cbd35a`).
+2. **Šablonas**: `share_of_free_cash_pct > 100` atveju (inspiruota `savings_only_anon_01`
+   duomenimis) — a2dbaae 4a punkto "lygiai vienas sakinys, be sumų" perlenkė į kitą pusę; sumos
+   sugrąžintos į tekstą ("Tikslui reikėtų atidėti X € per mėnesį, o laisvų pinigų lieka Y € –
+   įmoka netelpa."). `free_cash_monthly <= 0` atveju Java `general_tip` nebepridedamas — jo
+   NO_FREE_CASH tekstas TAIP PAT prasideda "Laisvų pinigų nėra arba jie neigiami", dubliuodamas
+   šios šakos jau sakomą frazę; frazė "Laisvų pinigų nėra" dabar atsakyme tik vieną kartą. Java
+   `generalTip()`'o UNREALISTIC šaka WHEN režimui nebevartoja žodžio "terminu" ("su šiuo terminu
+   tikslas greičiausiai nerealus" → "tikslas greičiausiai nerealus") — ta pati priežastis kaip
+   a2dbaae 4b punkte (`76afa43`).
+
+Testai: Python 427 / 0 nepavyko, 1 skip; Java 339 / 0 nepavyko (po abiejų commit'ų). Pagal
+savininko instrukciją darbas sustoja čia — savininkas pats paleis greitą eval'ą (runs-per-case 1,
+su judge); jei švarus, B6 PR'us laikys baigtais ir bus pereinama prie B7.
+
+## Prieš produkciją (savininko 2026-11-16 nurodymas — užfiksuota, bet NEIŠTAISYTA šiame raunde)
+
+Trys žinomi trūkumai, kuriuos savininkas sąmoningai nusprendė palikti VĖLESNIAM darbui (ne šio
+pataisų raundo apimtyje), bet reikalavo užfiksuoti čia, kad nepasimestų prieš produkcinį diegimą:
+
+- **Anoniminio CTA užraktas už feature flag**: item 5 (eval fae9e00) pataisė TIK prisijungusio
+  vartotojo "atnaujinkite iki Premium" CTA — jis dabar reikalauja, kad `premium` sekcija turėtų
+  turinio. Anoniminio vartotojo "jei prisijungsite" CTA (kviečiantis tiesiog prisijungti, ne
+  pirkti Premium) šiuo pataisymu NEBUVO apribotas ir šiuo metu NĖRA susietas su tuo, ar `premium`
+  sekcija tuščia — reikia nuspręsti, ar jis TURĖTŲ priklausyti nuo to paties feature flag (šiuo
+  metu `premium` visada tuščias, tad šis CTA vis tiek nežada nieko konkretaus, tik prisijungimą).
+- **LT kalbos kokybė**: šablonų/system prompt'o lietuvių kalbos tikrinimas šiuo metu yra TIK
+  rankinis (savininko pastebėjimai per gyvus eval'us, pvz. "mėn.." klaida). Reikia nuspręsti, ar
+  prieš produkciją reikalingas atskiras kalbos vertintojas (deterministinis arba LLM-judge
+  patikrinimas, panašus į `judge_rubric.py`), ar pakanka Sonnet modelio peržvelgti galutinį
+  šabloninį tekstą prieš jo panaudojimą.
+- **VDA (statistikos departamento) išlaidų duomenys vietoj iliustracinių**: `stat_defaults`
+  lentelės "expenses" segmentų eilutės šiuo metu yra iliustracinės prielaidos (žr. B6 eval #11
+  patvirtinimo 5 punktą aukščiau — ekstrapoliuotos iš mockup'o, `needs_review=true`). Prieš
+  produkciją reikia pakeisti jas tikrais VDA (Valstybės duomenų agentūros) namų ūkių biudžetų
+  tyrimo duomenimis su patikrinamu šaltiniu/data, kad šablonas galėtų rodyti "Statistika:
+  šaltinis, metai" vietoj "Iliustracinė prielaida".

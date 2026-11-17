@@ -47,7 +47,12 @@ class StatDefaultsServiceTest {
 
     private static StatDefaultsStore.Row row(String key, String segment, String value) {
         return new StatDefaultsStore.Row(key, segment, new BigDecimal(value), "EUR_PER_MONTH",
-                "test-source", "https://example.org/test", AS_OF, true);
+                "test-source", "https://example.org/test", AS_OF, true, false);
+    }
+
+    private static StatDefaultsStore.Row needsReviewRow(String key, String segment, String value) {
+        return new StatDefaultsStore.Row(key, segment, new BigDecimal(value), "EUR_PER_MONTH",
+                "test-source (OECD skalė, nepatvirtinta)", "https://example.org/test", AS_OF, true, true);
     }
 
     @Test
@@ -71,6 +76,33 @@ class StatDefaultsServiceTest {
         StatDefaultsResponse r = serviceWithSeedLikeData().resolve(5, 3, null, null);
         assertThat(r.income().value()).isEqualByComparingTo("3200");
         assertThat(r.expenses().value()).isEqualByComparingTo("1900");
+    }
+
+    @Test
+    void needsReviewRowIsStillReturnedAsAnExactMatchButFlaggedOnTheValue() {
+        // Owner instruction (2026-11-16, stat_defaults sprendimas #2, supersedes the earlier
+        // 703748c/V10 "exclude needs_review from matching" decision): needs_review is now PURELY
+        // a label signal for the user-facing text (see StatDefaultValue.needsReview javadoc),
+        // never a matching-exclusion filter - excluding would return nothing once EVERY row is
+        // flagged (V11). An exact segment match still wins even when flagged; the flag just rides
+        // along on the returned value.
+        StatDefaultsService service = new StatDefaultsService(new FakeStore(Map.of(
+                "expenses", List.of(
+                        needsReviewRow("expenses", "members=1;workers=1", "900"),
+                        row("expenses", "members=4;workers=2", "1900"),
+                        row("expenses", "general", "1400")),
+                "income", List.of(row("income", "members=1;workers=1", "1600")))));
+
+        StatDefaultsResponse r = service.resolve(1, 1, null, null);
+
+        assertThat(r.expenses().value()).isEqualByComparingTo("900");
+        assertThat(r.expenses().needsReview()).isTrue();
+    }
+
+    @Test
+    void nonNeedsReviewRowPropagatesNeedsReviewFalseOnTheValue() {
+        StatDefaultsResponse r = serviceWithSeedLikeData().resolve(2, 2, null, null);
+        assertThat(r.expenses().needsReview()).isFalse();
     }
 
     @Test

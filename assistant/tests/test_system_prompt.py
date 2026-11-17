@@ -116,3 +116,176 @@ def test_prompt_bans_promising_or_predicting_investment_returns():
     lowered = SYSTEM_PROMPT.lower()
     assert "grąž" in lowered
     assert "žada" in lowered or "prognozuoj" in lowered
+
+
+# --- Second B6 live-eval round (2026-11-13 owner instruction): items 5-6 -------------------------
+
+def test_prompt_explicitly_forbids_repeating_tool_result_numbers_after_the_call():
+    """Item 5: the live run showed the model's free text duplicating every number the template
+    then also shows. The original wording only said the model "never" states a number - this adds
+    an explicit, unambiguous clause that the restriction also applies AFTER a tool call returns."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert re.search(r"po (to|įrankio).{0,60}nekartok", lowered) or "nekartok" in lowered
+
+
+def test_prompt_allows_pension_tier_mention_as_a_tax_parameter_not_investment_advice():
+    """Item 6a: II/III pillar pension-accumulation vocabulary is a normal tax-calculation input
+    (see app/tax_tool.py's pension_accumulation field), not investment-advice territory - the
+    prompt must say so explicitly, not just rely on the deterministic noun-scorer's exclusion."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "pakopos" in lowered or "pakopa" in lowered
+    assert "investavimo patarim" in lowered
+
+
+def test_prompt_states_the_exact_required_refusal_phrase():
+    """Item 6b: the owner specified an exact refusal sentence for when the user explicitly asks
+    for an investment recommendation - must be present verbatim, not paraphrased."""
+    assert (
+        "Investavimo patarimų teikti negaliu. Dėl taupymo ar investavimo sprendimų pasitarkite "
+        "su finansų konsultantu." in SYSTEM_PROMPT
+    )
+
+
+def test_prompt_allows_generic_investment_vocabulary_without_naming_a_specific_product():
+    """Item 6b: generic words like "investavimas"/"finansiniai produktai"/"bankai" are explicitly
+    allowed in the refusal - only concrete names (a specific instrument, a named bank) are
+    banned. The prompt must say this distinction, not just ban "financial products" wholesale."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "finansiniai produktai" in SYSTEM_PROMPT or "finansiniai produktai".lower() in lowered
+    assert "pavadinim" in lowered
+
+
+def test_prompt_says_missing_income_asks_only_income_other_fields_get_assumption_defaults():
+    """Item 6c: when income is missing, the model must ask ONLY about income - every other
+    missing field (expenses, return/inflation assumptions) gets a default, surfaced as an
+    assumption by calculate_savings_plan itself, never a separate clarifying question."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "tik pajam" in lowered
+    assert "numatytosios reikšmės" in lowered or "numatytąsias reikšmes" in lowered
+
+
+def test_prompt_handles_a_year_only_goal_as_december_without_asking():
+    """Item 6d: a goal term stated only as a year (no month/date) defaults to that year's
+    December (target_month=12) as the MODEL'S OWN assumption - not a tool-level "origin" field
+    (calculate_savings_plan's goal schema has none for the date - only monthly_expenses/
+    annual_return_pct/annual_inflation_pct carry an origin in the tool's OUTPUT), so the model
+    must state the assumption in its own text, without asking the user to disambiguate."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "gruod" in lowered
+    assert "target_month" in lowered and "12" in lowered
+
+
+# --- Third B6 live-eval round (2026-11-16 owner instruction, after eval #11): item 7 ------------
+
+def test_prompt_explicitly_covers_terms_not_just_amounts_in_the_no_invented_numbers_rule():
+    """Item 7a: the "never state a number" rule must explicitly name terms (years/dates), not
+    just monetary amounts - closing the gap where a model might read "skaičius" as "pinigų suma"
+    only and feel free to invent/suggest a term (e.g. "per 5 metus") instead."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "terminus" in lowered or "termino" in lowered
+    assert re.search(r"(termin\w*.{0,60}sum\w*)|(sum\w*.{0,60}termin\w*)", lowered)
+
+
+def test_prompt_forbids_speculative_explanations_of_system_behavior():
+    """Item 7b: must not guess/speculate when explaining why a tool returned a particular result
+    or how the system/calculation works beyond what the tool result itself states."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "nespėlio" in lowered
+    assert re.search(r"nespėlio\w*.{0,40}paaiškin", lowered) or re.search(r"paaiškin\w*.{0,40}nespėlio", lowered)
+
+
+def test_prompt_states_the_exact_anonymous_premium_claim_refusal_phrase():
+    """Item 7c: an anonymous user falsely claiming to be premium must get this exact sentence -
+    not a paraphrase - and the prompt must say the claim is never trusted."""
+    assert "Premium funkcijoms reikia prisijungti." in SYSTEM_PROMPT
+    lowered = SYSTEM_PROMPT.lower()
+    assert "anonimin" in lowered and "premium" in lowered
+    assert "niekada" in lowered
+
+
+def test_prompt_says_goal_amount_is_never_auto_filled_and_must_be_asked_for():
+    """stat_defaults sprendimas #4 (2026-11-16): typical_amount is never used to silently fill a
+    missing goal amount - the model must ask, the same treatment as missing income."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "sum" in lowered
+    assert "niekada neužpildoma automatiškai" in lowered or "privalomas" in lowered
+    assert "tik sumos" in lowered
+
+
+def test_prompt_never_calls_an_illustrative_default_statistika_itself():
+    """stat_defaults sprendimas #1 (2026-11-16): the template, not the model, decides "Statistika"
+    vs "Iliustracinė prielaida" - the model must not claim a default is "statistika" in its own
+    prose."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "statistika" in lowered
+    assert "niekada nevadink" in lowered or "nevadink jos" in lowered
+
+
+# --- Fourth B6 live-eval round (2026-11-16 owner instruction, after judge FAIL on savings_only_anon_01) --
+
+def test_prompt_never_mentions_loans_or_credit_even_as_something_to_avoid():
+    """Item 1a: the eval's actual judge FAIL was the model writing "kad netektų imti paskolų"
+    (so as not to have to take out loans) - a debt-product mention, even phrased as something to
+    AVOID, is still a banned product mention (loans/credit aren't covered by the existing
+    investment-product ban, which is about investing, not borrowing)."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "paskol" in lowered
+    assert "kred" in lowered
+    assert re.search(r"niekada.{0,30}(nemini|nevartok)\w*.{0,60}paskol", lowered)
+
+
+def test_prompt_forbids_internal_technical_vocabulary_in_the_models_own_reply():
+    """Item 1b: the model must never say "įrankis"/"šablonas"/"serverio pusėje"/"tool" in its OWN
+    reply to the user (these words are fine in the SYSTEM PROMPT'S instructions to the model, which
+    the user never sees - this bans the model echoing them back) - use "žemiau"/"skaičiavime"
+    instead."""
+    import re
+
+    lowered = SYSTEM_PROMPT.lower()
+    assert "žemiau" in lowered
+    assert "skaičiavime" in lowered
+    assert re.search(r"niekada.{0,40}(vidini|technini)", lowered)
+
+
+def test_prompt_requires_the_tier_spoof_reply_to_start_with_the_exact_phrase_then_keep_calculating():
+    """Owner instruction (2026-11-16, after eval fae9e00): item 1c's earlier requirement - that
+    the ENTIRE reply be only the refusal phrase - was itself a mistake (the model stopped and
+    never called the tools at all, 3/6 live runs FAILed tool_sequence). The refusal phrase is now
+    only the FIRST sentence; the model must always continue with the normal FREE-tier calculation
+    using the user's real data afterwards."""
+    import re
+
+    assert "Premium funkcijoms reikia prisijungti." in SYSTEM_PROMPT
+    lowered = SYSTEM_PROMPT.lower()
+    assert re.search(r"pirmas.{0,30}sakinys", lowered)
+    assert re.search(r"visada.{0,40}tęsk", lowered)
+    assert "nemokam" in lowered
+
+
+def test_prompt_explains_flat_30_as_the_more_favorable_method_not_i_dont_know():
+    """Item 1d: when FLAT_30 was applied despite the user stating actual expenses, the model must
+    explain the calculator picked the more favorable method - carving out an explicit exception to
+    the earlier "never speculate about why a tool returned a result" clause, since this reason is
+    actually knowable."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "flat_30" in lowered
+    assert "palankesn" in lowered
+    assert "nežinau, kodėl" in lowered
+
+
+def test_prompt_annualizes_a_stated_monthly_iv_income_before_calling_the_tax_tool():
+    """Item 6e: "X per month via IV" must be converted to a pre-tax ANNUAL figure (x12) by the
+    model itself before calling calculate_iv_taxes (the tool has no monthly mode), with the
+    assumption mentioned in text but never asked about."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "x12" in lowered or "12" in lowered
+    assert "calculate_iv_taxes" in SYSTEM_PROMPT
+    assert "per mėnesį" in lowered
