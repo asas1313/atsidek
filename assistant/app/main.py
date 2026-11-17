@@ -273,7 +273,16 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
         reply = build_response(result.tool_calls, result.final_text) or AGENT_CHAT_EMPTY_REPLY_FALLBACK
         # Java/HttpSession persists this verbatim and hands it back as `history` next turn (owner
         # decision 7) - capped so one long-lived session's history can't grow unboundedly.
-        return {"reply": reply, "messages": result.messages[-MAX_HISTORY_MESSAGES:]}
+        # `stop_reason` (item 5): ChatController forwards this response as an opaque `Object`
+        # (never reads past "messages" - see its own javadoc), so this extra field is harmless to
+        # add - it exists purely so `run_eval.py --via-endpoint` can reconstruct the SAME
+        # `response_complete` check the direct-call path already gets from `AgentLoopResult`
+        # itself, which the HTTP response otherwise has no way to carry.
+        return {
+            "reply": reply,
+            "messages": result.messages[-MAX_HISTORY_MESSAGES:],
+            "stop_reason": result.stop_reason,
+        }
 
     @app.post("/internal/chat")
     def internal_chat(request: Request, body: InternalChatRequest):

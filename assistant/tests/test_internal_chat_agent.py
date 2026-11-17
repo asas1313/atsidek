@@ -114,6 +114,10 @@ def test_tax_only_calls_calculate_iv_taxes_and_returns_a_reply_built_from_its_re
     assert "458,79" in body["reply"] or "458.79" in body["reply"]
     assert len(calc.compare_calls) == 1
     assert "messages" in body
+    # item 5: the response's own stop_reason - lets run_eval.py --via-endpoint reconstruct the
+    # SAME response_complete check the direct run_agent_loop() call path gets from
+    # AgentLoopResult.stop_reason, which the HTTP response otherwise has no way to carry.
+    assert body["stop_reason"] == "end_turn"
 
 
 # --- savings-only ------------------------------------------------------------------------------
@@ -322,3 +326,12 @@ def test_usage_is_logged_once_per_message_to_stdout(capsys):
     out = capsys.readouterr().out
     assert '"cost_cents"' in out
     assert '"tool_call_count": 0' in out
+
+
+def test_a_truncated_final_answer_reports_its_real_stop_reason_not_end_turn():
+    fake = FakeAgentClient([FakeResponse([text_block("nupjau")], stop_reason="max_tokens")])
+    c, _ = client(agent_client=fake)
+
+    r = c.post("/internal/chat", json={"message": "Labas"})
+
+    assert r.json()["stop_reason"] == "max_tokens"
