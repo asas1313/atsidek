@@ -70,7 +70,14 @@ GOAL_SCHEMA = {
 }
 
 HOUSEHOLD_SCHEMA = {
-    "type": "object",
+    # Owner-reported eval crash (2026-11-17, live run under `--concurrency 8`): the model sent
+    # the STRING "null" for this (optional, object-typed) field - pydantic then rejected it
+    # ("Input should be a valid dictionary or instance of HouseholdInput"), crashing the whole
+    # run. Root cause: unlike every scalar optional field above (which uses `_nullable()`), this
+    # object's own JSON schema `type` didn't list "null" as allowed - a model that wants to
+    # explicitly state "no household info" (rather than omitting the key) had no legal `null`
+    # token to emit for an object-typed field, so it fell back to the string "null" instead.
+    "type": ["object", "null"],
     "properties": {
         "adults": _nullable("integer", "Suaugusių namų ūkio narių skaičius."),
         "children": _nullable("integer", "Vaikų namų ūkio narių skaičius."),
@@ -79,7 +86,9 @@ HOUSEHOLD_SCHEMA = {
 }
 
 ASSUMPTIONS_SCHEMA = {
-    "type": "object",
+    # Same fix as HOUSEHOLD_SCHEMA above, same reasoning - this object-typed optional field had
+    # the identical "type" gap.
+    "type": ["object", "null"],
     "properties": {
         "annual_return_pct": _nullable("number", "Metinė investicijų grąža procentais (pvz. 3.5)."),
         "annual_inflation_pct": _nullable("number", "Metinė infliacija procentais (pvz. 2.5)."),
