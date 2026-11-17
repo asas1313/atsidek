@@ -19,7 +19,7 @@ directly.
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
 from .agent_client import create_message
@@ -89,6 +89,16 @@ class AgentLoopResult:
     # `response_complete` check (`evals/agent/scoring.score_response_complete`); production code
     # (once B7 wires this module in) should log it, never crash on it.
     stop_reason: Optional[str] = None
+    # B7 wiring: summed across EVERY `create_message` call this run made (a multi-turn run makes
+    # more than one) - field names match `usage_logging.log_usage`'s own parameter names exactly,
+    # so a caller can do `log_usage(**result.usage, ...)` without renaming anything. Defensive
+    # against responses/fakes with no `.usage` at all (see `_accumulate_usage` below) - missing
+    # fields are treated as 0, never crash the loop just because usage wasn't reported.
+    usage: dict[str, int] = field(
+        default_factory=lambda: {
+            "input_tokens": 0, "cache_creation_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0,
+        }
+    )
 
 
 def _content_block_to_dict(block: Any) -> dict[str, Any]:
@@ -115,6 +125,20 @@ def _content_block_to_dict(block: Any) -> dict[str, Any]:
     if hasattr(block, "model_dump"):
         return block.model_dump(exclude_none=True)
     return dict(vars(block))
+
+
+def _accumulate_usage(usage: dict[str, int], response: Any) -> None:
+    """Adds one `create_message` response's token usage into the running `usage` totals (B7
+    wiring). Mirrors `agent_client.py`'s own defensive `getattr` pattern - some SDK versions/test
+    fakes have no `.usage` at all, and real `Usage` objects can have `None` for a cache field when
+    caching wasn't used that call; either way this must never raise."""
+    response_usage = getattr(response, "usage", None)
+    if response_usage is None:
+        return
+    usage["input_tokens"] += getattr(response_usage, "input_tokens", None) or 0
+    usage["output_tokens"] += getattr(response_usage, "output_tokens", None) or 0
+    usage["cache_creation_tokens"] += getattr(response_usage, "cache_creation_input_tokens", None) or 0
+    usage["cache_read_tokens"] += getattr(response_usage, "cache_read_input_tokens", None) or 0
 
 
 def _dispatch_tool_call(
@@ -253,6 +277,7 @@ def run_agent_loop(
     messages: list[dict[str, Any]] = list(history or [])
     messages.append({"role": "user", "content": message})
     tool_calls: list[dict[str, Any]] = []
+    usage = {"input_tokens": 0, "cache_creation_tokens": 0, "cache_read_tokens": 0, "output_tokens": 0}
 
     # Explicit `while`-style bounded loop with a step counter (plan Design decision 1), not
     # recursion - the simplest way to make AC-B3-1's limit trivially correct and testable.
@@ -271,6 +296,7 @@ def run_agent_loop(
             messages=messages,
             max_tokens=DEFAULT_MAX_TOKENS,
         )
+        _accumulate_usage(usage, response)
         # `assistant_content` is appended to `messages` AS-IS, full and unmodified (including any
         # `thinking`/`redacted_thinking`/unrecognized block the model returned) - the API needs
         # that exact history replayed back on the next turn. Only `tool_use` and `text` are ever
@@ -300,6 +326,7 @@ def run_agent_loop(
                 messages=messages,
                 tool_calls=tool_calls,
                 stop_reason=stop_reason,
+                usage=usage,
             )
 
         dispatched = _dispatch_batch(registry, tool_uses, request_context, context_token)
@@ -311,6 +338,7 @@ def run_agent_loop(
         final_text=TOO_MANY_STEPS_MESSAGE,
         messages=messages,
         tool_calls=tool_calls,
+        usage=usage,
     )
 
 
