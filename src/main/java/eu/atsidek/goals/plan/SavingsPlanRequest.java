@@ -25,9 +25,13 @@ import java.math.BigDecimal;
  * šis PR sąmoningai nekartoja).
  *
  * @param goal                 taupymo tikslas; privalomas
- * @param netMonthlyIncome     grynosios mėnesio pajamos; privalomas (PLAN.md principas: pajamos
- *                             niekada neimamos iš statistikos - šioje sinchroninėje API nėra
- *                             patikslinančio klausimo mechanizmo, todėl trūkstamos pajamos → 400)
+ * @param netMonthlyIncome     grynosios mėnesio pajamos; {@code null} - nenurodytos (owner
+ *                             sprendimas, 2026-11-17, po pirmo tikro staging patikrinimo: PLAN.md
+ *                             principas "pajamos niekada neimamos iš statistikos/nespėjamos"
+ *                             IŠLIEKA, bet trūkstamos pajamos NEBĖRA 400 - mėnesio įmoka/data
+ *                             tebeskaičiuojama, tik {@code core}'o laisvų pinigų laukai
+ *                             ({@code free_cash_monthly}/{@code share_of_free_cash_pct}/
+ *                             {@code fits}) tampa {@code null}, žr. {@link SavingsPlanService})
  * @param monthlyTaxSetaside   mėnesio mokesčių atidėjimas; nebūtinas, numatytasis 0 - NE statistika
  * @param monthlyExpenses      mėnesio išlaidos; {@code null} - sprendžiama iš {@code stat_defaults}
  * @param household            namų ūkio sudėtis (statistikos segmentui); nebūtinas

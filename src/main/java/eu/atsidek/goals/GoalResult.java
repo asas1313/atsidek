@@ -13,9 +13,11 @@ import java.util.Map;
  * @param futureTarget  tikslo suma su infliacija termino pabaigoje; {@code null}, kai WHEN nepasiekiama
  * @param paid          iš viso įnešta (monthly × months); {@code null}, kai WHEN nepasiekiama
  * @param gain          investicinė grąža (sukaupta − įnešta, ne mažiau nei 0); {@code null}, kai WHEN nepasiekiama
- * @param freeCash      laisvi pinigai (pajamos − išlaidos)
- * @param share         mėnesio įmokos dalis nuo laisvų pinigų
- * @param verdict       vertinimas pagal {@code freeCash}/{@code share}
+ * @param freeCash      laisvi pinigai (pajamos − išlaidos); {@code null}, kai {@code income}
+ *                      ({@link Household#income()}) nenurodytas (nežinomas, NE 0) - owner
+ *                      sprendimas, 2026-11-17, po pirmo tikro staging patikrinimo
+ * @param share         mėnesio įmokos dalis nuo laisvų pinigų; {@code null} tiksliai tada, kai {@code freeCash} yra {@code null}
+ * @param verdict       vertinimas pagal {@code freeCash}/{@code share}; {@code null} tiksliai tada, kai {@code freeCash} yra {@code null}
  * @param series        kaupimo grafiko taškai (iki 24)
  * @param resolvedInputs kiekvienos reikšmės kilmė (žr. {@link ResolvedValue})
  */
