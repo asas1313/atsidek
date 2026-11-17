@@ -303,10 +303,25 @@ def _build_cta_section(
     phase (its own javadoc says so; real content lands with later Feature work), so promising
     "atnaujinkite iki Premium" for a section with nothing in it yet is a false promise. The
     anonymous "jei prisijungsite" CTA is unaffected - logging in itself is real and available
-    today, unlike premium content."""
+    today, unlike premium content.
+
+    Owner instruction (B8, item 4): the ANONYMOUS "jūsų pajamos svyruoja" CTA has the exact same
+    false-promise problem as the logged-in upgrade CTA above - it promises per-month detail that
+    would live in the (currently empty) Premium section, which an anonymous visitor cannot see
+    any more than a logged-in FREE one can. Gated behind the SAME `premium_has_content` signal
+    for anon too, not a separate flag - and since no anonymous response ever carries a "premium"
+    key at all (Java never includes it for `current_user_id == null`), `premium_has_content` is
+    always `False` for anon today, so this CTA is suppressed for anon until Premium has real
+    content. Falls back to the next locked feature (if any) rather than showing no CTA at all
+    when another, already-real feature (e.g. multi-goal tracking) is also locked."""
     feature = pick_cta_feature(locked_features)
     if feature is None:
         return None
+    if feature == "SAVINGS_IV_LINK" and not premium_has_content:
+        remaining = [f for f in locked_features if f != "SAVINGS_IV_LINK"]
+        feature = remaining[0] if remaining else None
+        if feature is None:
+            return None
     is_iv_income = income_origin == "TAX_CALC"
     if is_logged_in:
         if not premium_has_content:
