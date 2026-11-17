@@ -656,3 +656,27 @@ reikalavo užfiksuoti čia, kad nepasimestų prieš produkcinį diegimą:
   produkciją reikia pakeisti jas tikrais VDA (Valstybės duomenų agentūros) namų ūkių biudžetų
   tyrimo duomenimis su patikrinamu šaltiniu/data, kad šablonas galėtų rodyti "Statistika:
   šaltinis, metai" vietoj "Iliustracinė prielaida".
+
+## B7 — BAIGTA (savininko patvirtinimas, 2026-11-17)
+
+Savininkas rankiniu būdu patikrino staging'ą (`B7-staging-checklist.md` 4 skyrius, po "B7 realaus
+staging patikrinimo pataisos" aukščiau) — veikia. B7 Definition of Done (vidutinė kombinuotos
+užklausos kaina ir trukmė, žr. `PLAN-taupymas-agentas.md` B7 skyrių):
+
+- **Trukmė**: ~5,8 s (n=1).
+- **Kaina**: nematuota — `usage_logging.log_usage`'o `cost_cents` apvalino kiekvieną realų Haiku
+  modelio pokalbio kainą žemyn iki 0 (viena kombinuota užklausa kainuoja gerokai mažiau nei 1 ct),
+  tad šis skaičius buvo nenaudingas. Apvalinimo klaida pataisyta B8 fazėje (žr. žemiau, item 8) —
+  `cost_cents` pakeistas `cost_micros` (sveikasis skaičius, USD milijonosios dalys), skaičiuojamu
+  iš tikrų token'ų kainų su `Decimal`/`ROUND_HALF_UP`, kaip ir anksčiau, tik su žymiai didesne
+  skiriamąja geba.
+
+## B8 dalis — pasiruošimas produkcijai (pradėta, savininko instrukcija, 2026-11-17)
+
+Nauja šaka `feat/taupymas-agentas-b8` (nuo `main`, po B7 realaus staging patikrinimo pataisų
+sulietos). Planas: `PLAN-taupymas-agentas.md` B8 skyrius, 8 punktai, kiekvienas — atskiras commit
+su testais (1-3 ir 2 sujungti į vieną commit'ą dėl bendrų failų — žr. jų commit'ų aprašymus git
+istorijoje dėl priežasties). Item 5 (anoniminio limito pranešimas su kvietimu prisijungti,
+prisijungusiems didesnis limitas) rastas JAU įgyvendintas B6.6/B7-wiring fazėse
+(`AGENT_CHAT_ANON_LIMIT_REPLY`, `ChatLimiter` tier-based caps `main.py`'e) — patvirtinta esamais
+testais `test_internal_chat_agent.py`'e, naujo kodo/commit'o nereikėjo.
