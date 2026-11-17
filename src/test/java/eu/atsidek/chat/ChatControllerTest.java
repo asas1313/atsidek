@@ -27,6 +27,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
@@ -78,7 +79,7 @@ class ChatControllerTest {
 
     @Test
     void anonymousMessageIssuesTokenWithNoUserIdAndFreeTier() throws Exception {
-        when(assistantClient.chat(anyString(), anyString())).thenReturn(Map.of("reply", "ack"));
+        when(assistantClient.chat(anyString(), anyString(), any(), any(), any())).thenReturn(Map.of("reply", "ack"));
 
         mvc.perform(post("/chat/send").with(csrf()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"Kiek IV mokesčių sumoku nuo 2000 eurų?\"}"))
@@ -86,9 +87,14 @@ class ChatControllerTest {
 
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
-        verify(assistantClient).chat(tokenCaptor.capture(), messageCaptor.capture());
+        ArgumentCaptor<String> tierCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(assistantClient).chat(tokenCaptor.capture(), messageCaptor.capture(), tierCaptor.capture(),
+                keyCaptor.capture(), any());
 
         assertThat(messageCaptor.getValue()).isEqualTo("Kiek IV mokesčių sumoku nuo 2000 eurų?");
+        assertThat(tierCaptor.getValue()).isEqualTo("FREE");
+        assertThat(keyCaptor.getValue()).isNull();
         var claims = new ContextTokenService(TOKEN_SECRET, clock).verify(tokenCaptor.getValue()).orElseThrow();
         assertThat(claims.userId()).isEmpty();
         assertThat(claims.tier()).isEqualTo("FREE");
@@ -97,15 +103,20 @@ class ChatControllerTest {
     @Test
     void loggedInUserWithAllGatedFeaturesGetsAPremiumTierTokenCarryingTheirUserId() throws Exception {
         AppOidcUser user = userWithFullAccess("chat-full-access");
-        when(assistantClient.chat(anyString(), anyString())).thenReturn(Map.of("reply", "ack"));
+        when(assistantClient.chat(anyString(), anyString(), any(), any(), any())).thenReturn(Map.of("reply", "ack"));
 
         mvc.perform(post("/chat/send").with(oidcLogin().oidcUser(user)).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"Labas\"}"))
                 .andExpect(status().isOk());
 
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(assistantClient).chat(tokenCaptor.capture(), anyString());
+        ArgumentCaptor<String> tierCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(assistantClient).chat(tokenCaptor.capture(), anyString(), tierCaptor.capture(), keyCaptor.capture(),
+                any());
 
+        assertThat(tierCaptor.getValue()).isEqualTo("PREMIUM");
+        assertThat(keyCaptor.getValue()).isEqualTo(user.appUserId().toString());
         var claims = new ContextTokenService(TOKEN_SECRET, clock).verify(tokenCaptor.getValue()).orElseThrow();
         assertThat(claims.userId()).contains(user.appUserId());
         assertThat(claims.tier()).isEqualTo("PREMIUM");
@@ -118,7 +129,7 @@ class ChatControllerTest {
         mvc.perform(post("/chat/send").contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"Labas\"}"))
                 .andExpect(status().isForbidden());
 
-        verify(assistantClient, org.mockito.Mockito.never()).chat(anyString(), any());
+        verify(assistantClient, org.mockito.Mockito.never()).chat(anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -126,7 +137,7 @@ class ChatControllerTest {
         mvc.perform(post("/chat/send").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"   \"}"))
                 .andExpect(status().isBadRequest());
 
-        verify(assistantClient, org.mockito.Mockito.never()).chat(anyString(), any());
+        verify(assistantClient, org.mockito.Mockito.never()).chat(anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -140,16 +151,78 @@ class ChatControllerTest {
         mvc.perform(post("/chat/send").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest());
 
-        verify(assistantClient, org.mockito.Mockito.never()).chat(anyString(), any());
+        verify(assistantClient, org.mockito.Mockito.never()).chat(anyString(), any(), any(), any(), any());
     }
 
     @Test
     void surfacesWhateverThePythonSideReturns() throws Exception {
-        when(assistantClient.chat(anyString(), anyString())).thenReturn(Map.of("reply", "ack"));
+        when(assistantClient.chat(anyString(), anyString(), any(), any(), any())).thenReturn(Map.of("reply", "ack"));
 
         mvc.perform(post("/chat/send").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"Labas\"}"))
                 .andExpect(status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.reply")
                         .value("ack"));
+    }
+
+    @Test
+    void noHistoryIsSentOnTheFirstMessageOfASession() throws Exception {
+        when(assistantClient.chat(anyString(), anyString(), any(), any(), any())).thenReturn(Map.of("reply", "ack"));
+
+        MockHttpSession session = new MockHttpSession();
+        mvc.perform(post("/chat/send").with(csrf()).session(session).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Pirma žinutė\"}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Object> historyCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(assistantClient).chat(anyString(), anyString(), any(), any(), historyCaptor.capture());
+        assertThat(historyCaptor.getValue()).isNull();
+    }
+
+    @Test
+    void messagesFromASuccessfulReplyArePersistedInTheSessionAndSentBackAsHistoryNextTurn() throws Exception {
+        List<Object> firstTurnMessages = List.of(Map.of("role", "user", "content", "Pirma žinutė"));
+        when(assistantClient.chat(anyString(), anyString(), any(), any(), any()))
+                .thenReturn(Map.of("reply", "ack", "messages", firstTurnMessages));
+
+        MockHttpSession session = new MockHttpSession();
+        mvc.perform(post("/chat/send").with(csrf()).session(session).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Pirma žinutė\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(post("/chat/send").with(csrf()).session(session).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Antra žinutė\"}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Object> historyCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(assistantClient, org.mockito.Mockito.times(2)).chat(anyString(), anyString(), any(), any(),
+                historyCaptor.capture());
+        assertThat(historyCaptor.getAllValues().get(0)).isNull();
+        assertThat(historyCaptor.getAllValues().get(1)).isEqualTo(firstTurnMessages);
+    }
+
+    @Test
+    void aLimitedOrStubReplyWithNoMessagesKeyLeavesTheSessionHistoryUntouched() throws Exception {
+        List<Object> firstTurnMessages = List.of(Map.of("role", "user", "content", "Pirma žinutė"));
+        when(assistantClient.chat(anyString(), anyString(), any(), any(), any()))
+                .thenReturn(Map.of("reply", "ack", "messages", firstTurnMessages))
+                .thenReturn(Map.of("reply", "Limitas pasiektas.", "limited", true));
+
+        MockHttpSession session = new MockHttpSession();
+        mvc.perform(post("/chat/send").with(csrf()).session(session).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Pirma žinutė\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/chat/send").with(csrf()).session(session).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Antra žinutė\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/chat/send").with(csrf()).session(session).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Trečia žinutė\"}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Object> historyCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(assistantClient, org.mockito.Mockito.times(3)).chat(anyString(), anyString(), any(), any(),
+                historyCaptor.capture());
+        // Turn 3 still sends turn 1's history - turn 2's "limited" reply had no "messages" key,
+        // so it was never allowed to overwrite (or null-out) what turn 1 had already stored.
+        assertThat(historyCaptor.getAllValues().get(2)).isEqualTo(firstTurnMessages);
     }
 }

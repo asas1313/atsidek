@@ -1,7 +1,6 @@
 package eu.atsidek.chat;
 
 import java.time.Duration;
-import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
@@ -47,17 +46,26 @@ public class RestClientAssistantClient implements AssistantClient {
      *                                  #1 - švarus, ribotas atsakymas, ne nutekėjęs stack trace).
      */
     @Override
-    public Object chat(String contextToken, String message) {
+    public Object chat(String contextToken, String message, String tier, String key, Object history) {
         try {
             return restClient.post()
                     .uri("/internal/chat")
                     .header(CONTEXT_TOKEN_HEADER, contextToken)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("message", message))
+                    .body(new ChatRequestBody(message, tier, key, history))
                     .retrieve()
                     .body(Object.class);
         } catch (RestClientException e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Nepavyko pasiekti AI asistento paslaugos.", e);
         }
+    }
+
+    /**
+     * B7 wiring: {@code tier}/{@code key}/{@code history} legitimately nullable ({@code key} for
+     * anonymous, {@code history} for the first message in a session) - a record (Jackson writes
+     * {@code null} fields as JSON {@code null}) instead of {@code Map.of(...)}, which throws on a
+     * null value.
+     */
+    private record ChatRequestBody(String message, String tier, String key, Object history) {
     }
 }
