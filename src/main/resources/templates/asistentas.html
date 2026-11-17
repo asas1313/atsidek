@@ -16,6 +16,11 @@
     <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Atsidėk","url":"https://atsidek.eu/","description":"AI asistentas individualios veiklos mokesčiams 2026 m.: GPM, VSD, PSD.","applicationCategory":"FinanceApplication","operatingSystem":"Any","inLanguage":"lt","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}</script>
     <link rel="stylesheet" href="/style.css">
     <script src="/htmx.min.js"></script>
+    <!-- B6.6: CSRF žetonas naujos pokalbio UI fetch() kvietimams į POST /chat/send (tas pats
+         raštas kaip taupymo-tikslai.html) - senam /asistentas keliui šito nereikia, nes Caddy jį
+         proxy'ina tiesiai į Python servisą, aplenkdamas Java/Spring Security (žr. Caddyfile). -->
+    <meta name="_csrf" th:content="${_csrf.token}">
+    <meta name="_csrf_header" th:content="${_csrf.headerName}">
 </head>
 <body>
 <header class="hero">
@@ -25,32 +30,125 @@
 <nav th:replace="~{bank/fragments :: nav}"></nav>
 
 <main>
-    <!-- Rezultato fragmentą grąžina atskiras AI asistento servisas (POST /asistentas, žr. assistant/ ir Caddyfile) -->
-    <form class="card" method="post" action="/asistentas" hx-post="/asistentas" hx-target="#result" hx-swap="outerHTML" hx-indicator="#spinner">
-        <h2>Aprašyk savo situaciją</h2>
-        <label for="text">Savais žodžiais: pajamos, išlaidos, o jei reikia – ir kitos pajamos, pensijų kaupimas, PSD mėnesiai.
-            <textarea id="text" name="text" rows="4" maxlength="1000" required
-                      placeholder="Pvz.: Per metus gausiu apie 25 000 € iš IV, turiu 4 000 € išlaidų, dar dirbu pagal darbo sutartį ir uždirbu 12 000 €."></textarea>
-        </label>
-        <div class="chips">
-            <button type="button" class="chip" onclick="setText(this)">Gavau 2400 € už projektą, išlaidų turėjau apie 300.</button>
-            <button type="button" class="chip" onclick="setText(this)">Šiemet uždirbau 18 tūkst., išlaidas skaičiuosiu 30 procentų.</button>
-            <button type="button" class="chip" onclick="setText(this)">IV pajamos 30 000 €, išlaidos 5 000 €, dar turiu darbą su 15 000 € per metus ir kaupiu antroje pakopoje.</button>
-        </div>
-        <button type="submit">Skaičiuoti</button>
-        <span id="spinner" class="htmx-indicator small">Analizuoju…</span>
-        <p class="small">Tekstas siunčiamas AI paslaugai (Anthropic) skaičiams ištraukti ir neišsaugomas. Neįrašyk asmens duomenų.
-            <a href="/privatumas">Privatumo politika</a>. Nori įvesti patiems? <a href="/skaiciuokle">Skaičiuoklė su laukais</a>.</p>
-    </form>
+    <!-- B6.6: AGENT_CHAT_ENABLED=false (numatyta) - senas B1-eros kelias, nepakitęs. -->
+    <th:block th:unless="${agentChatEnabled}">
+        <!-- Rezultato fragmentą grąžina atskiras AI asistento servisas (POST /asistentas, žr. assistant/ ir Caddyfile) -->
+        <form class="card" method="post" action="/asistentas" hx-post="/asistentas" hx-target="#result" hx-swap="outerHTML" hx-indicator="#spinner">
+            <h2>Aprašyk savo situaciją</h2>
+            <label for="text">Savais žodžiais: pajamos, išlaidos, o jei reikia – ir kitos pajamos, pensijų kaupimas, PSD mėnesiai.
+                <textarea id="text" name="text" rows="4" maxlength="1000" required
+                          placeholder="Pvz.: Per metus gausiu apie 25 000 € iš IV, turiu 4 000 € išlaidų, dar dirbu pagal darbo sutartį ir uždirbu 12 000 €."></textarea>
+            </label>
+            <div class="chips">
+                <button type="button" class="chip" onclick="setText(this)">Gavau 2400 € už projektą, išlaidų turėjau apie 300.</button>
+                <button type="button" class="chip" onclick="setText(this)">Šiemet uždirbau 18 tūkst., išlaidas skaičiuosiu 30 procentų.</button>
+                <button type="button" class="chip" onclick="setText(this)">IV pajamos 30 000 €, išlaidos 5 000 €, dar turiu darbą su 15 000 € per metus ir kaupiu antroje pakopoje.</button>
+            </div>
+            <button type="submit">Skaičiuoti</button>
+            <span id="spinner" class="htmx-indicator small">Analizuoju…</span>
+            <p class="small">Tekstas siunčiamas AI paslaugai (Anthropic) skaičiams ištraukti ir neišsaugomas. Neįrašyk asmens duomenų.
+                <a href="/privatumas">Privatumo politika</a>. Nori įvesti patiems? <a href="/skaiciuokle">Skaičiuoklė su laukais</a>.</p>
+        </form>
 
-    <section id="result" class="card result" aria-live="polite">
-        <p class="small">Čia atsiras rezultatas.</p>
+        <section id="result" class="card result" aria-live="polite">
+            <p class="small">Čia atsiras rezultatas.</p>
+        </section>
+    </th:block>
+
+    <!-- B6.6: AGENT_CHAT_ENABLED=true - nauja pokalbio UI per POST /chat/send (JSON, ne htmx - šis
+         endpoint'as grąžina JSON, ne HTML fragmentą, todėl plain fetch(), kaip ir taupymo-tikslai.html
+         jau daro savo JSON endpoint'ams; htmx čia netiktų be json-enc plėtinio, kurio projektas
+         neturi). Veikia ir anonimams (dienos limitas Python pusėje, chat_limiter) - žr. PLAN
+         PLAN-taupymas-agentas.md B6.6. -->
+    <section class="card chat-card" th:if="${agentChatEnabled}">
+        <h2>AI asistentas</h2>
+        <p class="small">Parašyk apie savo pajamas, išlaidas ar taupymo tikslą – atsakyme gausi tikslius skaičius.
+            Tekstas siunčiamas AI paslaugai (Anthropic) ir neišsaugomas. Neįrašyk asmens duomenų.
+            <a href="/privatumas">Privatumo politika</a>.</p>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
+        <form id="chat-form" class="chat-form">
+            <label for="chat-text" class="small">Žinutė
+                <textarea id="chat-text" rows="3" maxlength="1000" required
+                          placeholder="Pvz.: Per metus gausiu apie 25 000 € iš IV, turiu 4 000 € išlaidų."></textarea>
+            </label>
+            <div class="chips">
+                <button type="button" class="chip" onclick="setChatText(this)">Gavau 2400 € už projektą, išlaidų turėjau apie 300.</button>
+                <button type="button" class="chip" onclick="setChatText(this)">Noriu sutaupyti 5000 € per 2 metus, pajamos 1200 €, išlaidos 800 € per mėnesį.</button>
+            </div>
+            <button type="submit" id="chat-send">Siųsti</button>
+            <span id="chat-spinner" class="htmx-indicator small" hidden>Mąstau…</span>
+        </form>
+        <p class="small err" id="chat-error" hidden>Nepavyko susisiekti su AI asistentu. Bandyk vėliau.</p>
     </section>
 </main>
 <footer><p>© Atsidėk · <a href="/skaiciuokle">Skaičiuoklė</a> · <a href="/straipsniai/30-proc-ar-faktines-islaidos">30 % ar faktinės išlaidos?</a> · <a href="/privatumas">Privatumo politika</a></p></footer>
 <p th:replace="~{bank/fragments :: build}"></p>
 <script>
     function setText(b) { document.getElementById('text').value = b.textContent; }
+    function setChatText(b) { document.getElementById('chat-text').value = b.textContent; }
+</script>
+<script th:if="${agentChatEnabled}">
+(function () {
+    "use strict";
+
+    function $(id) { return document.getElementById(id); }
+
+    function csrfHeaders() {
+        var tokenMeta = document.querySelector('meta[name="_csrf"]');
+        var headerMeta = document.querySelector('meta[name="_csrf_header"]');
+        var headers = { "Content-Type": "application/json" };
+        if (tokenMeta && headerMeta && headerMeta.content) {
+            headers[headerMeta.content] = tokenMeta.content;
+        }
+        return headers;
+    }
+
+    function appendMessage(text, cssClass) {
+        var log = $("chat-log");
+        var bubble = document.createElement("p");
+        bubble.className = "chat-msg " + cssClass;
+        bubble.textContent = text;
+        log.appendChild(bubble);
+        log.scrollTop = log.scrollHeight;
+        return bubble;
+    }
+
+    function wireChatForm() {
+        var form = $("chat-form");
+        if (!form) { return; }
+        form.addEventListener("submit", function (event) {
+            event.preventDefault();
+            var textEl = $("chat-text");
+            var message = textEl.value.trim();
+            if (!message) { return; }
+            $("chat-error").hidden = true;
+            appendMessage(message, "chat-msg-user");
+            textEl.value = "";
+            $("chat-send").disabled = true;
+            $("chat-spinner").hidden = false;
+            fetch("/chat/send", {
+                method: "POST",
+                headers: csrfHeaders(),
+                body: JSON.stringify({ message: message })
+            }).then(function (res) {
+                if (!res.ok) { throw new Error("bad status " + res.status); }
+                return res.json();
+            }).then(function (data) {
+                // B6.6: "reply" visada egzistuoja (sėkmės, limito ir klaidos atvejais, žr.
+                // ChatController javadoc/assistant/app/main.py) - jau pilnai sudėliotas šablonas
+                // su disclaimer'iu ir CTA (response_builder.py), tad tiesiog rodomas kaip yra.
+                appendMessage(data.reply || "", data.limited ? "chat-msg-limit" : "chat-msg-assistant");
+            }).catch(function () {
+                $("chat-error").hidden = false;
+            }).then(function () {
+                $("chat-send").disabled = false;
+                $("chat-spinner").hidden = true;
+            });
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", wireChatForm);
+})();
 </script>
 </body>
 </html>

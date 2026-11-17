@@ -194,6 +194,55 @@ AC (savininko reikalavimai, 2026-11-17):
 
 Įgyvendinta `feat/taupymas-agentas-b7-wiring` šakoje: Python pusė (`main.py`'s `_agent_chat`, `test_internal_chat_agent.py`), Java pusė (`ChatController`/`AssistantClient`/`RestClientAssistantClient`, `ChatControllerTest`), nauja `EvalSessionController`/`EvalSessionService` (eval-ci sesijos minimui `--via-endpoint` režimui), `run_eval.py --via-endpoint` + `eval-b6.yml via_endpoint` input'as.
 
+### B6.6. Pokalbio UI (spraga, rasta savininko ruošiantis B7 staging patikrai, 2026-11-17)
+
+B6.5 sujungė `/internal/chat` su tikru agento ciklu ir B7-wiring pridėjo `POST /chat/send` Java
+pusėje, bet NĖ VIENAS puslapis jo niekada nekvietė - pagrindinio puslapio forma tebesiuntė į senąjį
+`/asistentas` (B1-eros vieno įrankio ištraukėjas), `/taupymo-tikslai` neturėjo pokalbio elemento
+visai, o `GET /chat` nebuvo sumapintas (anonimui kritęs į default-deny → nukreipimas į Google OAuth
+- "prisijungimas?" simptomas, kurį savininkas pastebėjo). `B7-staging-checklist.md` 4 skyrius
+aprašė rankinį patikrinimą per neegzistuojančią UI. Spraga uždaryta šia faze, prieš B7 realų
+diegimą.
+
+AC (savininko reikalavimai, 2026-11-17):
+
+1. Pagrindinis puslapis ("/"): kai `AGENT_CHAT_ENABLED=true` - pokalbio UI per `POST /chat/send` su
+   istorija (vanilla fetch(), ne htmx - šis endpoint'as grąžina JSON, ne HTML fragmentą; htmx čia
+   be `json-enc` plėtinio neveiktų), veikia ir anonimams (Python pusės `chat_limiter` dienos
+   limitas). Kai `false` (numatyta) - senas `/asistentas` kelias byte-identical nepakitęs.
+2. `/taupymo-tikslai`: nuoroda "Klausti AI asistento" į pagrindinio puslapio pokalbį, rodoma TIK
+   kai vėliava `true` (kai `false`, pagrindiniame puslapyje nėra pokalbio, tad nuorodos rodyti
+   nėra kam).
+3. Pokalbio UI rodo agento atsakymą kaip yra (`reply` laukas jau pilnai sudėlioja šabloną +
+   disclaimer'į + CTA, žr. `response_builder.py`) - UI jo NEPERRAŠO, tik atvaizduoja; limito
+   atsakymas (`limited: true`) rodomas kaip tas pats `reply` tekstas, atskirai pažymėtas CSS
+   klase.
+4. Vėliava Java pusėje (`atsidek.chat.agent-enabled`, `docker-compose.yml`'o `ATSIDEK_CHAT_AGENT_ENABLED`)
+   nustatoma IŠ TO PAČIO host `AGENT_CHAT_ENABLED` rakto, kaip ir Python pusės - viena reikšmė
+   valdo abi puses, kad jos niekada negalėtų nesutapti.
+5. Testai: Java MVC testai abiem vėliavos reikšmėms (senas UI rodomas/nerodomas, naujas UI
+   rodomas/nerodomas, `/taupymo-tikslai` nuoroda rodoma/nerodoma). Vienas HTTP lygmens "smoke"
+   testas (ne Playwright - projektas jo neturi, žr. Makefile `e2e` TODO; sprendimas paliktas
+   savininkui peržiūrai): anoniminė žinutė per TIKRĄ `POST /chat/send` (HTTP/security/sesijos
+   sluoksnis, `AssistantClient` pakeistas mock'u kaip ir `ChatControllerTest`, nes tikras kelias
+   reikalauja `ANTHROPIC_API_KEY` ir yra padengtas atskirai Python pusės
+   `test_internal_chat_agent.py`) → atsakyme taupymo šablono frazės.
+6. `B7-staging-checklist.md` 4 skyrius perrašytas su TIKRU URL/UI žingsniu (pokalbio langelis
+   `/taupymo-tikslai` nuorodoje į "/", ne neegzistuojantis "pokalbio langelis /taupymo-tikslai
+   puslapyje"); 3/6 skyriai papildyti `IMAGE_TAG` reikalavimu (žr. #7); `docker-compose.yml`
+   be numatytosios "local" žymos.
+7. **Incidentas (IMAGE_TAG), nesusijęs su UI, bet rastas tą pačią dieną ruošiant šią fazę**:
+   `docker-compose.yml`'o `image:`/`GIT_SHA` reikšmės turėjo numatytąją `${IMAGE_TAG:-local}` žymą.
+   Rankiniu būdu paleistas `docker compose ... up -d` (kaip `B7-staging-checklist.md` 3 skyriaus
+   `AGENT_CHAT_ENABLED` perjungimo žingsnis - SĄMONINGAI be `deploy/deploy.sh`, nes tai "tik env
+   kintamojo pakeitimas, ne naujas diegimas") PAMIRŠUS eksportuoti `IMAGE_TAG`, tyliai krito atgal
+   į `atsidek:local` žymą, kuri, jei serveryje jau egzistavo iš ankstesnio build'o, pakeitė
+   veikiantį staging konteinerį senu/neteisingu image'u → 502. Pataisyta: `IMAGE_TAG` dabar
+   privalomas (`${IMAGE_TAG:?...}`, be numatytosios reikšmės) - toks praleidimas dabar KRINTA su
+   aiškia klaida vietoj tylaus neteisingo image paleidimo. `deploy/deploy.sh` (staging/production
+   CI diegimas) nepaveiktas - jis `IMAGE_TAG` eksportuoja pati, visada. `DEPLOY.md`'o lokalaus
+   dev/vienkartinio serverio komandos atnaujintos su `IMAGE_TAG=local` prefiksu.
+
 ### B7. Staging ir B dalies Definition of Done
 
 - Įdiegta į staging.atsidek.eu, eval'ų rezultatai PR'e.

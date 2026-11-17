@@ -1,8 +1,11 @@
 # B7 — staging diegimo checklist'as
 
-Parašyta pagal TIKRĄ B6.5/B7 elgseną (žr. `PLAN-taupymas-agentas.md` B6.5 fazę): `/internal/chat`
-dabar realiai kviečia `run_agent_loop` (ne B1-eros stub'ą) kai `AGENT_CHAT_ENABLED=true`; rollback
-yra TIK vėliavos perjungimas, ne kodo keitimas.
+Parašyta pagal TIKRĄ B6.5/B6.6/B7 elgseną (žr. `PLAN-taupymas-agentas.md` B6.5/B6.6 fazes):
+`/internal/chat` dabar realiai kviečia `run_agent_loop` (ne B1-eros stub'ą) kai
+`AGENT_CHAT_ENABLED=true`; TA PATI vėliava (B6.6) rodo pagrindiniame puslapyje ("/") realų pokalbio
+langelį (vietoje seno `/asistentas` formos) - 4 skyriaus rankinis patikrinimas vyksta TEN, ne
+kažkokiame kitame, neegzistuojančiame puslapyje. Rollback yra TIK vėliavos perjungimas (+
+`IMAGE_TAG`, žr. 3/6 skyrius), ne kodo keitimas.
 
 **Sustok prieš diegimą šio dokumento pabaigoje nurodytuose žingsniuose — savininkas pats paleis
 greitą eval'ą su `--via-endpoint` prieš bet kokį realų staging diegimą.**
@@ -75,24 +78,47 @@ FREE/PREMIUM žetonus/sesijas. Nesitęsk toliau, kol priežastis neišsiaiškint
 
 ## 3. `AGENT_CHAT_ENABLED` įjungimas (atskiras, sąmoningas žingsnis)
 
-1. [ ] `/opt/atsidek/staging.env`: pridėk arba pakeisk `AGENT_CHAT_ENABLED=true`.
-2. [ ] `docker compose -p atsidek-staging --env-file /opt/atsidek/staging.env --profile tunnel up -d`
-       (jokio naujo `IMAGE_TAG`/`build` — tas pats image, tik perkonfigūruotas env kintamasis).
-3. [ ] Patikrink, kad `assistant` konteineris persileido su nauja reikšme:
+**SVARBU — `IMAGE_TAG` BŪTINA, net kai keičiasi TIK env kintamasis** (B6.6 incidentas:
+`docker-compose.yml`'o `image:` neturi numatytosios "local" žymos — žr. jo komentarą — todėl be
+šio žingsnio `docker compose ... up -d` KRIS su aiškia klaida "required variable IMAGE_TAG is
+missing a value", NE tyliai paleis neteisingą image'ą kaip anksčiau):
+
+1. [ ] Nustatyk `IMAGE_TAG` į TĄ PATĮ, kuris jau veikia staging'e po 1 skyriaus diegimo (12 ženklų
+       git SHA prefiksas — tas pats, kurį `deploy/deploy.sh` naudojo, `TAG="${SHA:0:12}"`):
+       ```bash
+       export IMAGE_TAG="$(cd /opt/atsidek/atsidek && git rev-parse HEAD | cut -c1-12)"
+       # arba patikrink veikiantį konteinerį: docker compose -p atsidek-staging images app
+       ```
+2. [ ] `/opt/atsidek/staging.env`: pridėk arba pakeisk `AGENT_CHAT_ENABLED=true`.
+3. [ ] `docker compose -p atsidek-staging --env-file /opt/atsidek/staging.env --profile tunnel up -d`
+       (su ŽINGSNIO 1 `IMAGE_TAG` eksportuotu TOJE PAČIOJE shell sesijoje — jokio naujo
+       `IMAGE_TAG`/`build`, tas pats image, tik perkonfigūruotas env kintamasis).
+4. [ ] Patikrink, kad `assistant` konteineris persileido su nauja reikšme:
        `docker compose -p atsidek-staging exec assistant env | grep AGENT_CHAT_ENABLED` → `true`.
 
 **Rollback** (bet kada po šio taško, jei kas nors negerai skyriuje 4 ar vėliau): grąžink
-`AGENT_CHAT_ENABLED=false` (arba ištrink eilutę) `staging.env` faile, pakartok `docker compose ...
-up -d` žingsnį. Jokio kodo keitimo, jokio naujo diegimo — tik vėliavos perjungimas ir vienas
-restart'as. `/asistentas` (senas B1-eros UI kelias) šiuo metu nepaveiktas nepriklausomai nuo šios
-vėliavos.
+`AGENT_CHAT_ENABLED=false` (arba ištrink eilutę) `staging.env` faile, PAKARTOK žingsnį 1
+(`export IMAGE_TAG=...` toje pačioje shell sesijoje — kiekviena nauja shell sesija jį pametė), tada
+žingsnio 3 `docker compose ... up -d`. Jokio kodo keitimo, jokio naujo diegimo — tik vėliavos
+perjungimas ir vienas restart'as. `/asistentas` (senas B1-eros UI kelias) šiuo metu nepaveiktas
+nepriklausomai nuo šios vėliavos. Pagrindinio puslapio pokalbio UI (B6.6) grįžta prie seno
+`/asistentas` kelio automatiškai (tas pats `agentChatEnabled` modelio atributas, žr.
+`ChatModelAdvice`), be papildomo žingsnio.
 
 ## 4. Rankinis patikrinimas — 8 realios užklausos per `/chat/send`
 
+**Pokalbio UI yra pagrindiniame puslapyje** (`https://<staging-host>/`, B6.6, `ChatModelAdvice`'o
+`agentChatEnabled` modelio atributas) — kai `AGENT_CHAT_ENABLED=true` (3 skyrius), pagrindinis
+puslapis automatiškai rodo pokalbio langelį ("AI asistentas" kortelė, teksto laukas + mygtukas
+"Siųsti") VIETOJE seno `/asistentas` formos — tai TAS PATS puslapis, nereikia atskiros nuorodos.
+`/taupymo-tikslai` puslapyje (dešinėje skiltyje) yra nuoroda "Klausti AI asistento" į pagrindinį
+puslapį — patogu pradėti iš ten, bet patikrinimui tinka ir tiesiog `/`.
+
 Kiekvienai: siųsk per TIKRĄ naršyklės sesiją (ne eval'o CI raktą) adresu
-`https://<staging-host>/taupymo-tikslai` → pokalbio langelis. Stebėk ir atsakymo tekstą, IR
-`docker compose -p atsidek-staging logs -f assistant` (vienas JSON log'o įrašas per žinutę —
-`tool_call_count`/`cost_cents`/`duration_ms`).
+`https://<staging-host>/` → teksto laukas apačioje → "Siųsti". Stebėk ir atsakymo pūslelės tekstą
+pokalbio lange (visas `reply` tekstas rodomas kaip yra — su disclaimer'iu ir CTA, jei yra, žr.
+`response_builder.py`), IR `docker compose -p atsidek-staging logs -f assistant` (vienas JSON
+log'o įrašas per žinutę — `tool_call_count`/`cost_cents`/`duration_ms`).
 
 | # | Atvejis | Pavyzdinė žinutė | Ko tikėtis |
 |---|---------|-------------------|------------|
@@ -188,7 +214,8 @@ kaina ir trukmė").
 
 | Situacija | Veiksmas |
 |---|---|
-| Kažkas negerai PO `AGENT_CHAT_ENABLED=true` (3 skyrius) | `AGENT_CHAT_ENABLED=false` `staging.env` faile + `docker compose up -d`. Jokio kodo keitimo. |
+| Kažkas negerai PO `AGENT_CHAT_ENABLED=true` (3 skyrius) | `AGENT_CHAT_ENABLED=false` `staging.env` faile + `export IMAGE_TAG=...` (3 skyriaus žingsnis 1, TA PATI reikšmė, nauja shell sesija jos neprisimena) + `docker compose up -d`. Jokio kodo keitimo. |
+| `docker compose ... up -d` krinta su „required variable IMAGE_TAG is missing a value" | Numatyta, ne klaida — `docker-compose.yml` nuo B6.6 NETURI numatytosios "local" žymos (žr. jo komentarą; ankstesnis incidentas: tylus kritimas į `atsidek:local` sukėlė 502). Eksportuok `IMAGE_TAG` (3 skyriaus žingsnis 1) PRIEŠ kiekvieną rankinį `docker compose` kvietimą šiame dokumente, TOJE PAČIOJE shell sesijoje. |
 | Kažkas negerai PAČIAME diegime (prieš 3 skyrių, dar `AGENT_CHAT_ENABLED=false`) | Įprastas ankstesnio `IMAGE_TAG` redeploy (žr. `deploy/deploy.sh`'o image-reuse logiką) arba naujos PR su fix'u sujungimas — šis B7 diegimas NEKEIČIA senojo B1 kelio elgsenos, kol vėliava `false`. |
 | `/api/v1/eval/token` ar `/api/v1/eval/session` grąžina NE-404 | Patikrink `SPRING_PROFILES_ACTIVE` `staging.env` faile — turi arba nebūti nustatytas, arba NEĮTRAUKTI `eval-ci`. Pataisyk ir persileisk. |
 

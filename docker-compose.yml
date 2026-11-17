@@ -4,8 +4,15 @@ services:
       context: .
       args:
         APP_VERSION: ${APP_VERSION:-1.0.0}
-        GIT_SHA: ${IMAGE_TAG:-local}
-    image: atsidek:${IMAGE_TAG:-local}
+        # IMAGE_TAG SĄMONINGAI privalomas (be numatytosios "local" žymos) - ankstesnis incidentas:
+        # rankiniu būdu paleistas "docker compose ... up -d" serveryje, PAMIRŠUS eksportuoti
+        # IMAGE_TAG, tyliai krito atgal į "atsidek:local" (jei ta žyma serveryje jau egzistavo iš
+        # ankstesnio build'o) - pakeitė veikiantį staging konteinerį senu/neteisingu image'u → 502
+        # (žr. B7-staging-checklist.md 3/6 skyrius). Dabar toks praleidimas KRINTA su aiškia klaida,
+        # ne tyliai paleidžia netą image'ą. Lokaliam dev: `IMAGE_TAG=local docker compose ...` (žr.
+        # DEPLOY.md) - deploy/deploy.sh (staging/production) jį eksportuoja pati, visada.
+        GIT_SHA: ${IMAGE_TAG:?nurodyk IMAGE_TAG (pvz. IMAGE_TAG=local lokaliam dev)}
+    image: atsidek:${IMAGE_TAG:?nurodyk IMAGE_TAG (pvz. IMAGE_TAG=local lokaliam dev)}
     restart: unless-stopped
     volumes:
       - ${DATA_DIR:-./data}:/app/data
@@ -27,6 +34,10 @@ services:
       # šios paslapties NIEKADA neturi.
       ATSIDEK_CHAT_CONTEXT_TOKEN_SECRET: ${CHAT_TOKEN_SECRET:-}
       ATSIDEK_ASSISTANT_BASE_URL: http://assistant:8000
+      # B6.6: TA PATI reikšmė, kuri žemiau nustato Python assistant's AGENT_CHAT_ENABLED - vienas
+      # host .env raktas valdo abi puses (Java sprendžia, kokia UI rodoma; Python sprendžia, ar
+      # /internal/chat kviečia tikrą agento ciklą), kad jos NIEKADA negalėtų nesutapti.
+      ATSIDEK_CHAT_AGENT_ENABLED: ${AGENT_CHAT_ENABLED:-false}
       # Numatytosios reikšmės taiko TIK šio compose "postgres" servisą (žemiau) – tik lokaliam dev.
       # Staging/prod SPRING_DATASOURCE_* ateina iš deploy aplinkos (atskiras Postgres LXC 192.168.68.106),
       # šis compose servisas jų niekada nepaveikia.
@@ -75,8 +86,9 @@ services:
       context: ./assistant
       args:
         APP_VERSION: ${APP_VERSION:-1.0.0}
-        GIT_SHA: ${IMAGE_TAG:-local}
-    image: atsidek-assistant:${IMAGE_TAG:-local}
+        # Žr. "app" serviso GIT_SHA komentarą aukščiau - ta pati priežastis (B7-staging-checklist.md 3/6 sk.).
+        GIT_SHA: ${IMAGE_TAG:?nurodyk IMAGE_TAG (pvz. IMAGE_TAG=local lokaliam dev)}
+    image: atsidek-assistant:${IMAGE_TAG:?nurodyk IMAGE_TAG (pvz. IMAGE_TAG=local lokaliam dev)}
     restart: unless-stopped
     depends_on:
       - app

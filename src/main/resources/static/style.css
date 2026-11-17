@@ -163,3 +163,12 @@ input[type=number].field-number { display:block; width:100%; padding:.6rem; font
 .sources-list .origin-badge { flex:0 0 auto; margin-top:.1rem; }
 .sources-list a { color:var(--accent); }
 .disclaimer { margin-top:.25rem; }
+
+/* B6.6: pokalbio UI (AGENT_CHAT_ENABLED=true), pagrindiniame puslapyje ir /taupymo-tikslai nuorodoje */
+.chat-log { display:flex; flex-direction:column; gap:.6rem; margin:.75rem 0; max-height:60vh; overflow-y:auto; }
+.chat-msg { padding:.65rem .9rem; border-radius:10px; white-space:pre-line; max-width:92%; }
+.chat-msg-user { align-self:flex-end; background:var(--accent); color:#fff; }
+.chat-msg-assistant { align-self:flex-start; background:var(--bg); border:1px solid rgba(128,128,128,.25); }
+.chat-msg-limit { align-self:flex-start; background:var(--bg); border:1px solid var(--err); color:var(--err); }
+.chat-form { display:flex; flex-direction:column; gap:.5rem; }
+.chat-ask-link { margin:.5rem 0; }

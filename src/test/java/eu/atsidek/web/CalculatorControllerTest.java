@@ -62,6 +62,15 @@ class CalculatorControllerTest {
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("href=\"/suvestine\"")));
     }
 
+    /** B6.6: AGENT_CHAT_ENABLED=false (numatyta) - senas /asistentas kelias nepakitęs, be pokalbio UI. */
+    @Test
+    void homeShowsOldFormAndNoChatUiWhenAgentChatDisabled() throws Exception {
+        mvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("hx-post=\"/asistentas\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("id=\"chat-form\""))));
+    }
+
     @Test
     void articleRenders() throws Exception {
         mvc.perform(get("/straipsniai/30-proc-ar-faktines-islaidos")).andExpect(status().isOk())

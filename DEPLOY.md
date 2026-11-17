@@ -43,8 +43,13 @@ DB_PASSWORD=<slaptažodis iš slaptažodžių tvarkyklės>
 neužvestų staging/production serveryje):
 
 ```bash
-docker compose --profile local-db up -d --build
+IMAGE_TAG=local docker compose --profile local-db up -d --build
 ```
+
+(`IMAGE_TAG` nuo šiol privalomas visiems `docker compose` kvietimams šiame faile -
+`docker-compose.yml`'o `image:`/`GIT_SHA` reikšmės NETURI numatytosios "local" žymos, žr. jo
+komentarą - `deploy/deploy.sh` jį eksportuoja pati staging/production diegimams, bet rankiniams
+komandiniams kvietimams, kaip žemiau, reikia nurodyti patys.)
 
 Tai paleidžia `app` + `assistant` + lokalų `postgres` (duomenys tvarioje `postgres_data` talpoje).
 `SPRING_DATASOURCE_*` numatytosios reikšmės `docker-compose.yml` nukreiptos į šį lokalų servisą –
@@ -142,8 +147,8 @@ Privatumo politikai reikia duomenų valdytojo (vardas, pavardė arba įmonė) ir
 git clone https://github.com/asas1313/atsidek.git
 cd atsidek
 printf 'CONTROLLER_NAME="Andrius Riauba, IV pažyma Nr. 1440039"\nCONTACT_EMAIL="info@atsidek.eu"\n' > .env
-docker compose --profile caddy up -d --build
-docker compose logs -f
+IMAGE_TAG=local docker compose --profile caddy up -d --build
+IMAGE_TAG=local docker compose logs -f
 ```
 
 Atidaryk https://atsidek.eu ir patikrink, kad skaičiuoklė skaičiuoja, o https://www.atsidek.eu nukreipia į pagrindinį domeną.
@@ -151,7 +156,7 @@ Atidaryk https://atsidek.eu ir patikrink, kad skaičiuoklė skaičiuoja, o https
 ## 5. Atnaujinimas
 
 ```bash
-cd atsidek && git pull && docker compose --profile caddy up -d --build
+cd atsidek && git pull && IMAGE_TAG=local docker compose --profile caddy up -d --build
 ```
 
 ## Alternatyva: namų serveris (Proxmox) su Nginx Proxy Manager
@@ -166,7 +171,7 @@ printf 'CONTROLLER_NAME="Andrius Riauba, IV pažyma Nr. 1440039"
 CONTACT_EMAIL="info@atsidek.eu"
 APP_BIND=0.0.0.0
 ' > .env
-docker compose up -d --build
+IMAGE_TAG=local docker compose up -d --build
 ```
 
 Be profilio paleidžiamas tik `app` (8080). Ugniasiene / Proxmox firewall leisk 8080 tik iš NPM LXC (100) IP.
@@ -184,7 +189,7 @@ Viešo IP ir atvirų prievadų nereikia, sertifikatus tvarko Cloudflare.
 4. Į `.env` pridėk `TUNNEL_TOKEN=...` ir paleisk:
 
 ```bash
-docker compose --profile tunnel up -d --build
+IMAGE_TAG=local docker compose --profile tunnel up -d --build
 ```
 
 Caddy šiame variante nenaudojamas. `X-Forwarded-*` antraštes perduoda Cloudflare.
@@ -224,7 +229,7 @@ sudo chown -R <runner-vartotojas> /opt/atsidek && sudo chmod 600 /opt/atsidek/*.
 ```
 
 3. **Staging tunelis**: Cloudflare Zero Trust → Tunnels → Create tunnel (antras) → Public hostname `staging.atsidek.eu` → HTTP → `app:8080`. Rekomenduojama papildomai uždėti Cloudflare Access (Zero Trust → Access → Applications), kad staging matytum tik tu.
-4. **Esamas production**: dabartinį rankiniu būdu paleistą stack'ą sustabdyk (`docker compose --profile tunnel down` senoje direktorijoje), kad nesidubliuotų su `atsidek-production` projektu. Naujas projektas naudoja tą patį tunelio tokeną, todėl DNS keisti nereikia.
+4. **Esamas production**: dabartinį rankiniu būdu paleistą stack'ą sustabdyk (`IMAGE_TAG=local docker compose --profile tunnel down` senoje direktorijoje - `IMAGE_TAG` reikšmė čia nesvarbi, `down` jos faktiškai nenaudoja, bet compose vis tiek reikalauja ją išsprendus, žr. pastabą „Lokalus dev“ skyriuje) kad nesidubliuotų su `atsidek-production` projektu. Naujas projektas naudoja tą patį tunelio tokeną, todėl DNS keisti nereikia.
 5. **GitHub Environments** (repo → Settings → Environments): sukurk `staging` ir `production`. Required reviewers privačiame repo veikia tik mokamuose planuose, todėl patvirtinimo funkciją atlieka rankinis „Run workflow“.
 
 ### Pastabos
