@@ -25,6 +25,14 @@ on:
         description: "Agento modelis"
         type: string
         default: "claude-haiku-5-5"
+      runs_per_case:
+        # Owner instruction (2026-11-17): nebuvo jokio švitavimo/laukelio paleidimo meniu, kad
+        # galima leisti ne 3 (RUNS_PER_CASE numatytoji), o pvz. 1 pakartojimą vienam atvejui -
+        # žr. run_eval.py --runs-per-case. String, ne number, nes workflow_dispatch nepalaiko
+        # number tipo; run_eval.py argparse pats paverčia į int.
+        description: "Kiek kartų kartoti kiekvieną atvejį (numatyta 3 - owner decision 3, pass rate per šiuos pakartojimus). 1 = greitas/pigus patikrinimas."
+        type: string
+        default: "3"
 
 jobs:
   live-eval:
@@ -36,7 +44,6 @@ jobs:
           POSTGRES_DB: atsidek
           POSTGRES_USER: atsidek
           POSTGRES_PASSWORD: atsidek
-          EVAL_CYCLES: 1
         ports:
           - 5432:5432
         options: >-
@@ -116,8 +123,9 @@ jobs:
           # žr. run_eval.py docstring "Context-token minting".
           ATSIDEK_API_KEY: ${{ steps.api_key.outputs.key }}
           AI_MODEL: ${{ inputs.model }}
+          RUNS_PER_CASE: ${{ inputs.runs_per_case }}
         run: |
-          args=(evals/agent/run_eval.py --model "$AI_MODEL")
+          args=(evals/agent/run_eval.py --model "$AI_MODEL" --runs-per-case "$RUNS_PER_CASE")
           if [ "${{ inputs.with_judge }}" = "true" ]; then
             args+=(--with-judge)
           fi

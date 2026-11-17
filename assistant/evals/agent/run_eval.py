@@ -12,7 +12,8 @@ Usage:
     export ANTHROPIC_API_KEY=sk-...
     export ATSIDEK_API_KEY=...            # Java tool-callback AND /api/v1/eval/token endpoints
     export ATSIDEK_API_URL=http://localhost:8080   # see judgment-call note below
-    python evals/agent/run_eval.py [--model claude-haiku-5-5] [--with-judge] [--concurrency N]
+    python evals/agent/run_eval.py [--model claude-haiku-5-5] [--with-judge] [--concurrency N] \
+        [--runs-per-case N]
 
     # Re-score an EXISTING results file with the current deterministic scorers, no LLM/Java calls,
     # zero cost (e.g. to check a scoring.py fix against a past real run):
@@ -20,6 +21,10 @@ Usage:
 
 `--concurrency N` (owner instruction, item 9) runs N (case, run-index) units in parallel via a
 ThreadPoolExecutor instead of one at a time - a fully sequential run took ~17.5 minutes.
+
+`--runs-per-case N` (owner instruction, 2026-11-17) overrides how many times each case is run
+(default 3, the historical RUNS_PER_CASE - owner decision 3, reported as a pass RATE across those
+runs). Pass 1 for a cheap smoke run after a small prompt/template tweak.
 
 For `logged_in` cases, the Java backend this points at must either be running with
 `SPRING_PROFILES_ACTIVE=eval-ci` (so `/api/v1/eval/token` exists - see "Context-token minting"
@@ -441,7 +446,7 @@ def _execute_case_run(client, registry, tools, case, model: str, base_url: str, 
     return run_record
 
 
-def run(model: str, with_judge: bool, concurrency: int = 1) -> dict:
+def run(model: str, with_judge: bool, concurrency: int = 1, runs_per_case: int = RUNS_PER_CASE) -> dict:
     import anthropic
 
     client = anthropic.Anthropic()
@@ -465,7 +470,7 @@ def run(model: str, with_judge: bool, concurrency: int = 1) -> dict:
     # the FIRST lookup/insertion, in both the sequential and ThreadPoolExecutor paths of
     # `_execute_work_items` - case ids are unique (test_eval_cases.py::test_case_ids_are_unique),
     # so `(case.id, i)` is a safe, stable substitute; `_case_by_id` looks the case back up.
-    work_items = [(case.id, i) for case in CASES for i in range(RUNS_PER_CASE)]
+    work_items = [(case.id, i) for case in CASES for i in range(runs_per_case)]
     raw_results = _execute_work_items(
         work_items,
         lambda item: _execute_case_run(
@@ -487,7 +492,7 @@ def run(model: str, with_judge: bool, concurrency: int = 1) -> dict:
     # `main()`'s exit code).
     judge_errors: list[dict] = []
     for case in CASES:
-        runs = [raw_results[(case.id, i)] for i in range(RUNS_PER_CASE)]
+        runs = [raw_results[(case.id, i)] for i in range(runs_per_case)]
 
         for run_record in runs:
             if not run_record["no_banned_investment_terms"]:
@@ -535,7 +540,7 @@ def run(model: str, with_judge: bool, concurrency: int = 1) -> dict:
         "model": model,
         "date": date.today().isoformat(),
         **_git_info(),
-        "runs_per_case": RUNS_PER_CASE,
+        "runs_per_case": runs_per_case,
         "with_judge": with_judge,
         "judge_rubric_version": JUDGE_RUBRIC_VERSION if with_judge else None,
         "concurrency": concurrency,
@@ -726,6 +731,20 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--runs-per-case",
+        type=int,
+        # Owner instruction (2026-11-17): no way existed to run fewer than the historical 3
+        # repetitions per case (e.g. a cheap 1x smoke run) without editing RUNS_PER_CASE in the
+        # source - added as a proper CLI flag/workflow input instead. Default stays 3 (owner
+        # decision 3: each case runs 3 times, reported as a pass RATE) - unaffected unless passed.
+        default=RUNS_PER_CASE,
+        help=(
+            f"How many times each case is run (default {RUNS_PER_CASE}, reported as a pass "
+            "RATE across those runs). Pass 1 for a cheap smoke run (no rate, just pass/fail). "
+            "Ignored with --rescore (no LLM calls are made at all)."
+        ),
+    )
+    parser.add_argument(
         "--rescore",
         metavar="RESULTS_JSON",
         default=None,
@@ -734,7 +753,7 @@ def main() -> None:
             "stored tool_calls/final_text - no live LLM/Java calls, zero cost. Use after a scorer "
             "code fix to check it against a past real run without re-spending money. A stored "
             "judge_verdict (--with-judge runs) is carried over unchanged, never re-judged. "
-            "--model/--with-judge/--concurrency are ignored with this flag."
+            "--model/--with-judge/--concurrency/--runs-per-case are ignored with this flag."
         ),
     )
     args = parser.parse_args()
@@ -764,7 +783,7 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    summary = run(args.model, args.with_judge, args.concurrency)
+    summary = run(args.model, args.with_judge, args.concurrency, args.runs_per_case)
     # Real date (item 9): date.today() at the moment of the actual live run - already correct, but
     # confirmed/kept explicit here since --rescore (above) deliberately does NOT use today's date.
     out_path = ASSISTANT_DIR / "evals" / "results" / f"{summary['date']}_agent_{args.model}.json"

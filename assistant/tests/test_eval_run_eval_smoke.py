@@ -468,6 +468,46 @@ def test_run_builds_work_items_keyed_on_case_id_not_the_case_instance_itself():
     assert "raw_results[(case.id, i)]" in source
 
 
+def test_run_accepts_a_runs_per_case_override_and_uses_it_not_the_module_constant():
+    """Owner instruction (2026-11-17): there was no switch/input to run fewer than the historical
+    3 repetitions per case without editing RUNS_PER_CASE in the source - `run()` must thread a
+    `runs_per_case` parameter through `work_items`/the per-case `runs` lookup/the summary's
+    `runs_per_case` field, not just read the module constant. Read directly from source since
+    `run()` itself needs a live client/backend to execute."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.run)
+
+    assert "def run(model: str, with_judge: bool, concurrency: int = 1, " \
+        "runs_per_case: int = RUNS_PER_CASE)" in source
+    assert "for i in range(runs_per_case)" in source
+    assert "\"runs_per_case\": runs_per_case," in source
+    # The module constant still exists as the documented default (owner decision 3) - just no
+    # longer hardcoded into the loop bodies themselves.
+    assert "for i in range(RUNS_PER_CASE)" not in source
+
+
+def test_runs_per_case_cli_flag_defaults_to_the_module_constant():
+    """Default stays 3 (owner decision 3) unless explicitly overridden."""
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.main)
+
+    runs_per_case_block = source[source.index('"--runs-per-case"'):source.index('"--rescore"')]
+    assert "default=RUNS_PER_CASE" in runs_per_case_block
+
+
+def test_main_passes_runs_per_case_through_to_run():
+    import inspect
+
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    source = inspect.getsource(run_eval.main)
+
+    assert "run(args.model, args.with_judge, args.concurrency, args.runs_per_case)" in source
+
+
 def test_concurrency_cli_flag_defaults_to_8():
     """Owner instruction (2026-11-16, after eval a2dbaae, item 6): default bumped from 1 to 8 -
     read directly from source since `main()` parses real `sys.argv`, not a function we can call
