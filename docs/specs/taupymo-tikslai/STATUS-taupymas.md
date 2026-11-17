@@ -478,6 +478,55 @@ turinys jau yra `main`'e per PR #53.
 request" pasiūlymo prieš `main` — GitHub tai pasiūlo automatiškai pagal paskutinį push'ą, lengva
 paspausti neatidžiai.
 
+## B6.5 dalis — BAIGTA (2026-11-17)
+
+Spraga (žr. `PLAN-taupymas-agentas.md` B6.5 skyrių): B1–B6 komponentai (agent_loop, tools,
+response_builder, system_prompt, chat_limiter, usage_logging) buvo parašyti ir ištestuoti
+izoliuotai, bet `main.py`'s `/internal/chat` handleris realiai tebekviesdavo seną B1-eros vieno
+įrankio stub'ą — gyvas `/chat/send` kelias niekada nebuvo paleidęs tikro agento ciklo. Spraga
+pastebėta savininko ruošiant B7 staging checklist'ą. Uždaryta šaka `feat/taupymas-agentas-b7-wiring`
+(nuo `43e0ab9`, B6 galutinio commit'o). Kas pristatyta pagal PLAN B6.5 AC 1–5:
+
+1. `/internal/chat` (`main.py::_agent_chat`) dabar naudoja `run_agent_loop` su abiem įrankiais,
+   `SYSTEM_PROMPT`, `response_builder`, `chat_limiter` (1 žinutė = 1 vienetas) ir `usage_logging`.
+   Istorija persiduoda iš Java `HttpSession` (`ChatController`); kontekstinis token'as įrankiams
+   relay'inamas nepakeistas.
+2. Vėliava `AGENT_CHAT_ENABLED` (numatyta `false`, `docker-compose.yml`): `false` — senas B1
+   vieno-įrankio stub kelias nepakeistas, `true` — naujas agento ciklas. Rollback = vėliavos
+   perjungimas, jokio kodo keitimo/redeploy.
+3. Klaidos (Claude API klaida, iteracijų limitas, įrankio gedimas) → trumpas tvarkingas
+   lietuviškas pranešimas vartotojui, ne stack trace; viskas logojama. Limitas viršytas →
+   aiškus pranešimas (anonimui — su kvietimu prisijungti).
+4. Testai: Python `test_internal_chat_agent.py` (tax-only/savings-only/combined/missing-income/
+   limitas/API klaida/vėliava false↔true), Java `ChatControllerTest` papildytas istorijos/
+   token'o/tier atvejais su fake Python servisu.
+5. `run_eval.py --via-endpoint` — siunčia eval žinutes per tikrą `/chat/send` (su nauju
+   `EvalSessionController`/`EvalSessionService` eval-ci sesijos mintimu), ne tiesiai į
+   `run_agent_loop`; `eval-b6.yml`'o `via_endpoint` input'as. Tie patys check'ai kaip B6.
+
+**Gyvo eval'o su `--via-endpoint` istorija (savininko paleidimai, 2026-11-17):**
+
+- Pirmas paleidimas (commit `a213eb4`) — **FAIL**: pirmas tikras `/chat/send` kvietimas grąžino
+  502. Priežastis (rasta diagnozuojant): `RestClientAssistantClient`'o
+  `ClientHttpRequestFactoryBuilder.detect()` šiame classpath'e krenta į JDK `HttpClient`, kurio
+  numatytoji versija HTTP/2 — bando `h2c` cleartext upgrade su kiekvienu requestu; uvicorn/h11
+  (Python `assistant` servisas, HTTP/1.1 only) tą upgrade'ą atmeta, o retry, kuris po to vyksta,
+  praranda visą request body — Python/FastAPI gauna TUŠČIĄ body ir grąžina 422, kurį Java pačios
+  `catch (RestClientException e)` paverčia neinformatyviu 502. Pataisyta pinant JDK `HttpClient`
+  į HTTP/1.1 (`ClientHttpRequestFactoryBuilder.jdk().withHttpClientCustomizer(b ->
+  b.version(HttpClient.Version.HTTP_1_1))`, commit `2c3bc8a`) — patvirtinta lokaliu
+  reprodukavimu prieš tikrą uvicorn instanciją, ir naujas regresinis testas
+  `RestClientAssistantClientRealHttpTest` (tikras `HttpServer`, ne mock'as — uždaro spragą, kurią
+  `ChatControllerTest`'o pilnas Mockito mock'as paliko, nes niekada netikrino realaus HTTP
+  transporto).
+- Antras paleidimas (commit `2c3bc8a`, po HTTP/1.1 pataisymo) — **praėjo švariai**: 0 investment
+  advice FAIL, visi deterministiniai check'ai 100 %, naujas agentas patvirtintas per TIKRĄ
+  `/chat/send` kelią (ne tiesioginį `run_agent_loop` kvietimą kaip B6 eval'uose).
+
+Testai: Java 353 / 0 nepavyko (su nauju `RestClientAssistantClientRealHttpTest`), Python nekeista
+šios fazės HTTP/1.1 pataisymo (tik B6.5 wiring commit'ai anksčiau). B6.5 — **BAIGTA**. Toliau — B7
+staging diegimas pagal `B7-staging-checklist.md`, savininko paties vykdomas.
+
 ## Prieš produkciją (savininko 2026-11-16/2026-11-17 nurodymas — užfiksuota, bet NEIŠTAISYTA)
 
 Septyni žinomi trūkumai, kuriuos savininkas sąmoningai nusprendė palikti VĖLESNIAM darbui, bet
