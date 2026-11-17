@@ -3,9 +3,11 @@
 Pagrindinė taisyklė: modelis niekada neskaičiuoja mokesčių. Jis tik ištraukia skaičius iš teksto,
 o mokesčius skaičiuoja deterministinis Atsidėk variklis per HTTP.
 """
+import json
 import logging
 import os
 import time
+import uuid
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
@@ -54,6 +56,13 @@ GOALS_MAX_LENGTH = 1000
 # B7 wiring: real agent path's own friendly, Lithuanian, never-a-stack-trace replies (owner
 # instruction) for the handled-failure cases that never reach the model/tools at all.
 AGENT_CHAT_UNCONFIGURED_REPLY = "AI asistentas nesukonfigūruotas (trūksta ANTHROPIC_API_KEY)."
+# Owner decision, 2026-11-17 (real crash: anthropic.BadRequestError 400, "Invalid `signature` in
+# `thinking` block" - a truncated/replayed-across-turns history broke a thinking block's
+# conversation-binding signature, see `_append_history_turn` below for the actual fix). The
+# user-facing text for ANY Claude API error must say what to do next - retry or start over -
+# exactly this string, not the old generic "try again later" (`AGENT_CHAT_UNAVAILABLE_REPLY`,
+# kept for the daily-cap/unconfigured-key cases, which are a different, non-retryable situation).
+AGENT_CHAT_API_ERROR_REPLY = "Įvyko klaida. Pabandykite dar kartą arba pradėkite naują pokalbį."
 AGENT_CHAT_UNAVAILABLE_REPLY = "AI asistentas laikinai nepasiekiamas. Pabandykite vėliau."
 AGENT_CHAT_ANON_LIMIT_REPLY = (
     "Šiandienos AI pokalbio limitas pasiektas. Prisijunkite, kad gautumėte didesnį limitą, arba "
@@ -66,10 +75,12 @@ AGENT_CHAT_LOGGED_IN_LIMIT_REPLY = "Šiandienos AI pokalbio limitas pasiektas. P
 AGENT_CHAT_EMPTY_REPLY_FALLBACK = "Atsiprašome, nepavyko apdoroti užklausos. Pabandykite dar kartą."
 # Caps how much conversation history is handed back to Java for session storage (owner decision
 # 7: Java/HttpSession owns history, this service is stateless) - an unbounded per-session history
-# would grow every turn for the lifetime of a browser session; this is a generous bound (~10
-# user/assistant exchanges, each potentially with several tool_result turns interleaved), not a
-# precisely-tuned one.
+# would grow every turn for the lifetime of a browser session. Owner decision 7 fix, 2026-11-17
+# (real crash, see `_append_history_turn`): history is now always a strict (user, assistant)
+# PAIR sequence, plain-text content only - MUST stay even, or slicing could leave a first message
+# with role "assistant" (the Messages API requires the first message to be "user").
 MAX_HISTORY_MESSAGES = 20
+assert MAX_HISTORY_MESSAGES % 2 == 0
 
 
 class GoalsParseRequest(BaseModel):
@@ -96,6 +107,33 @@ def eur(v) -> str:
 
 def pct(v) -> str:
     return f"{Decimal(v) * 100:,.1f}".replace(",", " ").replace(".", ",")
+
+
+def _append_history_turn(history: Optional[list[dict]], user_text: str, assistant_text: str) -> list[dict]:
+    """Owner decision 7 fix, 2026-11-17 (real crash: `anthropic.BadRequestError` 400, "Invalid
+    `signature` in `thinking` block. The block is bound to a different conversation... Content
+    that preceded this block when it was created is missing from this request, starting at
+    messages.0.").
+
+    Root cause: this used to return `result.messages[-MAX_HISTORY_MESSAGES:]` - `run_agent_loop`'s
+    OWN internal turn-by-turn messages, verbatim, including `thinking`/`redacted_thinking` blocks
+    (Claude Haiku 5.5's adaptive thinking is on by default, see `agent_loop._content_block_to_dict`).
+    A `thinking` block's `signature` is cryptographically bound to the EXACT conversation prefix
+    that existed when it was generated; replaying it later - especially after this list was
+    truncated to the last N messages, which can drop that exact prefix - invalidates the binding.
+    Thinking blocks are only ever valid for the API within the single `run_agent_loop()` call that
+    produced them, never carried across separate incoming chat messages.
+
+    Fix: between turns, persist ONLY the user's own text and the assistant's final text, both as
+    plain strings - never any block type. Always appends a (user, assistant) PAIR, so the result -
+    like `history`, if it was itself produced by this same function - always starts with "user",
+    never "assistant" (a Messages API requirement MAX_HISTORY_MESSAGES's even-ness protects, since
+    slicing an alternating u,a,u,a,... sequence by an even count from the end preserves that).
+    """
+    updated = list(history or [])
+    updated.append({"role": "user", "content": user_text})
+    updated.append({"role": "assistant", "content": assistant_text})
+    return updated[-MAX_HISTORY_MESSAGES:]
 
 
 def client_ip(request: Request) -> str:
@@ -256,32 +294,50 @@ def create_app(extractor: Optional[Extractor] = None, calculator: Optional[Calcu
 
         # Vienas RequestContext vienai gaunamai žinutei (B0 design decision 2), kaip ir /asistentas
         # - `key`/`tier` ateina iš Java (žr. InternalChatRequest), NIEKADA iš žetono dekodavimo.
-        request_ctx = RequestContext(user_id=body.key, tier=body.tier or "anonymous")
+        # `message_text=text`: lets savings_tool.py's hallucinated-income heuristic guard check a
+        # model-supplied income figure against what the user actually said (owner decision,
+        # 2026-11-17).
+        request_ctx = RequestContext(user_id=body.key, tier=body.tier or "anonymous", message_text=text)
         started = time.monotonic()
+        request_id = str(uuid.uuid4())
         try:
             result = run_agent_loop(
                 agent_client, registry, agent_tools, request_ctx, token, text,
                 history=body.history, system=SYSTEM_PROMPT, model=agent_model,
             )
-        except (anthropic.APIStatusError, anthropic.APIError) as e:
-            logger.exception("agent chat: Claude API error")
-            return {"reply": AGENT_CHAT_UNAVAILABLE_REPLY}
+        except (anthropic.APIStatusError, anthropic.APIError):
+            # Owner decision, 2026-11-17: ERROR level (not just logger.exception's default, made
+            # explicit here) with request_id, so a real incident (e.g. the thinking-block/history
+            # crash this fix addresses) can actually be found in logs by that id; the user-facing
+            # text must say what to do next, not just "try later" - see AGENT_CHAT_API_ERROR_REPLY.
+            logger.error("agent chat: Claude API error", extra={"request_id": request_id}, exc_info=True)
+            return {"reply": AGENT_CHAT_API_ERROR_REPLY}
         duration_ms = int((time.monotonic() - started) * 1000)
 
         log_usage(**result.usage, tool_call_count=len(result.tool_calls), duration_ms=duration_ms)
 
         reply = build_response(result.tool_calls, result.final_text) or AGENT_CHAT_EMPTY_REPLY_FALLBACK
-        # Java/HttpSession persists this verbatim and hands it back as `history` next turn (owner
-        # decision 7) - capped so one long-lived session's history can't grow unboundedly.
-        # `stop_reason` (item 5): ChatController forwards this response as an opaque `Object`
-        # (never reads past "messages" - see its own javadoc), so this extra field is harmless to
-        # add - it exists purely so `run_eval.py --via-endpoint` can reconstruct the SAME
-        # `response_complete` check the direct-call path already gets from `AgentLoopResult`
-        # itself, which the HTTP response otherwise has no way to carry.
+        # Java/HttpSession persists "messages" verbatim and hands it back as `history` next turn
+        # (owner decision 7) - see `_append_history_turn`'s own docstring for why this is no
+        # longer `result.messages[-MAX_HISTORY_MESSAGES:]` (that used to replay thinking/tool
+        # blocks across turns, which crashed the Claude API once a truncated/updated prefix
+        # invalidated a thinking block's signature). Because "messages" is now plain (user,
+        # assistant-text) string pairs, it can no longer carry `tool_use`/`tool_result` blocks -
+        # `stop_reason`/`tool_calls`/`final_text` are therefore exposed as their OWN top-level
+        # fields (Decimal-safe: `tool_calls`' nested tool results round-trip through
+        # `json.dumps(default=str)`, same trick `agent_loop._dispatch_tool_call` already uses for
+        # the wire format Claude itself sees) purely so `run_eval.py --via-endpoint` can read the
+        # SAME shape `AgentLoopResult` gives the direct-call path, which the "messages" field
+        # alone can no longer carry. ChatController forwards the whole response as an opaque
+        # `Object` (never reads past "messages" - see its own javadoc), so these extra fields are
+        # harmless to add.
         return {
             "reply": reply,
-            "messages": result.messages[-MAX_HISTORY_MESSAGES:],
+            "messages": _append_history_turn(body.history, text, result.final_text or ""),
             "stop_reason": result.stop_reason,
+            "status": result.status,
+            "final_text": result.final_text,
+            "tool_calls": json.loads(json.dumps(result.tool_calls, default=str)),
         }
 
     @app.post("/internal/chat")

@@ -192,7 +192,8 @@ JUDGE_RUBRIC_VERSION = "v1"
 # after reviewing B6 eval #11).
 #
 # SCOPE (owner instruction, 2026-11-13): this threshold applies ONLY to the non-investment-advice
-# metrics (tool_sequence, no_invented_numbers, anon_no_premium, missing_income_handled). The
+# metrics (tool_sequence, no_invented_numbers, anon_no_premium, income_omitted_handled,
+# no_hallucinated_income). The
 # investment-advice checks - BOTH the deterministic noun scorer
 # (`scoring.score_no_banned_investment_terms`) AND this judge - are zero-tolerance in
 # `run_eval.py`: a single FAIL across the 3 runs/case is reported in full (with its text) for

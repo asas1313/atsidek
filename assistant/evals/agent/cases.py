@@ -8,7 +8,8 @@ functions grade the resulting `AgentLoopResult` against each case's expectations
 Schema (`EvalCase`, a frozen dataclass):
   - `id`: unique, descriptive case id (e.g. "tax_only_anon_01").
   - `group`: one of "tax_only" / "savings_only" / "combined" (AC-B6-1, the original 30-case
-    design), or "adversarial" / "tier_spoof" (added 2026-11-13, AC-B6-4 probing - see below).
+    design), "adversarial" / "tier_spoof" (added 2026-11-13, AC-B6-4 probing - see below), or
+    "multi_turn" (added 2026-11-17, bug 3 - see `conversation_turns` below).
   - `variant`: "anon" (no tier) or "logged_in" (tier "FREE"/"PREMIUM") (AC-B6-1/AC-B6-5).
   - `tier`: `None` for anon, "FREE" or "PREMIUM" for logged_in.
   - `user_message`: a realistic Lithuanian message a real user might type. Deliberately never
@@ -20,13 +21,25 @@ Schema (`EvalCase`, a frozen dataclass):
   - `expected_tool_sequence`: the tool NAMES, in the order they should be called
     (AC-B6-2); `[]` for a case where the model should ask instead of calling a tool
     (AC-B6-6), or where no legitimate tool call applies at all (`adversarial` group).
-  - `expect_clarifying_question`: `True` only for the AC-B6-6 missing-income cases below.
+  - `expect_income_omitted`: `True` for the missing-income cases below (owner decision,
+    2026-11-17, first real staging walkthrough - RENAMED/REPURPOSED from the old
+    `expect_clarifying_question`, which required the model to ask instead of calculating; that is
+    no longer correct behavior). Scored by `scoring.score_income_omitted_handled` (the tool is
+    called, income omitted, result has free-cash fields null plus an income-invitation tip) AND
+    `scoring.score_no_hallucinated_income` (neither tool call's income-bearing input field may
+    carry a number absent from the user's own message - the real bug this phase fixes).
   - `expected_annual_revenue`: set only for the monthly-income cases below (AC-B6-7) - the
     correctly-annualized (x12) figure the model's `calculate_iv_taxes` tool call INPUT must carry,
     scored by `scoring.score_tax_input_revenue_matches_expected`. `None` for every other case.
   - `expect_amount_clarifying_question`: `True` only for the missing-amount case below (owner
-    instruction, 2026-11-16) - mirrors `expect_clarifying_question` but for a savings goal with no
-    target amount stated, scored by `scoring.score_missing_amount_handled`.
+    instruction, 2026-11-16) - unlike income, a savings goal's AMOUNT is still genuinely required
+    (unaffected by the 2026-11-17 income decision), so the model must still ask for it, scored by
+    `scoring.score_missing_amount_handled`.
+  - `conversation_turns`: set only for the "multi_turn" case below (owner instruction, 2026-11-17,
+    bug 3 - the thinking-block/history crash). A tuple of >=5 user messages, each sent as its OWN
+    `/chat/send` call through the SAME session in `--via-endpoint` mode only (see
+    `run_eval._run_one_via_endpoint`) - exercises the real cross-turn `HttpSession` history growth
+    that reproduced the crash. `None` for every other case.
 
 30 "core" cases: 3 groups x 2 variants x 5 cases, per the plan's "~30 cases, balanced
 5-per-group-per-variant" target. `combined` cases give enough information in ONE message for the
@@ -35,12 +48,14 @@ model to call `calculate_iv_taxes` THEN `calculate_savings_plan` (using the retu
 OTHER) and modes (YEARS/DATE/CHILD_AGE/WHEN) are varied across the savings-involving
 (`savings_only` + `combined`) cases.
 
-At least 2 missing-income cases (AC-B6-6) are included - a `savings_only` message describing a
-goal but giving neither an income figure nor prior tax context, so the model should ask instead
-of guessing: `expected_tool_sequence=[]`, `expect_clarifying_question=True`. One is `anon`, one is
-`logged_in`, per the plan's explicit requirement. Their wording states no income figure simply by
-never mentioning income at all - not via an artificial "but I didn't say my income" aside, which
-no real user would type (2026-11-13 owner instruction).
+At least 4 missing-income cases (AC-B6-6, widened from 2 to >=4 on 2026-11-17 - owner decision,
+after a real staging bug: for "Noriu sutaupyti 8000 eurų per 4 metus kelionei." the model computed
+8000/4=2000 and passed it off as income) are included - a `savings_only` message stating a goal
+AMOUNT and TERM but giving neither an income figure nor prior tax context, in varied phrasings, so
+the model must call `calculate_savings_plan` WITHOUT inventing an income figure from that amount/
+term: `expected_tool_sequence=[SAVINGS_TOOL_NAME]`, `expect_income_omitted=True`. Their wording
+states no income figure simply by never mentioning income at all - not via an artificial "but I
+didn't say my income" aside, which no real user would type (2026-11-13 owner instruction).
 
 Added 2026-11-13 (owner instruction, AC-B6-4 probing, before the first live `workflow_dispatch`
 run):
@@ -61,6 +76,14 @@ run):
     testing whether the model correctly annualizes (x12) a MONTHLY IV income figure before calling
     `calculate_iv_taxes` - the tool only accepts an annual `revenue`, so a model that forgets to
     convert would silently pass a figure 12x too small.
+
+Added 2026-11-17 (owner decision, after the real staging walkthrough that found bugs 1-3):
+  - 2 more missing-income cases (widened from 2 to >=4 total - see `expect_income_omitted` above).
+  - 1 missing-amount case (see `expect_amount_clarifying_question` above).
+  - `multi_turn` group (1 case, anon only, `--via-endpoint` only): a >=5-turn conversation
+    reproducing bug 3 (a long chat eventually replying "agentas nepasiekiamas" once Java's
+    `HttpSession`-held history got truncated and broke a `thinking` block's conversation-binding
+    signature) - see `conversation_turns` above.
 """
 from dataclasses import dataclass
 from decimal import Decimal
@@ -69,7 +92,7 @@ from typing import Literal, Optional
 from app.savings_tool import TOOL_NAME as SAVINGS_TOOL_NAME
 from app.tax_tool import TOOL_NAME as TAX_TOOL_NAME
 
-Group = Literal["tax_only", "savings_only", "combined", "adversarial", "tier_spoof"]
+Group = Literal["tax_only", "savings_only", "combined", "adversarial", "tier_spoof", "multi_turn"]
 Variant = Literal["anon", "logged_in"]
 
 
@@ -81,9 +104,16 @@ class EvalCase:
     tier: Optional[str]
     user_message: str
     expected_tool_sequence: list[str]
-    expect_clarifying_question: bool = False
+    expect_income_omitted: bool = False
     expected_annual_revenue: Optional[Decimal] = None
     expect_amount_clarifying_question: bool = False
+    # Owner instruction (2026-11-17, bug 3 - the thinking-block/history crash): set ONLY for the
+    # "multi_turn" group case below. A tuple of >=5 user messages sent as SEPARATE `/chat/send`
+    # calls through the SAME session (see `run_eval._run_one_via_endpoint`) - the one shape that
+    # can reproduce a history-truncation crash; `run_eval._run_one` (the direct, in-process path)
+    # never touches `HttpSession` at all, so it just sends `user_message` (the LAST turn) alone.
+    # `None` for every other case - `user_message` by itself is already the real single turn sent.
+    conversation_turns: Optional[tuple[str, ...]] = None
 
 
 CASES: list[EvalCase] = [
@@ -208,8 +238,8 @@ CASES: list[EvalCase] = [
         variant="anon",
         tier=None,
         user_message="Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?",
-        expected_tool_sequence=[],
-        expect_clarifying_question=True,
+        expected_tool_sequence=[SAVINGS_TOOL_NAME],
+        expect_income_omitted=True,
     ),
     # --- savings_only / logged_in (5, 1 missing-income, mix of FREE/PREMIUM) -------------------
     EvalCase(
@@ -250,8 +280,8 @@ CASES: list[EvalCase] = [
         variant="logged_in",
         tier="FREE",
         user_message="Noriu namo pradiniam įnašui sutaupyti 30000 eurų per 8 metus. Kiek turėčiau atsidėti per mėnesį?",
-        expected_tool_sequence=[],
-        expect_clarifying_question=True,
+        expected_tool_sequence=[SAVINGS_TOOL_NAME],
+        expect_income_omitted=True,
     ),
     # --- combined / anon (5) ---------------------------------------------------------------------
     EvalCase(
@@ -488,11 +518,33 @@ CASES: list[EvalCase] = [
         expected_tool_sequence=[TAX_TOOL_NAME, SAVINGS_TOOL_NAME],
         expected_annual_revenue=Decimal("26400"),
     ),
+    # --- missing-income cases (2 more, varied phrasings) - widened >=4 total, owner decision
+    # 2026-11-17 (real staging bug: "Noriu sutaupyti 8000 eurų per 4 metus kelionei." -> model
+    # computed 8000/4=2000 and passed it off as income). The first is the EXACT repro message;
+    # the second varies both the phrasing and the goal mode (CHILD_AGE instead of YEARS).
+    EvalCase(
+        id="missing_income_anon_02",
+        group="savings_only",
+        variant="anon",
+        tier=None,
+        user_message="Noriu sutaupyti 8000 eurų per 4 metus kelionei.",
+        expected_tool_sequence=[SAVINGS_TOOL_NAME],
+        expect_income_omitted=True,
+    ),
+    EvalCase(
+        id="missing_income_logged_in_02",
+        group="savings_only",
+        variant="logged_in",
+        tier="FREE",
+        user_message="Vaikui dabar 6 metai, kai jam bus 16, norėtume turėti sutaupę 9000 eurų studijoms.",
+        expected_tool_sequence=[SAVINGS_TOOL_NAME],
+        expect_income_omitted=True,
+    ),
     # --- missing-amount case (1) - owner instruction 2026-11-16, stat_defaults sprendimas #4 ------
     # A savings goal with NO target amount stated at all - typical_amount is never auto-filled (the
-    # calculate_savings_plan tool's goal.amount is a REQUIRED schema field, just like
-    # net_monthly_income), so the model must ask for the amount instead of calling the tool, same
-    # treatment as the missing-income cases above. Scored by scoring.score_missing_amount_handled.
+    # calculate_savings_plan tool's goal.amount is a REQUIRED schema field, unlike net_monthly_income
+    # since 2026-11-17, see the missing-income cases above) - so the model must ask for the amount
+    # instead of calling the tool. Scored by scoring.score_missing_amount_handled.
     EvalCase(
         id="missing_amount_anon_01",
         group="savings_only",
@@ -501,6 +553,31 @@ CASES: list[EvalCase] = [
         user_message="Mano grynosios pajamos 1800 eurų per mėnesį, norėčiau pradėti taupyti automobiliui per 4 metus.",
         expected_tool_sequence=[],
         expect_amount_clarifying_question=True,
+    ),
+    # --- multi_turn case (1) - owner instruction 2026-11-17, bug 3 (the thinking-block/history
+    # crash: a long conversation eventually failed with "agentas nepasiekiamas" once Java's
+    # HttpSession-held history got truncated and broke a thinking block's conversation-binding
+    # signature). Only `--via-endpoint` sends every turn in `conversation_turns` through the SAME
+    # session - see `conversation_turns`'s own field docstring and `run_eval._run_one_via_endpoint`.
+    # All 6 turns restate the SAME goal/income consistently (never introduce a figure the model
+    # would have to recall from an EARLIER turn's now-discarded tool context) so the LAST turn
+    # (`user_message` below) still scores exactly like any other single-turn savings_only case -
+    # this case's real point is simply that turn 6 is reachable at all without an API error.
+    EvalCase(
+        id="multi_turn_history_anon_01",
+        group="multi_turn",
+        variant="anon",
+        tier=None,
+        user_message="Taigi, kiek tiksliai turėčiau sutaupyti kas mėnesį 12000 eurų tikslui per 5 metus, turint 1700 eurų pajamų per mėnesį?",
+        expected_tool_sequence=[SAVINGS_TOOL_NAME],
+        conversation_turns=(
+            "Noriu sutaupyti 12000 eurų kelionei aplink pasaulį per 5 metus.",
+            "Dirbu nuotoliniu būdu ir uždirbu apie 1700 eurų per mėnesį.",
+            "Primink, kiek man reikėtų atsidėti per mėnesį šiam tikslui?",
+            "O kiek liktų laisvų pinigų, jei mano išlaidos yra 1200 eurų per mėnesį?",
+            "Supratau, ar tai realu per tokį terminą?",
+            "Taigi, kiek tiksliai turėčiau sutaupyti kas mėnesį 12000 eurų tikslui per 5 metus, turint 1700 eurų pajamų per mėnesį?",
+        ),
     ),
 ]
 

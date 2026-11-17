@@ -267,9 +267,16 @@ class SavingsPlanApiControllerTest {
     }
 
     @Test
-    void missingNetMonthlyIncomeIsRejectedWith400() throws Exception {
+    void missingNetMonthlyIncomeStillComputesContributionWithNullFreeCashFields() throws Exception {
+        // Owner decision, 2026-11-17 (first real staging walkthrough): this used to be a 400.
         plan("{\"goal\":{\"type\":\"CAR\",\"amount\":1200,\"mode\":\"YEARS\",\"years\":5}}")
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.core.monthly_contribution").exists())
+                .andExpect(jsonPath("$.core.free_cash_monthly").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.core.share_of_free_cash_pct").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.core.fits").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.core.general_tip").value(
+                        "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas."));
     }
 
     @Test

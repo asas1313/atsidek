@@ -11,11 +11,16 @@ import java.util.List;
  * (PLAN-taupymas-agentas.md A3). Skaičiai čia visada iš {@code eu.atsidek.goals.GoalsEngine} per
  * {@link SavingsPlanService} - niekada iš naujo neskaičiuojami kitaip.
  *
- * @param monthlyContribution  mėnesio įmoka
- * @param freeCashMonthly      laisvi pinigai/mėn. ({@code net_monthly_income - monthly_tax_setaside - monthly_expenses})
- * @param shareOfFreeCashPct   įmokos dalis nuo laisvų pinigų, procentais
- * @param fits                 ar tikslas telpa į laisvus pinigus (ne {@code UNREALISTIC}/{@code NO_FREE_CASH})
- * @param generalTip           deterministinis patarimo šablonas, priklausantis nuo verdikto
+ * @param monthlyContribution  mėnesio įmoka - VISADA paskaičiuota, net kai {@code net_monthly_income}
+ *                             nenurodytas (owner sprendimas, 2026-11-17, po pirmo tikro staging
+ *                             patikrinimo: šis skaičius niekada nereikalauja pajamų)
+ * @param freeCashMonthly      laisvi pinigai/mėn. ({@code net_monthly_income - monthly_tax_setaside - monthly_expenses});
+ *                             {@code null}, kai {@code net_monthly_income} nenurodytas (nežinomas, NE 0)
+ * @param shareOfFreeCashPct   įmokos dalis nuo laisvų pinigų, procentais; {@code null} tiksliai tada, kai {@code freeCashMonthly} yra {@code null}
+ * @param fits                 ar tikslas telpa į laisvus pinigus (ne {@code UNREALISTIC}/{@code NO_FREE_CASH});
+ *                             {@code null} ("nežinoma"), kai {@code freeCashMonthly} yra {@code null}
+ * @param generalTip           deterministinis patarimo šablonas; kai {@code freeCashMonthly} yra
+ *                             {@code null}, tai kvietimas nurodyti pajamas (ne verdikto patarimas)
  * @param assumptions          reikšmės, kurių vartotojas nenurodė (žr. {@link AssumptionEntry})
  * @param disclaimer           fiksuotas teisinis atsiribojimas
  * @param reachable            ar tikslas pasiekiamas su nurodyta įmoka per 50 m. (owner instrukcija,
@@ -31,7 +36,7 @@ public record Core(
         BigDecimal monthlyContribution,
         BigDecimal freeCashMonthly,
         BigDecimal shareOfFreeCashPct,
-        boolean fits,
+        Boolean fits,
         String generalTip,
         List<AssumptionEntry> assumptions,
         String disclaimer,

@@ -127,9 +127,11 @@ class AtsidekApi:
             žino, ką daryti su trūkstama reikšme (`SavingsPlanService.nz()` → 0 mokesčių
             atidėjimui, `resolveMonthlyExpenses()` → iš `stat_defaults` išlaidoms; šis klientas
             NEI vieno iš tų sprendimų neturi daryti pats, kad neuzurpuotų Java pusės logikos).
-          * `net_monthly_income` TURI būti privalomas pagal Java kontraktą (trūkstamas → 400) -
-            tai handler'io (ne šio klientų sluoksnio) atsakomybė visada jį rezultatyviai
-            nustatyti PRIEŠ šio metodo kvietimą (žr. B2-pairing-notes.md).
+          * `net_monthly_income` NUO 2026-11-17 (owner sprendimas po pirmo tikro staging
+            patikrinimo) taip pat NEBĖRA keičiamas, kai `None` - Java pati sprendžia, ar
+            skaičiuoti laisvų pinigų įvertinimą (žr. `SavingsPlanService.buildCore`): `resolve_income`
+            (handler'is `savings_tool.py`) gali šį metodą kviesti su `None`, kai vartotojas
+            pajamų iš viso nenurodė - tai NE klaida.
           * pinigų reikšmės JSON kūne - eilutės, ne float (`_json_default_decimal_as_str`).
         """
         if not self.api_key:

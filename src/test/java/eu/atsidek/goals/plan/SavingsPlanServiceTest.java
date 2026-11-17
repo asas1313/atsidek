@@ -227,14 +227,21 @@ class SavingsPlanServiceTest {
     }
 
     @Test
-    void missingNetMonthlyIncomeIsRejectedWith400() {
+    void missingNetMonthlyIncomeStillComputesContributionButLeavesFreeCashFieldsNull() {
+        // Owner decision, 2026-11-17 (first real staging walkthrough): a goal with no income
+        // mentioned at all ("Noriu sutaupyti 8000 eurų per 4 metus kelionei.") used to 400 here -
+        // the monthly contribution never needed income, only the free-cash fit assessment did.
         SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
                 statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
         SavingsPlanRequest req = request(yearsGoal("15000", 5), null, null, "1350");
 
-        assertThatThrownBy(() -> service.plan(req, null))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("net_monthly_income");
+        SavingsPlanResponse response = service.plan(req, null);
+
+        assertThat(response.core().monthlyContribution()).isNotNull();
+        assertThat(response.core().freeCashMonthly()).isNull();
+        assertThat(response.core().shareOfFreeCashPct()).isNull();
+        assertThat(response.core().fits()).isNull();
+        assertThat(response.core().generalTip()).isEqualTo("Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas.");
     }
 
     @Test

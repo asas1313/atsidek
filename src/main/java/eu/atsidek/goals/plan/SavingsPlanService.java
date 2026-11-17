@@ -60,8 +60,9 @@ public class SavingsPlanService {
      * {@code income} čia defensyviai įtrauktas, nors nepasiekiamas - B6 incident pataisa (žr.
      * {@link #plan}) pašalino ankstesnį kryžminį {@code net_monthly_income}/
      * {@code monthly_tax_setaside} patikrinimą, nes {@code income} DABAR yra tiesiog
-     * {@code request.netMonthlyIncome()} (privalomas ir jau patikrintas {@link #checkAmount}, kad
-     * nebūtų neigiamas) - niekada nenukeliauja neigiamas iki {@code GoalsService.validate()}; įrašas
+     * {@code request.netMonthlyIncome()} - NEBEprivalomas (2026-11-17 owner sprendimas, žr.
+     * {@link #validate}), bet VISADA jau patikrintas {@link #checkAmount}, kad, jei PATEIKTAS,
+     * nebūtų neigiamas - niekada nenukeliauja neigiamas iki {@code GoalsService.validate()}; įrašas
      * paliktas, kad naujas patikrinimas tyliai nenutekėtų, jei šis apribojimas kada pasikeistų.
      * {@code expenses} TAI PRIEŠINGAI YRA REALIAI PASIEKIAMAS (review finding, round 2): kai
      * {@code monthly_expenses} praleistas, reikšmę skaičiuoja {@link #resolveMonthlyExpenses} per
@@ -121,7 +122,12 @@ public class SavingsPlanService {
         // combined_logged_in_02: 365,07 vietoj teisingo 815,87). `monthly_tax_setaside` yra TIK
         // rodymui (jau parodyta vartotojui per mokesčių skaičiavimo žingsnį) - laisviems pinigams
         // niekada nenaudojamas. Žr. A3 kontrakto aprašą (PLAN-taupymas-agentas.md) dėl formulės.
-        BigDecimal income = nz(request.netMonthlyIncome());
+        //
+        // Owner sprendimas, 2026-11-17 (po pirmo tikro staging patikrinimo): SĄMONINGAI NE nz(...)
+        // čia - request.netMonthlyIncome() keliauja į GoalInput/Household NEPAKEISTAS (gali būti
+        // null = "nenurodytas"), kad GoalsEngine galėtų atskirti "nežinoma" nuo "žinoma, 0" (žr.
+        // jo komentarą) - su nz() visi "nenurodyta" atvejai taptų neteisingu NO_FREE_CASH.
+        BigDecimal income = request.netMonthlyIncome();
 
         GoalInput goalInput = toGoalInput(request, income, monthlyExpenses);
         GoalResult result = calculate(goalInput);
@@ -193,12 +199,12 @@ public class SavingsPlanService {
         if (request.goal() == null) {
             errors.add("goal privalomas");
         }
-        if (request.netMonthlyIncome() == null) {
-            // PLAN.md principas: pajamos niekada neimamos iš statistikos; čia (sinchroninė API, be
-            // agento ciklo) nėra kam paklausti, todėl aiškus 400, ne spėjimas.
-            errors.add("net_monthly_income privalomas - be jo neskaičiuojami laisvi pinigai, "
-                    + "o pajamų niekada negalima spėti iš statistikos");
-        }
+        // Owner sprendimas, 2026-11-17 (po pirmo tikro staging patikrinimo): net_monthly_income
+        // NEBĖRA privalomas čia (anksčiau 400, jei nenurodytas) - PLAN.md principas "pajamos
+        // niekada neimamos iš statistikos/nespėjamos" IŠLIEKA (net_monthly_income tebelieka tik iš
+        // vartotojo paties nurodyto skaičiaus arba ankstesnio mokesčių skaičiavimo), bet trūkstamos
+        // pajamos dabar reiškia "skaičiuok įmoką/datą be laisvų pinigų įvertinimo", ne atmetimą -
+        // žr. GoalsEngine#calculate komentarą ir SavingsPlanService#buildCore.
         checkAmount("net_monthly_income", request.netMonthlyIncome(), errors);
         checkAmount("monthly_tax_setaside", request.monthlyTaxSetaside(), errors);
         checkAmount("monthly_expenses", request.monthlyExpenses(), errors);
@@ -270,9 +276,15 @@ public class SavingsPlanService {
     }
 
     private static Core buildCore(GoalResult result, List<AssumptionEntry> assumptions, GoalMode mode) {
-        boolean fits = result.verdict() != Verdict.UNREALISTIC && result.verdict() != Verdict.NO_FREE_CASH;
-        BigDecimal sharePct = result.share().multiply(PERCENT_SCALE).setScale(2, RoundingMode.HALF_UP);
-        return new Core(result.monthly(), result.freeCash(), sharePct, fits, generalTip(result.verdict(), mode),
+        // Owner sprendimas, 2026-11-17: result.verdict() yra null tiksliai tada, kai pajamos
+        // nenurodytos (žr. GoalsEngine#calculate) - fits/sharePct/generalTip tada taip pat null
+        // ("nežinoma"), ne false/0/verdikto patarimas, kad klientas (čia - Python response_builder)
+        // negalėtų supainioti "nežinoma" su "žinoma, bet netelpa".
+        Verdict verdict = result.verdict();
+        Boolean fits = verdict == null ? null : verdict != Verdict.UNREALISTIC && verdict != Verdict.NO_FREE_CASH;
+        BigDecimal sharePct = result.share() == null ? null
+                : result.share().multiply(PERCENT_SCALE).setScale(2, RoundingMode.HALF_UP);
+        return new Core(result.monthly(), result.freeCash(), sharePct, fits, generalTip(verdict, mode),
                 List.copyOf(assumptions), DISCLAIMER, result.reachable(), result.reachDate());
     }
 
@@ -288,6 +300,11 @@ public class SavingsPlanService {
      * vartotojo įvestis) - WHEN režimui šis "terminu" žodis taip pat pašalinamas.
      */
     private static String generalTip(Verdict verdict, GoalMode mode) {
+        // Owner sprendimas, 2026-11-17: verdict null ("pajamos nenurodytos", žr. #buildCore) ->
+        // kvietimas nurodyti pajamas, NE verdikto patarimas (nėra verdikto, kurį patarti pagal).
+        if (verdict == null) {
+            return "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas.";
+        }
         String adjustAdvice = mode == GoalMode.WHEN
                 ? "apsvarstykite mažesnę įmoką"
                 : "apsvarstykite ilgesnį terminą arba mažesnę sumą";

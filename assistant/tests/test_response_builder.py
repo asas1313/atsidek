@@ -936,3 +936,68 @@ def test_general_tip_is_rendered_verbatim_no_informal_rewrite():
     text = build_response(tool_calls, None)
 
     assert SAVINGS_RESULT["core"]["general_tip"] in text
+
+
+# --- Owner decision, 2026-11-17 (first real staging walkthrough): income can be absent ---------
+
+NO_INCOME_RESULT = {
+    "tier": "FREE",
+    "core": {
+        "monthly_contribution": 166.67,
+        "free_cash_monthly": None,
+        "share_of_free_cash_pct": None,
+        "fits": None,
+        "general_tip": "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas.",
+        "assumptions": [],
+        "disclaimer": "Šis skaičiavimas yra informacinio pobūdžio ir nėra finansinė konsultacija.",
+    },
+    "locked_features": [],
+    "income_origin": None,
+}
+
+
+def test_no_income_renders_contribution_and_the_invitation_sentence_no_free_cash_line():
+    """"Noriu sutaupyti 8000 eurų per 4 metus kelionei." (no income mentioned) must still get a
+    computed monthly contribution back, plus Java's own invitation to provide income - never a
+    free-cash/percentage line, since there is nothing to compute it from."""
+    tool_calls = [savings_call(result=NO_INCOME_RESULT)]
+
+    text = build_response(tool_calls, None)
+
+    assert "166,67" in text
+    assert "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas." in text
+    assert "laisvų pinigų" not in text.lower()
+    assert "Laisvų pinigų per mėnesį lieka" not in text
+
+
+def test_no_income_tax_calc_id_origin_is_none_not_a_crash():
+    tool_calls = [savings_call(result=NO_INCOME_RESULT)]
+
+    text = build_response(tool_calls, None)
+
+    assert text  # no crash building the CTA/origin-dependent sections with income_origin=None
+
+
+def test_when_mode_no_income_reach_date_renders_as_a_plain_fact_not_the_conditional_sentence():
+    """`fits=None` (unknown, income not stated) must NOT trigger the "jei pavyktų" reframing that
+    `fits=False` (known, doesn't fit) does - there is no evidence the contribution doesn't fit."""
+    result = {
+        "core": {
+            "monthly_contribution": 100.0,
+            "free_cash_monthly": None,
+            "share_of_free_cash_pct": None,
+            "fits": None,
+            "general_tip": "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas.",
+            "assumptions": [],
+            "disclaimer": "disc",
+            "reachable": True,
+            "reach_date": "2027-03-13",
+        },
+        "locked_features": [],
+    }
+    tool_calls = [savings_call(result=result, input={"goal": {"mode": "WHEN"}})]
+
+    text = build_response(tool_calls, None)
+
+    assert "Su nurodyta įmoka tikslą pasieksite 2027 m. kovo mėn." in text
+    assert "Jei pavyktų atidėti" not in text

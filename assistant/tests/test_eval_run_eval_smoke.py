@@ -586,18 +586,16 @@ def _fake_case_result(case_id: str, final_text: str, tool_calls: list) -> dict:
     }
 
 
-def test_rescore_recomputes_missing_income_handled_for_a_non_question_request(tmp_path):
-    """End-to-end check of item 8's fix via item 9's --rescore: a past stored run whose final_text
-    is a non-question income request (score_missing_income_handled used to fail this - no "?")
-    must now PASS when rescored with the fixed scorer, without any new LLM call."""
+def test_rescore_runs_cleanly_end_to_end_for_a_stored_run_with_no_tool_calls(tmp_path):
+    """Item 9's --rescore, end-to-end: a past stored run (here, a minimal stand-in with no tool
+    calls at all) must re-score cleanly without any new LLM call, carrying over the ORIGINAL run's
+    own date/git metadata (see the final assertions below) rather than today's."""
     run_eval = importlib.import_module("evals.agent.run_eval")
     from evals.agent.cases import CASES
 
     case = next(c for c in CASES if c.id == "tax_only_anon_01")
     assert case.expected_tool_sequence  # sanity: this case expects a tool call, not a question
 
-    # Reuse a real missing-income case shape by overriding expect_clarifying_question via a
-    # minimal stand-in stored result: no successful savings call, a non-question income request.
     stored = {
         "model": "claude-haiku-5-5",
         "date": "2026-11-11",
@@ -660,9 +658,13 @@ def test_rescore_keeps_a_stored_judge_verdict_unchanged_and_never_recalls_the_ju
 
 # --- item 5 (owner instruction 2026-11-17): --via-endpoint ---------------------------------
 #
-# Pure reconstruction logic (_coerce_decimal_strings/_reconstruct_tool_calls/
-# _reconstruct_final_text_and_status) plus the mocked-httpx session/CSRF helpers - no real
-# network call, no real Java backend, same spirit as the context-token tests above.
+# `_coerce_decimal_strings` plus the mocked-httpx session/CSRF helpers - no real network call, no
+# real Java backend, same spirit as the context-token tests above. (The former
+# `_reconstruct_tool_calls`/`_reconstruct_final_text_and_status` functions and their tests were
+# REMOVED on 2026-11-17, bug 3's fix: `_agent_chat`'s "messages" field is now plain-text history
+# for the NEXT turn, not Messages-API blocks, so `_run_one_via_endpoint` reads `tool_calls`/
+# `final_text`/`status`/`stop_reason` directly off the response body instead of reconstructing
+# them - see `main.py`'s `_agent_chat` and `run_eval._run_one_via_endpoint`.)
 
 def test_coerce_decimal_strings_turns_a_stringified_decimal_back_into_one():
     from decimal import Decimal
@@ -694,100 +696,87 @@ def test_coerce_decimal_strings_walks_lists_too():
     assert coerced == [{"a": Decimal("1.5")}, Decimal("2.5"), "not-a-number"]
 
 
-def test_reconstruct_tool_calls_matches_a_successful_tool_result_to_its_tool_use():
+def test_run_one_via_endpoint_sends_every_conversation_turn_through_the_same_client_and_scores_the_last(monkeypatch):
+    """Owner decision, 2026-11-17, bug 3 - the `multi_turn` case's whole point: every turn must go
+    through the SAME session (one client, never re-minted/re-opened mid-case), each turn checked
+    for a successful "messages" key as it happens, and the FINAL turn's own `tool_calls`/
+    `final_text`/`status`/`stop_reason` (now read directly off the response body, not
+    reconstructed from "messages" - see this file's own note above) are what gets scored."""
     run_eval = importlib.import_module("evals.agent.run_eval")
-    from decimal import Decimal
+    from evals.agent.cases import EvalCase
 
-    messages = [
-        {"role": "user", "content": "Kiek mokesčių sumoku nuo 2400 € IV pajamų?"},
-        {"role": "assistant", "content": [
-            {"type": "tool_use", "id": "tu1", "name": "calculate_iv_taxes", "input": {"revenue": 2400}},
-        ]},
-        {"role": "user", "content": [
-            {"type": "tool_result", "tool_use_id": "tu1", "content": '{"total_tax": "458.79"}'},
-        ]},
-        {"role": "assistant", "content": [{"type": "text", "text": "Štai jūsų mokesčiai."}]},
-    ]
+    case = EvalCase(
+        id="fake_multi_turn", group="multi_turn", variant="anon", tier=None,
+        user_message="turn3", expected_tool_sequence=[],
+        conversation_turns=("turn1", "turn2", "turn3"),
+    )
 
-    tool_calls = run_eval._reconstruct_tool_calls(messages)
+    closed = []
 
-    assert len(tool_calls) == 1
-    call = tool_calls[0]
-    assert call["id"] == "tu1"
-    assert call["name"] == "calculate_iv_taxes"
-    assert call["input"] == {"revenue": 2400}
-    assert call["result"] == {"total_tax": Decimal("458.79")}
-    assert call["error"] is None
-    assert call["is_error"] is False
+    class _FakeClient:
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(run_eval, "_via_endpoint_client", lambda c, base_url, api_key: _FakeClient())
+
+    sent_messages = []
+    responses = {
+        "turn1": {"messages": [{"role": "user", "content": "turn1"}, {"role": "assistant", "content": "ok1"}]},
+        "turn2": {
+            "messages": [
+                {"role": "user", "content": "turn1"}, {"role": "assistant", "content": "ok1"},
+                {"role": "user", "content": "turn2"}, {"role": "assistant", "content": "ok2"},
+            ],
+        },
+        "turn3": {
+            "messages": [
+                {"role": "user", "content": "turn1"}, {"role": "assistant", "content": "ok1"},
+                {"role": "user", "content": "turn2"}, {"role": "assistant", "content": "ok2"},
+                {"role": "user", "content": "turn3"}, {"role": "assistant", "content": "Galiausiai."},
+            ],
+            "tool_calls": [],
+            "final_text": "Galiausiai.",
+            "status": "completed",
+            "stop_reason": "end_turn",
+        },
+    }
+
+    def fake_chat_send(client, message):
+        sent_messages.append(message)
+        return responses[message]
+
+    monkeypatch.setattr(run_eval, "_via_endpoint_chat_send", fake_chat_send)
+
+    run_record = run_eval._run_one_via_endpoint(case, "http://x", "key")
+
+    assert sent_messages == ["turn1", "turn2", "turn3"]
+    assert closed == [True]  # client closed exactly once, after ALL turns - never reopened mid-case
+    assert run_record["final_text"] == "Galiausiai."
+    assert run_record["status"] == "completed"
+    assert run_record["stop_reason"] == "end_turn"
 
 
-def test_reconstruct_tool_calls_captures_an_error_tool_result():
+def test_run_one_via_endpoint_raises_immediately_on_the_first_turn_missing_messages_not_the_last():
     run_eval = importlib.import_module("evals.agent.run_eval")
+    from evals.agent.cases import EvalCase
+    import pytest
 
-    messages = [
-        {"role": "user", "content": "..."},
-        {"role": "assistant", "content": [
-            {"type": "tool_use", "id": "tu1", "name": "calculate_savings_plan", "input": {}},
-        ]},
-        {"role": "user", "content": [
-            {"type": "tool_result", "tool_use_id": "tu1", "content": "trūksta pajamų", "is_error": True},
-        ]},
-    ]
+    case = EvalCase(
+        id="fake_multi_turn_broken", group="multi_turn", variant="anon", tier=None,
+        user_message="turn2", expected_tool_sequence=[],
+        conversation_turns=("turn1", "turn2"),
+    )
 
-    tool_calls = run_eval._reconstruct_tool_calls(messages)
+    class _FakeClient:
+        def close(self):
+            pass
 
-    assert tool_calls[0]["result"] is None
-    assert tool_calls[0]["error"] == "trūksta pajamų"
-    assert tool_calls[0]["is_error"] is True
+    import unittest.mock as mock
 
-
-def test_reconstruct_tool_calls_preserves_model_issued_order_across_multiple_turns():
-    run_eval = importlib.import_module("evals.agent.run_eval")
-
-    messages = [
-        {"role": "user", "content": "..."},
-        {"role": "assistant", "content": [{"type": "tool_use", "id": "tu1", "name": "a", "input": {}}]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu1", "content": "{}"}]},
-        {"role": "assistant", "content": [{"type": "tool_use", "id": "tu2", "name": "b", "input": {}}]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu2", "content": "{}"}]},
-    ]
-
-    tool_calls = run_eval._reconstruct_tool_calls(messages)
-
-    assert [c["name"] for c in tool_calls] == ["a", "b"]
-
-
-def test_reconstruct_final_text_and_status_for_a_completed_text_only_last_turn():
-    run_eval = importlib.import_module("evals.agent.run_eval")
-
-    messages = [
-        {"role": "user", "content": "..."},
-        {"role": "assistant", "content": [{"type": "text", "text": "Štai jūsų mokesčiai."}]},
-    ]
-
-    final_text, status, stop_reason = run_eval._reconstruct_final_text_and_status(messages, "end_turn")
-
-    assert final_text == "Štai jūsų mokesčiai."
-    assert status == "completed"
-    assert stop_reason == "end_turn"
-
-
-def test_reconstruct_final_text_and_status_for_a_max_iterations_exceeded_run():
-    """The real `run_agent_loop` never appends a trailing assistant turn when the iteration limit
-    is hit mid-loop - the LAST element is the final tool-result (user) turn instead."""
-    run_eval = importlib.import_module("evals.agent.run_eval")
-
-    messages = [
-        {"role": "user", "content": "..."},
-        {"role": "assistant", "content": [{"type": "tool_use", "id": "tu1", "name": "a", "input": {}}]},
-        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu1", "content": "{}"}]},
-    ]
-
-    final_text, status, stop_reason = run_eval._reconstruct_final_text_and_status(messages, None)
-
-    assert final_text == run_eval.TOO_MANY_STEPS_MESSAGE
-    assert status == "max_iterations_exceeded"
-    assert stop_reason is None
+    with mock.patch.object(run_eval, "_via_endpoint_client", return_value=_FakeClient()), \
+            mock.patch.object(run_eval, "_via_endpoint_chat_send", return_value={"limited": True}):
+        with pytest.raises(RuntimeError, match="turn1"):
+            run_eval._run_one_via_endpoint(case, "http://x", "key")
 
 
 def test_mint_eval_session_raises_on_a_tier_mismatch_instead_of_returning_silently(monkeypatch):

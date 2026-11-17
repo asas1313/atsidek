@@ -13,9 +13,10 @@ from evals.agent.scoring import (
     extract_numbers,
     rendered_numbers,
     score_anon_no_premium,
+    score_income_omitted_handled,
     score_missing_amount_handled,
-    score_missing_income_handled,
     score_no_banned_investment_terms,
+    score_no_hallucinated_income,
     score_no_invented_numbers,
     score_response_complete,
     score_tax_input_revenue_matches_expected,
@@ -24,22 +25,22 @@ from evals.agent.scoring import (
 )
 
 
-def tax_call(call_id="t1", is_error=False, result=None, error=None):
+def tax_call(call_id="t1", is_error=False, result=None, error=None, input=None):
     return {
         "id": call_id,
         "name": TAX_TOOL_NAME,
-        "input": {},
+        "input": input if input is not None else {},
         "result": result,
         "error": error,
         "is_error": is_error,
     }
 
 
-def savings_call(call_id="s1", is_error=False, result=None, error=None):
+def savings_call(call_id="s1", is_error=False, result=None, error=None, input=None):
     return {
         "id": call_id,
         "name": SAVINGS_TOOL_NAME,
-        "input": {},
+        "input": input if input is not None else {},
         "result": result,
         "error": error,
         "is_error": is_error,
@@ -268,100 +269,97 @@ def test_score_anon_no_premium_passes_vacuously_when_no_savings_result_present()
     assert score_anon_no_premium([], "anon") is True
 
 
-# --- score_missing_income_handled (AC-B6-6) ---------------------------------------------------------
+# --- score_income_omitted_handled / score_no_hallucinated_income (owner decision, 2026-11-17, --
+# --- REPLACES the old score_missing_income_handled - AC-B6-6 behavior flipped: the tool must be --
+# --- called WITHOUT income, never refuse to calculate) ------------------------------------------
 
-def test_score_missing_income_handled_passes_on_a_clean_clarifying_question():
-    final_text = "Kiek yra tavo grynosios mėnesio pajamos?"
-    assert score_missing_income_handled([], final_text) is True
+SAVINGS_RESULT_INCOME_OMITTED = {
+    "tier": "FREE",
+    "core": {
+        "monthly_contribution": 166.67,
+        "free_cash_monthly": None,
+        "share_of_free_cash_pct": None,
+        "fits": None,
+        "general_tip": "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas.",
+        "assumptions": [],
+        "disclaimer": "disc",
+    },
+    "locked_features": [],
+    "income_origin": None,
+}
 
 
-def test_score_missing_income_handled_fails_if_a_successful_savings_result_exists():
+def test_score_income_omitted_handled_passes_when_contribution_computed_and_free_cash_null():
+    calls = [savings_call(result=SAVINGS_RESULT_INCOME_OMITTED)]
+    assert score_income_omitted_handled(calls) is True
+
+
+def test_score_income_omitted_handled_fails_when_no_successful_savings_result_exists():
+    """A clarifying question instead of calling the tool is no longer correct behavior - this
+    must fail, the OPPOSITE of the old score_missing_income_handled's premise."""
+    assert score_income_omitted_handled([]) is False
+
+
+def test_score_income_omitted_handled_fails_if_failed_attempt_only_no_success():
+    calls = [savings_call(is_error=True, result=None, error="boom")]
+    assert score_income_omitted_handled(calls) is False
+
+
+def test_score_income_omitted_handled_fails_if_free_cash_was_actually_computed():
+    """A result WITH income (free_cash_monthly not null) is not an "income omitted" result at
+    all - wrong case shape, must fail."""
     calls = [savings_call(result=SAVINGS_RESULT_NO_PREMIUM)]
-    final_text = "Ar galėtum patikslinti pajamas?"
-    assert score_missing_income_handled(calls, final_text) is False
+    assert score_income_omitted_handled(calls) is False
 
 
-def test_score_missing_income_handled_tolerates_a_failed_savings_attempt_then_a_question():
-    calls = [savings_call(is_error=True, result=None, error="Nėra grynųjų pajamų")]
-    final_text = "Kokios yra tavo mėnesio grynosios pajamos?"
-    assert score_missing_income_handled(calls, final_text) is True
+def test_score_income_omitted_handled_fails_if_general_tip_does_not_invite_income():
+    result = {**SAVINGS_RESULT_INCOME_OMITTED,
+              "core": {**SAVINGS_RESULT_INCOME_OMITTED["core"], "general_tip": "Viskas gerai."}}
+    calls = [savings_call(result=result)]
+    assert score_income_omitted_handled(calls) is False
 
 
-def test_score_missing_income_handled_fails_if_question_text_contains_a_number():
-    final_text = "Ar tavo pajamos yra apie 1500 eurų?"
-    assert score_missing_income_handled([], final_text) is False
+def test_score_income_omitted_handled_fails_if_monthly_contribution_itself_is_missing():
+    """Defensive: a null-free-cash result with NO computed contribution either would mean the
+    tool call failed to produce the one thing this whole decision was meant to guarantee."""
+    result = {**SAVINGS_RESULT_INCOME_OMITTED,
+              "core": {**SAVINGS_RESULT_INCOME_OMITTED["core"], "monthly_contribution": None}}
+    calls = [savings_call(result=result)]
+    assert score_income_omitted_handled(calls) is False
 
 
-def test_score_missing_income_handled_recognizes_a_direct_non_question_income_request():
-    """Owner instruction (2026-11-16, after B6 eval #11, item 8): a genuine income request isn't
-    always phrased as a question - this used to fail purely for lacking "?", even though it
-    clearly asks for income ("reikėtų" + "pajamas")."""
-    final_text = "Reikėtų žinoti tavo pajamas."
-    assert score_missing_income_handled([], final_text) is True
+def test_score_no_hallucinated_income_passes_when_net_monthly_income_omitted_entirely():
+    calls = [savings_call(input={"goal": {"amount": 8000, "years": 4}})]
+    assert score_no_hallucinated_income(calls, "Noriu sutaupyti 8000 eurų per 4 metus kelionei.") is True
 
 
-def test_score_missing_income_handled_still_fails_on_text_that_merely_mentions_income_in_passing():
-    """Merely containing "pajamos" is not enough - no "?" and no request stem (reik/pasaky/nurody/
-    praš/trūksta) means this isn't actually asking the user for anything."""
-    final_text = "Pajamos šiais laikais svyruoja daug."
-    assert score_missing_income_handled([], final_text) is False
+def test_score_no_hallucinated_income_fails_if_net_monthly_income_absent_from_user_message():
+    """Reproduces the real bug: the model computed 8000/4=2000 and passed it as
+    net_monthly_income - 2000 never appears in the user's own message."""
+    calls = [savings_call(input={"net_monthly_income": Decimal("2000")})]
+    assert score_no_hallucinated_income(calls, "Noriu sutaupyti 8000 eurų per 4 metus kelionei.") is False
 
 
-def test_score_missing_income_handled_fails_on_text_with_no_question_mark_and_no_income_mention():
-    final_text = "Ačiū, duomenis patikrinsiu vėliau."
-    assert score_missing_income_handled([], final_text) is False
+def test_score_no_hallucinated_income_passes_if_the_income_figure_was_actually_stated():
+    calls = [savings_call(input={"net_monthly_income": Decimal("2000")})]
+    user_message = "Noriu sutaupyti 8000 eurų per 4 metus, gaunu 2000 € per mėnesį."
+    assert score_no_hallucinated_income(calls, user_message) is True
 
 
-def test_score_missing_income_handled_fails_on_empty_text():
-    assert score_missing_income_handled([], "") is False
-    assert score_missing_income_handled([], None) is False
+def test_score_no_hallucinated_income_fails_if_tax_revenue_absent_from_user_message():
+    calls = [tax_call(input={"revenue": Decimal("50000")})]
+    assert score_no_hallucinated_income(calls, "Noriu sutaupyti 8000 eurų per 4 metus kelionei.") is False
 
 
-def test_score_missing_income_handled_tolerates_echoing_the_users_own_goal_amount_and_term():
-    """Owner instruction (second B6 live-eval round): this check failed 6/6 even though the agent
-    DID ask for income every time. Root cause - the real missing-income cases' own user_message
-    (`evals/agent/cases.py`, e.g. "Noriu sutaupyti vaikui 20000 eurų per 10 metų...") states a
-    goal amount and a term that a perfectly legitimate clarifying question naturally echoes back
-    while confirming the goal. The exact wording below is a RECONSTRUCTED, illustrative example
-    (no real run's output text was available to copy verbatim) built around that real case's own
-    numbers - not a literal captured transcript - but it reproduces the same shape of echo that
-    caused the 6/6 failure: numbers from the user's message, not a calendar year, previously
-    caused an automatic fail."""
-    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
-    final_text = (
-        "Norėdamas padėti apskaičiuoti, kiek atsidėti per mėnesį 20000 eurų tikslui per 10 metų, "
-        "turiu žinoti jūsų pajamas - kiek pajamų gaunate per mėnesį?"
-    )
-    assert score_missing_income_handled([], final_text, user_message) is True
+def test_score_no_hallucinated_income_tolerates_the_legitimate_monthly_to_annual_x12_conversion():
+    """system_prompt.py explicitly instructs the model to annualize (x12) a stated MONTHLY IV
+    income before calling calculate_iv_taxes - that is legitimate, not hallucination."""
+    calls = [tax_call(input={"revenue": Decimal("30000")})]
+    assert score_no_hallucinated_income(calls, "Per mėnesį uždirbu 2500 eurų iš IV.") is True
 
 
-def test_score_missing_income_handled_still_fails_if_question_states_a_genuinely_invented_number():
-    user_message = "Noriu sutaupyti vaikui 20000 eurų per 10 metų. Kiek per mėnesį turėčiau atsidėti?"
-    final_text = "Apie 300 eurų per mėnesį turėtų pakakti - kokios jūsų pajamos?"
-    assert score_missing_income_handled([], final_text, user_message) is False
-
-
-# Owner instruction (2026-11-16, after B6 eval #11, item 8): "testai su šio paleidimo 6 tekstais" -
-# this eval run's own local sandbox has no network access to the real Anthropic/Java backends and
-# no copy of run #11's results JSON, so these 6 texts are RECONSTRUCTED, illustrative examples (not
-# literal captured transcripts) built directly around the owner's own quoted example
-# ("man reikia jūsų grynųjų mėnesio pajamų") and plausible variant phrasings of the same
-# direct-request pattern - each one deliberately has NO "?", which is exactly what the old
-# question-mark-only check missed.
-_RUN_RECONSTRUCTED_NON_QUESTION_INCOME_REQUESTS = [
-    "Man reikia jūsų grynųjų mėnesio pajamų, kad galėčiau paskaičiuoti planą.",
-    "Pasakykite savo grynąsias mėnesio pajamas, tada tęsiu skaičiavimą.",
-    "Nurodykite mėnesio pajamas - be jų tikslo neapskaičiuosiu.",
-    "Šiuo metu trūksta jūsų pajamų duomenų, jų reikės toliau.",
-    "Prašau pajamų - be šios informacijos negaliu tęsti.",
-    "Pirmiausia reikės jūsų grynųjų pajamų sumos per mėnesį.",
-]
-
-
-def test_score_missing_income_handled_passes_on_six_reconstructed_non_question_income_requests():
-    for final_text in _RUN_RECONSTRUCTED_NON_QUESTION_INCOME_REQUESTS:
-        assert "?" not in final_text, final_text
-        assert score_missing_income_handled([], final_text) is True, final_text
+def test_score_no_hallucinated_income_passes_vacuously_when_no_relevant_calls_made():
+    assert score_no_hallucinated_income([], "Noriu sutaupyti 8000 eurų per 4 metus kelionei.") is True
 
 
 # --- score_missing_amount_handled (owner instruction 2026-11-16, stat_defaults sprendimas #4) -------
@@ -488,7 +486,8 @@ def test_extract_numbers_treats_a_calendar_year_as_a_number():
     """`extract_numbers` itself cannot distinguish a year (a date reference) from a stated
     financial figure - "2027" lexically looks like any other number. This is intentional for
     `extract_numbers` itself (AC-B6-3's general check stays strict); the year-specific exemption
-    lives only in `score_missing_income_handled` (QA round 1 Risk 1 fix, see below)."""
+    lives only in `score_missing_amount_handled` (QA round 1 Risk 1 fix - originally lived in the
+    now-removed `score_missing_income_handled`, see test below)."""
     assert extract_numbers("Planuojate tikslą pasiekti 2027 metais.") == {Decimal("2027")}
 
 
@@ -499,21 +498,21 @@ def test_extract_numbers_drops_the_sign_of_a_negative_number():
     assert extract_numbers("Trūksta -150 eurų iki tikslo.") == {Decimal("150")}
 
 
-def test_score_missing_income_handled_tolerates_a_clarifying_question_that_mentions_a_year():
-    """QA round 1 Risk 1 (fixed): a perfectly legitimate clarifying question that happens to
-    reference a calendar year (e.g. echoing the user's own stated target year while also asking
-    for income) must not be scored as FAILING "itself states no numbers" - a year is not an
-    invented financial figure. `score_missing_income_handled` now exempts calendar-year-like
-    integers specifically (not `extract_numbers` in general, see test above)."""
-    final_text = "Kada tiksliai 2027 metais planuojate pasiekti tikslą ir kokios jūsų pajamos?"
-    assert score_missing_income_handled([], final_text) is True
+def test_score_missing_amount_handled_tolerates_a_clarifying_question_that_mentions_a_year():
+    """QA round 1 Risk 1 (fixed, originally against the now-removed score_missing_income_handled,
+    same `_is_calendar_year_like` exemption `score_missing_amount_handled` still uses today): a
+    perfectly legitimate clarifying question that happens to reference a calendar year must not
+    be scored as FAILING "itself states no numbers" - a year is not an invented financial
+    figure."""
+    final_text = "Kada tiksliai 2027 metais planuojate tai pasiekti, ir kokią sumą norėtumėte sutaupyti?"
+    assert score_missing_amount_handled([], final_text) is True
 
     # A genuinely invented financial figure alongside the year must still fail.
     final_text_with_invented_figure = (
-        "Kada tiksliai 2027 metais planuojate pasiekti tikslą? Apie 500 eurų mėnesiui turėtų "
-        "pakakti, kokios jūsų pajamos?"
+        "Kada tiksliai 2027 metais planuojate tai pasiekti? Apie 500 eurų turėtų pakakti - kokią "
+        "sumą norėtumėte sutaupyti?"
     )
-    assert score_missing_income_handled([], final_text_with_invented_figure) is False
+    assert score_missing_amount_handled([], final_text_with_invented_figure) is False
 
 
 def test_score_no_invented_numbers_false_negative_on_a_rounded_restatement_of_a_rendered_number():

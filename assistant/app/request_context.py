@@ -22,6 +22,11 @@ class RequestContext:
     user_id: Optional[str] = None
     tier: str = "anonymous"
     results: dict[str, Any] = field(default_factory=dict)
+    # Owner decision, 2026-11-17 (hallucinated-income bug): the raw text of the CURRENT incoming
+    # user message, so a tool handler (`savings_tool.py`'s heuristic guard) can check whether a
+    # model-supplied figure actually appears in what the user said, instead of trusting it blindly.
+    # Default "" (not every caller - e.g. /asistentas's own RequestContext - needs this at all).
+    message_text: str = ""
 
     def store_result(self, value: Any) -> str:
         """Stores `value` under a freshly generated id and returns that id."""

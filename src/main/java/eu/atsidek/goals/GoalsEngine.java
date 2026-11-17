@@ -50,7 +50,14 @@ public final class GoalsEngine {
         putResolved(resolved, "expenses", in.household().expenses(), origins);
 
         BigDecimal rm = annualReturn.divide(RATE_TO_MONTHLY_DIVISOR, CALC_SCALE, RoundingMode.HALF_UP);
-        BigDecimal free = nz(in.household().income()).subtract(nz(in.household().expenses()));
+        // Owner decision, 2026-11-17 (first real staging walkthrough): income null ("unknown",
+        // see Household javadoc) is NOT the same as income=0 ("known, zero"). The monthly
+        // contribution/reach-date math below never needs free cash at all - only the
+        // share/verdict (fit assessment) does - so when income is truly absent, `free` stays
+        // null all the way through instead of silently collapsing to -expenses via nz(), which
+        // used to produce a misleading NO_FREE_CASH verdict for a goal that never stated income.
+        BigDecimal free = in.household().income() == null ? null
+                : nz(in.household().income()).subtract(nz(in.household().expenses()));
 
         return in.mode() == GoalMode.WHEN
                 ? calculateWhen(in, rm, annualInflation, free, resolved, origins, today)
@@ -68,12 +75,12 @@ public final class GoalsEngine {
         BigDecimal paid = monthly.multiply(BigDecimal.valueOf(n));
         BigDecimal accumulated = balance(monthly, rm, n);
         BigDecimal gain = accumulated.subtract(paid).max(BigDecimal.ZERO);
-        BigDecimal share = share(monthly, free);
-        Verdict verdict = verdict(free, share);
+        BigDecimal share = free == null ? null : share(monthly, free);
+        Verdict verdict = free == null ? null : verdict(free, share);
         List<SeriesPoint> series = buildSeries(monthly, rm, annualInflation, in.amount(), n, today);
 
         return new GoalResult(money(monthly), true, null, n, money(futureTarget), money(paid), money(gain),
-                money(free), share, verdict, series, resolved);
+                free == null ? null : money(free), share, verdict, series, resolved);
     }
 
     private GoalResult calculateWhen(GoalInput in, BigDecimal rm, BigDecimal annualInflation, BigDecimal free,
@@ -81,13 +88,14 @@ public final class GoalsEngine {
                                      LocalDate today) {
         putResolved(resolved, "monthlyContribution", in.monthlyContribution(), origins);
         BigDecimal monthly = in.monthlyContribution();
-        BigDecimal share = share(monthly, free);
-        Verdict verdict = verdict(free, share);
+        BigDecimal share = free == null ? null : share(monthly, free);
+        Verdict verdict = free == null ? null : verdict(free, share);
+        BigDecimal moneyFree = free == null ? null : money(free);
 
         Integer foundMonths = searchWhen(monthly, rm, annualInflation, in.amount());
         if (foundMonths == null) {
             return new GoalResult(money(monthly), false, null, null, null, null, null,
-                    money(free), share, verdict, List.of(), resolved);
+                    moneyFree, share, verdict, List.of(), resolved);
         }
 
         int n = foundMonths;
@@ -99,7 +107,7 @@ public final class GoalsEngine {
         List<SeriesPoint> series = buildSeries(monthly, rm, annualInflation, in.amount(), n, today);
 
         return new GoalResult(money(monthly), true, reachDate, n, money(futureTarget), money(paid), money(gain),
-                money(free), share, verdict, series, resolved);
+                moneyFree, share, verdict, series, resolved);
     }
 
     /** Ieško mažiausio k∈[1,600], kai B(P,k) ≥ FV(k); {@code null}, jei per 600 mėn. (50 m.) tikslas nepasiekiamas. */
