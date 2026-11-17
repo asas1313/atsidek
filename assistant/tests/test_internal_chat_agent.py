@@ -22,6 +22,13 @@ def text_block(text):
     return SimpleNamespace(type="text", text=text)
 
 
+def thinking_block(text="...", signature="sig-1"):
+    """Claude Haiku 5.5 has adaptive thinking on by default (see `agent_loop._content_block_to_dict`'s
+    own note) - a `signature` is cryptographically bound to the exact conversation prefix that
+    existed when the block was generated."""
+    return SimpleNamespace(type="thinking", thinking=text, signature=signature)
+
+
 def tool_use_block(block_id, name, tool_input):
     return SimpleNamespace(type="tool_use", id=block_id, name=name, input=tool_input)
 
@@ -76,6 +83,22 @@ class FakeCalc:
                       household, assumptions, context_token=None):
         self.savings_calls.append((goal, net_monthly_income, monthly_tax_setaside, monthly_expenses,
                                     household, assumptions, context_token))
+        # Owner decision, 2026-11-17 (first real staging walkthrough): mirrors real Java
+        # (SavingsPlanService#buildCore) - income absent means the contribution is still
+        # computed, but the free-cash fit fields come back null, plus the invitation tip.
+        if net_monthly_income is None:
+            core = {
+                "monthly_contribution": Decimal("100.00"),
+                "free_cash_monthly": None,
+                "share_of_free_cash_pct": None,
+                "general_tip": "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas.",
+                "assumptions": [],
+                "disclaimer": "Tai tik iliustracija, ne finansinė konsultacija.",
+                "reachable": True,
+                "reach_date": None,
+                "fits": None,
+            }
+            return {"tier": "FREE", "core": core, "locked_features": []}
         core = {
             "monthly_contribution": Decimal("100.00"),
             "free_cash_monthly": Decimal("500.00"),
@@ -188,14 +211,20 @@ def test_combined_tax_then_savings_uses_tax_calc_id_across_turns():
     assert calc.savings_calls[0][1] == Decimal("458.79")
 
 
-# --- missing income --------------------------------------------------------------------------
+# --- missing income ----------------------------------------------------------------------------
 
-def test_missing_income_surfaces_as_a_clarifying_question_not_a_crash():
+def test_missing_income_still_computes_a_contribution_and_invites_income_not_a_clarifying_question():
+    """Owner decision, 2026-11-17 (first real staging walkthrough): a goal with no income
+    mentioned at all ("Noriu sutaupyti 5000 € per 3 metus.") used to short-circuit into a
+    clarifying question with NO calculation at all. It must now still call the savings tool
+    (income simply omitted, never guessed) and return a computed monthly contribution plus the
+    deterministic (Java-sourced) invitation to provide income - the model's own free text here is
+    just an intro, never where the contribution number comes from."""
     fake = FakeAgentClient([
         FakeResponse([tool_use_block(
             "tu1", "calculate_savings_plan",
             {"goal": {"type": "OTHER", "mode": "YEARS", "amount": 5000, "years": 3}})]),
-        FakeResponse([text_block("Kokios jūsų grynosios mėnesio pajamos?")]),
+        FakeResponse([text_block("Štai jūsų taupymo planas.")]),
     ])
     c, calc = client(agent_client=fake)
 
@@ -203,8 +232,11 @@ def test_missing_income_surfaces_as_a_clarifying_question_not_a_crash():
 
     assert r.status_code == 200
     body = r.json()
-    assert "Kokios jūsų grynosios mėnesio pajamos?" in body["reply"]
-    assert len(calc.savings_calls) == 0  # resolve_income raised before calling Java at all
+    assert "100,00" in body["reply"]  # the computed monthly_contribution, never withheld
+    assert "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas." in body["reply"]
+    assert "laisvų pinigų" not in body["reply"].lower()  # no free-cash/fit line - unknown, not 0%
+    assert len(calc.savings_calls) == 1
+    assert calc.savings_calls[0][1] is None  # net_monthly_income omitted, never guessed
 
 
 # --- daily limit ---------------------------------------------------------------------------
@@ -252,6 +284,83 @@ def test_claude_api_error_returns_a_friendly_lithuanian_reply_not_a_stack_trace(
     assert "Traceback" not in body["reply"]
     assert body["reply"]  # non-empty, friendly text
     assert "messages" not in body  # nothing successful to persist as history
+
+
+def test_claude_api_error_reply_says_retry_or_start_over_and_logs_error_level_with_request_id(caplog):
+    """Owner decision, 2026-11-17 (real crash via a thinking-block history bug, see
+    `_append_history_turn`'s own docstring): the exact user-facing text must tell them what to do
+    next, and the server log must be findable by `request_id` at ERROR level, not just whatever
+    `logger.exception`'s default happened to be."""
+    import logging
+
+    fake_request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    fake = FakeAgentClient(error=APIConnectionError(request=fake_request))
+    c, _ = client(agent_client=fake)
+
+    with caplog.at_level(logging.ERROR, logger="app.main"):
+        r = c.post("/internal/chat", json={"message": "Labas"})
+
+    assert r.status_code == 200
+    assert r.json()["reply"] == "Įvyko klaida. Pabandykite dar kartą arba pradėkite naują pokalbį."
+    error_records = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
+    assert len(error_records) == 1
+    assert error_records[0].request_id  # non-empty, present on the record
+
+
+# --- thinking blocks never replayed across HTTP turns (owner decision 7 fix, 2026-11-17) --------
+
+class _ThinkingScriptMessages:
+    """Every turn's fake model response carries a `thinking` block (Claude Haiku 5.5's adaptive
+    thinking is on by default) alongside its final text - no tool calls, so each HTTP turn makes
+    exactly one `create()` call."""
+
+    def __init__(self):
+        self.calls = []
+
+    def create(self, **kwargs):
+        # `kwargs["messages"]` is the SAME list `run_agent_loop` keeps mutating (appending this
+        # very response) after `create()` returns - snapshot it now, or inspecting `self.calls`
+        # later would see today's OWN freshly-appended response too, not just what was SENT.
+        self.calls.append({**kwargs, "messages": list(kwargs["messages"])})
+        i = len(self.calls)
+        return FakeResponse([thinking_block(signature=f"sig-{i}"), text_block(f"Atsakymas {i}.")])
+
+
+class _ThinkingScriptClient:
+    def __init__(self):
+        self.messages = _ThinkingScriptMessages()
+
+
+def test_long_conversation_with_thinking_blocks_never_replays_them_across_http_turns():
+    """Owner decision 7 fix, 2026-11-17 (real crash: `anthropic.BadRequestError` 400, "Invalid
+    `signature` in `thinking` block... Content that preceded this block when it was created is
+    missing from this request, starting at messages.0.") - drives 12 full HTTP turns through
+    /internal/chat (more than MAX_HISTORY_MESSAGES=20's 10-turn-pair capacity, so truncation
+    actually kicks in), each turn's fake model returning a `thinking` block. The history sent to
+    the API on every turn after the first must carry NONE of the prior turns' thinking blocks
+    (every persisted message is plain text, never a block list), and after truncation the first
+    message must still be role "user", never "assistant"."""
+    fake = _ThinkingScriptClient()
+    c, _ = client(agent_client=fake)
+
+    history = None
+    for i in range(12):
+        r = c.post("/internal/chat", json={"message": f"Žinutė {i}.", "history": history})
+        assert r.status_code == 200
+        history = r.json()["messages"]
+
+    assert len(history) == 20  # truncated to MAX_HISTORY_MESSAGES, not 24
+    assert history[0]["role"] == "user"  # truncation never leaves "assistant" first
+    for msg in history:
+        assert isinstance(msg["content"], str)  # never a block list - see _append_history_turn
+
+    last_sent_messages = fake.messages.calls[-1]["messages"]
+    assert last_sent_messages[0]["role"] == "user"
+    for msg in last_sent_messages:
+        # Every message sent to the API, except the live model's OWN response within this same
+        # call (not part of the outgoing request), is plain-text history or the new user message -
+        # never a `thinking`/`redacted_thinking` block replayed from an earlier HTTP turn.
+        assert isinstance(msg["content"], str)
 
 
 def test_unconfigured_agent_client_returns_a_friendly_reply_not_a_crash():
