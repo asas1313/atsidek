@@ -19,6 +19,7 @@ from evals.agent.scoring import (
     score_no_hallucinated_income,
     score_no_invented_numbers,
     score_response_complete,
+    score_savings_input_years_matches_expected,
     score_tax_input_revenue_matches_expected,
     score_tool_sequence,
     tool_input_numbers,
@@ -592,6 +593,33 @@ def test_score_tax_input_revenue_matches_expected_uses_the_first_tax_call_not_th
         {**tax_call(call_id="t2"), "input": {"revenue": 99999}},
     ]
     assert score_tax_input_revenue_matches_expected(calls, Decimal("30000")) is True
+
+
+# --- score_savings_input_years_matches_expected (B8 item 2, "per X metų" genitive case) ----------
+
+def test_score_savings_input_years_matches_expected_passes_vacuously_when_not_applicable():
+    assert score_savings_input_years_matches_expected([], None) is True
+    assert score_savings_input_years_matches_expected([savings_call()], None) is True
+
+
+def test_score_savings_input_years_matches_expected_passes_when_mode_and_years_match():
+    calls = [{**savings_call(), "input": {"goal": {"mode": "YEARS", "years": 3}}}]
+    assert score_savings_input_years_matches_expected(calls, 3) is True
+
+
+def test_score_savings_input_years_matches_expected_fails_when_years_differ():
+    calls = [{**savings_call(), "input": {"goal": {"mode": "YEARS", "years": 5}}}]
+    assert score_savings_input_years_matches_expected(calls, 3) is False
+
+
+def test_score_savings_input_years_matches_expected_fails_when_mode_is_not_years():
+    # Model mistook the duration phrasing for an absolute target date instead.
+    calls = [{**savings_call(), "input": {"goal": {"mode": "DATE", "target_year": 2029}}}]
+    assert score_savings_input_years_matches_expected(calls, 3) is False
+
+
+def test_score_savings_input_years_matches_expected_fails_when_no_savings_call_was_made():
+    assert score_savings_input_years_matches_expected([], 3) is False
 
 
 def test_score_tool_sequence_fails_when_an_unknown_tool_name_appears():

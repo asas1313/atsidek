@@ -227,7 +227,15 @@ public class SavingsPlanService {
         }
     }
 
-    /** Statistika kviečiama TIK kai {@code monthly_expenses} praleistas - vartotojo reikšmė niekada neperrašoma. */
+    /**
+     * Statistika kviečiama TIK kai {@code monthly_expenses} praleistas - vartotojo reikšmė niekada
+     * neperrašoma. Owner sprendimas (B8, item 1): kai {@code net_monthly_income} nenurodytas,
+     * išlaidos VIS TIEK gražinamos (reikalingos {@link GoalInput}/{@code Household} laukui -
+     * nenaudoja jų {@code GoalsEngine}, žr. jo komentarą apie {@code free == null}), bet NESURODOMOS
+     * {@code core.assumptions} sąraše - jos faktiškai nedalyvavo NIEKIENO parodytame skaičiavime
+     * (laisvų pinigų vertinimas praleistas visai, kai pajamos nežinomos), tad jų rodymas kaip
+     * "prielaidos" klaidintų vartotoją, kad jos buvo panaudotos.
+     */
     private BigDecimal resolveMonthlyExpenses(SavingsPlanRequest request, List<AssumptionEntry> assumptions) {
         if (request.monthlyExpenses() != null) {
             return request.monthlyExpenses();
@@ -240,9 +248,11 @@ public class SavingsPlanService {
                 : request.goal().type().name();
 
         StatDefaultValue expenses = statDefaultsService.resolve(members, workers, null, goalType).expenses();
-        assumptions.add(new AssumptionEntry("monthly_expenses", expenses.value(), Origin.STATISTICS,
-                expenses.source(), expenses.asOf() == null ? null : expenses.asOf().toString(),
-                expenses.illustrative(), expenses.needsReview()));
+        if (request.netMonthlyIncome() != null) {
+            assumptions.add(new AssumptionEntry("monthly_expenses", expenses.value(), Origin.STATISTICS,
+                    expenses.source(), expenses.asOf() == null ? null : expenses.asOf().toString(),
+                    expenses.illustrative(), expenses.needsReview()));
+        }
         return expenses.value();
     }
 
@@ -298,6 +308,12 @@ public class SavingsPlanService {
      * Owner instrukcija (2026-11-16, po eval'o fae9e00, 2 punktas): dėl tos pačios priežasties UNREALISTIC
      * atveju "su šiuo terminu tikslas greičiausiai nerealus" taip pat netinka WHEN režimui (terminas - ne
      * vartotojo įvestis) - WHEN režimui šis "terminu" žodis taip pat pašalinamas.
+     * <p>
+     * Owner instrukcija (B8, item 3, "Prieš produkciją" radinys): kai WHEN režimui VĖLIAU rodoma pasiekimo
+     * data (žr. {@code response_builder._build_when_reach_section}), šis patarimas NIEKADA neturi žodžio
+     * "nerealus" - data šalia "tikslas nerealus" vienas kitam prieštarauja (konkreti data savaime rodo, kad
+     * tikslas pasiekiamas, tik su didesne įmoka). WHEN+UNREALISTIC dabar sako TIK "įmoka didelė, apsvarstykite
+     * mažesnę", be "viršija pusę"/"nerealus" formuluotės, kuri lieka tik ne-WHEN režimams.
      */
     private static String generalTip(Verdict verdict, GoalMode mode) {
         // Owner sprendimas, 2026-11-17: verdict null ("pajamos nenurodytos", žr. #buildCore) ->
@@ -305,20 +321,20 @@ public class SavingsPlanService {
         if (verdict == null) {
             return "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas.";
         }
+        if (verdict == Verdict.UNREALISTIC && mode == GoalMode.WHEN) {
+            return "Reikalinga įmoka yra didelė – apsvarstykite mažesnę įmoką.";
+        }
         String adjustAdvice = mode == GoalMode.WHEN
                 ? "apsvarstykite mažesnę įmoką"
                 : "apsvarstykite ilgesnį terminą arba mažesnę sumą";
-        String unrealisticClause = mode == GoalMode.WHEN
-                ? "tikslas greičiausiai nerealus"
-                : "su šiuo terminu tikslas greičiausiai nerealus";
         return switch (verdict) {
             case NO_FREE_CASH -> "Laisvų pinigų nėra arba jie neigiami – pirmiausia peržiūrėkite išlaidas, "
                     + "kad atsirastų, iš ko taupyti.";
             case COMFORTABLE -> "Šis tikslas atrodo pasiekiamas – įmoka sudaro nedidelę dalį jūsų laisvų pinigų.";
             case TIGHT -> "Šis tikslas pasiekiamas, bet pareikalaus nemažos dalies laisvų pinigų – "
                     + adjustAdvice + ".";
-            case UNREALISTIC -> "Reikalinga įmoka viršija pusę jūsų laisvų pinigų – " + unrealisticClause
-                    + ", " + adjustAdvice + ".";
+            case UNREALISTIC -> "Reikalinga įmoka viršija pusę jūsų laisvų pinigų – su šiuo terminu tikslas "
+                    + "greičiausiai nerealus, " + adjustAdvice + ".";
         };
     }
 

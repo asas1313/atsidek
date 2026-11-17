@@ -153,6 +153,7 @@ from evals.agent.scoring import (  # noqa: E402
     score_no_hallucinated_income,
     score_no_invented_numbers,
     score_response_complete,
+    score_savings_input_years_matches_expected,
     score_tax_input_revenue_matches_expected,
     score_tool_sequence,
 )
@@ -543,6 +544,10 @@ def _score_run(result: AgentLoopResult, case, context_token_used: bool) -> dict:
         rate_checks["tax_input_revenue_matches_expected"] = score_tax_input_revenue_matches_expected(
             result.tool_calls, case.expected_annual_revenue
         )
+    if case.expected_savings_goal_years is not None:
+        rate_checks["savings_input_years_matches_expected"] = score_savings_input_years_matches_expected(
+            result.tool_calls, case.expected_savings_goal_years
+        )
 
     # Investment-advice check (owner instruction 2026-11-13): ZERO TOLERANCE - `run()` collects
     # every FAIL verbatim into `investment_advice_violations` for manual review, never blending it
@@ -829,6 +834,10 @@ def rescore(results_path: Path) -> dict:
             if case.expected_annual_revenue is not None:
                 rate_checks["tax_input_revenue_matches_expected"] = score_tax_input_revenue_matches_expected(
                     tool_calls, case.expected_annual_revenue
+                )
+            if case.expected_savings_goal_years is not None:
+                rate_checks["savings_input_years_matches_expected"] = (
+                    score_savings_input_years_matches_expected(tool_calls, case.expected_savings_goal_years)
                 )
             no_banned_investment_terms = score_no_banned_investment_terms(final_text)
 
