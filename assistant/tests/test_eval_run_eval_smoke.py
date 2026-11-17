@@ -97,6 +97,24 @@ def test_build_judge_request_returns_a_messages_create_shaped_dict_without_calli
     assert "agento atsakymas" in request["messages"][0]["content"]
 
 
+def test_build_judge_request_declares_the_report_verdict_tool_with_auto_not_forced_choice():
+    """Owner instruction (2026-11-17, item 3): the judge's verdict comes back via a tool_use
+    block, but tool_choice is "auto" (NOT a literally forced {"type": "tool", ...}) - that 400s on
+    claude-sonnet-5-5 (see judge_rubric.JUDGE_TOOL_SCHEMA's own comment)."""
+    judge_rubric = importlib.import_module("evals.agent.judge_rubric")
+
+    request = judge_rubric.build_judge_request("vartotojo klausimas", "agento atsakymas")
+
+    assert request["tool_choice"] == {"type": "auto"}
+    [tool] = request["tools"]
+    assert tool["name"] == judge_rubric.JUDGE_TOOL_NAME == "report_verdict"
+    assert tool["strict"] is True
+    schema = tool["input_schema"]
+    assert set(schema["required"]) == {"reason", "verdict"}
+    assert schema["properties"]["verdict"]["enum"] == ["PASS", "FAIL"]
+    assert schema["additionalProperties"] is False
+
+
 def test_runs_per_case_is_three():
     """Owner instruction 2026-11-13, point 4: confirm each case is run exactly 3 times (owner
     decision 3 - reported as a pass RATE, not a single pass/fail)."""
@@ -260,6 +278,12 @@ def test_preflight_respects_manual_override_without_minting_that_tier(monkeypatc
 # content FAIL. `_run_judge` must distinguish a judge TECHNICAL failure ({"verdict": "ERROR"})
 # from a real content verdict (PASS/FAIL) - these exercise that distinction with a fake Anthropic
 # client, no real API call.
+#
+# Item 3 (owner instruction, 2026-11-17, after eval 1c25e9c): the judge's verdict now comes from a
+# `report_verdict` tool_use block's already-parsed `input` dict, not free JSON text pulled out of
+# a text block (a stray quote inside the judge's own "reason" string broke the old `json.loads`
+# approach for case adversarial_logged_in_02) - these fakes model a tool_use block instead of a
+# text block accordingly.
 
 class _FakeTextBlock:
     def __init__(self, text):
@@ -269,10 +293,17 @@ class _FakeTextBlock:
 
 class _FakeThinkingBlock:
     """Adaptive thinking (owner instruction note): a thinking block must never be read as the
-    judge's answer - only `type == "text"` blocks are joined."""
+    judge's answer - only a `report_verdict` tool_use block is."""
     def __init__(self):
         self.type = "thinking"
         self.text = "should not be read"
+
+
+class _FakeToolUseBlock:
+    def __init__(self, name, input):
+        self.type = "tool_use"
+        self.name = name
+        self.input = input
 
 
 class _FakeJudgeResponse:
@@ -295,9 +326,16 @@ def _judge_case():
                      user_message="m", expected_tool_sequence=["calculate_iv_taxes"])
 
 
-def test_run_judge_returns_error_not_fail_on_empty_text_block():
+def _fake_verdict_tool_use(**input):
+    from evals.agent.judge_rubric import JUDGE_TOOL_NAME
+    return _FakeToolUseBlock(JUDGE_TOOL_NAME, input)
+
+
+def test_run_judge_returns_error_not_fail_when_no_tool_use_block_is_present():
+    """The model answered with free text instead of calling report_verdict - a technical ERROR,
+    not a real content verdict (mirrors the old empty/invalid-JSON ERROR path)."""
     run_eval = importlib.import_module("evals.agent.run_eval")
-    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("   ")]))
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("laisvas tekstas, ne tool_use")]))
 
     verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
 
@@ -305,28 +343,21 @@ def test_run_judge_returns_error_not_fail_on_empty_text_block():
     assert "reason" in verdict
 
 
-def test_run_judge_returns_error_not_fail_on_invalid_json():
-    run_eval = importlib.import_module("evals.agent.run_eval")
-    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("not valid json{")]))
-
-    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
-
-    assert verdict["verdict"] == "ERROR"
-
-
-def test_run_judge_returns_error_not_fail_on_json_without_a_recognized_verdict_field():
-    run_eval = importlib.import_module("evals.agent.run_eval")
-    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock('{"verdict": "MAYBE"}')]))
-
-    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
-
-    assert verdict["verdict"] == "ERROR"
-
-
-def test_run_judge_ignores_thinking_blocks_and_reads_only_text_blocks():
+def test_run_judge_returns_error_not_fail_on_a_tool_use_block_with_an_unrecognized_verdict():
     run_eval = importlib.import_module("evals.agent.run_eval")
     client = _FakeJudgeClient(_FakeJudgeResponse(
-        [_FakeThinkingBlock(), _FakeTextBlock('{"verdict": "PASS"}')]
+        [_fake_verdict_tool_use(reason="x", verdict="MAYBE")]
+    ))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+
+
+def test_run_judge_ignores_thinking_blocks_and_reads_the_tool_use_block():
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse(
+        [_FakeThinkingBlock(), _fake_verdict_tool_use(reason="ok", verdict="PASS")]
     ))
 
     verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
@@ -334,16 +365,45 @@ def test_run_judge_ignores_thinking_blocks_and_reads_only_text_blocks():
     assert verdict["verdict"] == "PASS"
 
 
+def test_run_judge_ignores_a_tool_use_block_from_a_different_tool_name():
+    """Owner instruction (2026-11-17, item 3): only a block named report_verdict counts - a
+    tool_use block from some other (hypothetical) tool must not be misread as the verdict."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    client = _FakeJudgeClient(_FakeJudgeResponse(
+        [_FakeToolUseBlock("some_other_tool", {"reason": "ok", "verdict": "PASS"})]
+    ))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "ERROR"
+
+
 def test_run_judge_passes_through_a_real_fail_verdict_otherwise_unchanged():
     run_eval = importlib.import_module("evals.agent.run_eval")
     client = _FakeJudgeClient(_FakeJudgeResponse(
-        [_FakeTextBlock('{"verdict": "FAIL", "reason": "paminėjo konkretų fondą"}')]
+        [_fake_verdict_tool_use(reason="paminėjo konkretų fondą", verdict="FAIL")]
     ))
 
     verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
 
     assert verdict["verdict"] == "FAIL"
     assert verdict["reason"] == "paminėjo konkretų fondą"
+
+
+def test_run_judge_survives_a_quote_inside_the_reason_field():
+    """The exact bug class item 3 fixes (case adversarial_logged_in_02): a quote character inside
+    the judge's own "reason" text used to break json.loads on free JSON text - tool_use.input is
+    Anthropic's own already-parsed dict, so this can no longer happen."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+    reason_with_a_quote = 'paminėjo "konkretų" fondą citatose'
+    client = _FakeJudgeClient(_FakeJudgeResponse(
+        [_fake_verdict_tool_use(reason=reason_with_a_quote, verdict="FAIL")]
+    ))
+
+    verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
+
+    assert verdict["verdict"] == "FAIL"
+    assert verdict["reason"] == reason_with_a_quote
 
 
 # Owner instruction (2026-11-16): the rubric version must be stamped onto EVERY judge_verdict -
@@ -353,7 +413,7 @@ def test_run_judge_passes_through_a_real_fail_verdict_otherwise_unchanged():
 def test_run_judge_stamps_the_rubric_version_onto_a_real_pass_verdict():
     from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION
     run_eval = importlib.import_module("evals.agent.run_eval")
-    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock('{"verdict": "PASS"}')]))
+    client = _FakeJudgeClient(_FakeJudgeResponse([_fake_verdict_tool_use(reason="ok", verdict="PASS")]))
 
     verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
 
@@ -363,7 +423,7 @@ def test_run_judge_stamps_the_rubric_version_onto_a_real_pass_verdict():
 def test_run_judge_stamps_the_rubric_version_onto_a_technical_error_verdict_too():
     from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION
     run_eval = importlib.import_module("evals.agent.run_eval")
-    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("not valid json{")]))
+    client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("laisvas tekstas, ne tool_use")]))
 
     verdict = run_eval._run_judge(client, _judge_case(), {"reply": "agento atsakymas"})
 

@@ -144,7 +144,7 @@ from app.tax_tool import TOOL_NAME as TAX_TOOL_NAME  # noqa: E402
 from app.tax_tool import make_calculate_iv_taxes_tool  # noqa: E402
 from app.tools import ToolRegistry  # noqa: E402
 from evals.agent.cases import CASES  # noqa: E402
-from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION, build_judge_request  # noqa: E402
+from evals.agent.judge_rubric import JUDGE_RUBRIC_VERSION, JUDGE_TOOL_NAME, build_judge_request  # noqa: E402
 from evals.agent.scoring import (  # noqa: E402
     score_anon_no_premium,
     score_income_omitted_handled,
@@ -603,13 +603,22 @@ def _run_judge(client, case, run_record: dict) -> dict:
     """Owner-approved rubric (see judge_rubric.py) - only called when --with-judge is passed
     (opt-in purely for its extra per-run cost, not because of any remaining draft status).
 
-    Owner instruction (second B6 live-eval round): a judge TECHNICAL failure (empty/truncated/
-    invalid JSON, or valid JSON missing a recognized "verdict") is a distinct {"verdict": "ERROR"}
-    - it must NEVER be reported as {"verdict": "FAIL"} (a real investment-advice violation) and
-    must NEVER land in `investment_advice_violations` (that list is for actual content
-    violations, read verbatim for manual review - mixing in infra noise would defeat its point).
-    `run()` collects ERRORs separately and marks the whole run as broken (`main()` exits non-zero)
-    - a judge technical error means the CHECK didn't run, not that the agent's reply passed.
+    Owner instruction (second B6 live-eval round): a judge TECHNICAL failure (no tool_use block,
+    or one missing a recognized "verdict") is a distinct {"verdict": "ERROR"} - it must NEVER be
+    reported as {"verdict": "FAIL"} (a real investment-advice violation) and must NEVER land in
+    `investment_advice_violations` (that list is for actual content violations, read verbatim for
+    manual review - mixing in infra noise would defeat its point). `run()` collects ERRORs
+    separately and marks the whole run as broken (`main()` exits non-zero) - a judge technical
+    error means the CHECK didn't run, not that the agent's reply passed.
+
+    Owner instruction (2026-11-17, item 3, after the first full --via-endpoint eval run 1c25e9c):
+    the verdict is read from a forced `report_verdict` tool_use block's already-parsed `input`
+    dict, never from free JSON text pulled out of a text block - a stray quote inside the judge's
+    own "reason" string broke `json.loads` for case adversarial_logged_in_02 under the old
+    approach. `tool_use.input` is Anthropic's own parsing (validated against `JUDGE_TOOL_SCHEMA`'s
+    `strict: True` schema), so this class of bug can no longer occur. See `judge_rubric.py`'s
+    `JUDGE_TOOL_SCHEMA` comment for why this is `tool_choice: "auto"` plus a prompt instruction,
+    not a literally forced `tool_choice`.
 
     Owner instruction (2026-11-16): every returned dict (PASS/FAIL AND each ERROR path) carries
     `rubric_version` (`judge_rubric.JUDGE_RUBRIC_VERSION`), so a results JSON always shows which
@@ -618,27 +627,23 @@ def _run_judge(client, case, run_record: dict) -> dict:
     """
     request = build_judge_request(case.user_message, run_record["reply"])
     response = client.messages.create(**request)
-    text = "".join(block.text for block in response.content if block.type == "text")
-    if not text.strip():
+    tool_use = next(
+        (b for b in response.content if b.type == "tool_use" and b.name == JUDGE_TOOL_NAME), None
+    )
+    if tool_use is None:
         return {
-            "reason": "judge grąžino tuščią text bloką (žr. max_tokens/thinking)",
+            "reason": "judge neiškvietė report_verdict įrankio (atsakė laisvu tekstu, ne tool_use)",
             "verdict": "ERROR",
             "rubric_version": JUDGE_RUBRIC_VERSION,
         }
-    try:
-        verdict = json.loads(text)
-    except json.JSONDecodeError:
+    verdict_input = tool_use.input
+    if not isinstance(verdict_input, dict) or verdict_input.get("verdict") not in _VALID_JUDGE_VERDICTS:
         return {
-            "reason": f"nevalidus judge JSON atsakymas: {text!r}",
+            "reason": f"judge tool_use.input neturi atpažinto 'verdict' lauko: {verdict_input!r}",
             "verdict": "ERROR",
             "rubric_version": JUDGE_RUBRIC_VERSION,
         }
-    if not isinstance(verdict, dict) or verdict.get("verdict") not in _VALID_JUDGE_VERDICTS:
-        return {
-            "reason": f"judge JSON neturi atpažinto 'verdict' lauko: {text!r}",
-            "verdict": "ERROR",
-            "rubric_version": JUDGE_RUBRIC_VERSION,
-        }
+    verdict = dict(verdict_input)
     verdict["rubric_version"] = JUDGE_RUBRIC_VERSION
     return verdict
 
