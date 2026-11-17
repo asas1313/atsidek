@@ -679,4 +679,15 @@ su testais (1-3 ir 2 sujungti į vieną commit'ą dėl bendrų failų — žr. j
 istorijoje dėl priežasties). Item 5 (anoniminio limito pranešimas su kvietimu prisijungti,
 prisijungusiems didesnis limitas) rastas JAU įgyvendintas B6.6/B7-wiring fazėse
 (`AGENT_CHAT_ANON_LIMIT_REPLY`, `ChatLimiter` tier-based caps `main.py`'e) — patvirtinta esamais
-testais `test_internal_chat_agent.py`'e, naujo kodo/commit'o nereikėjo.
+testais `test_internal_chat_agent.py`'e, naujo kodo/commit'o nereikėjo. PR #57 (po 1-8 punktų)
+atidarytas, sustota pagal instrukciją.
+
+**Item 9 (papildytas po PR #57, 2026-11-17)**: savininkas, ruošiantis production diegimui,
+sugriežtino `/opt/atsidek/staging-data` teises (`chown 10001:999`, `chmod 700`). Kitas diegimas
+krito — `deploy/deploy.sh` kiekvieno diegimo metu PATS darė `mkdir -p && chmod 0777` ant
+`DATA_DIR`, bet veikia kaip runner (uid 1000), kuris nebuvo nei root'as, nei katalogo savininkas,
+tad `chmod` grąžino "Operation not permitted". Laikinas sprendimas (grąžinti `0777`) pakeistas
+nuolatiniu: `deploy.sh` nebekeičia šio katalogo teisių — krenta su aiškiu pranešimu (su tikslia
+`chown`/`chmod` komanda), jei katalogo nėra, ir perspėja (bet nekrinta), jei jo savininkas ne uid
+10001. Katalogo paruošimas (vienkartinis root'o žingsnis) dokumentuotas
+`PROD-checklist.md`'o naujoje "Vienkartinis serverio paruošimas" skiltyje.
