@@ -249,6 +249,44 @@ AC (savininko reikalavimai, 2026-11-17):
 - Rankinis patikrinimas su keliomis realiomis kombinuotomis užklausomis.
 - Užfiksuota vidutinė kombinuotos užklausos kaina ir trukmė.
 
+**B7 — BAIGTA (2026-11-17)**: žr. `STATUS-taupymas.md` B7 skyrių rezultatams (trukmė/kaina).
+
+---
+
+## B8 dalis. Pasiruošimas produkcijai (savininko instrukcija, 2026-11-17)
+
+Nauja šaka nuo `main`. Kiekvienas punktas - atskiras commit su testais.
+
+1. Šablonas: kai pajamų nėra - nerodyti išlaidų prielaidos eilutės (ji faktiškai nenaudota, žr.
+   `GoalsEngine` - išlaidos reikalingos tik laisvų pinigų/fit vertinimui, kuris praleidžiamas, kai
+   pajamos nežinomos); "Jei norite sužinoti, ar tai telpa..." tik šablone (`SavingsPlanService.
+   generalTip`), niekada LLM tekste (system prompt'as dabar tai draudžia modeliui savais žodžiais).
+2. "Per X metų" (bet kokia linksniuotė, taip pat "per X metus"/"po X metų") → visada
+   `goal.mode="YEARS"`, ne `DATE` (system prompt + eval atvejis +
+   `scoring.score_savings_input_years_matches_expected`).
+3. LLM įžanga nekartoja `general_tip` vertinimo savais žodžiais; vartotojui jokių raidžių
+   "FREE"/"PREMIUM" žodžių (tik "nemokama versija"/"Premium" kaip produkto pavadinimas); WHEN
+   režime su pasiekimo data - ne "nerealus", o "įmoka didelė, apsvarstykite mažesnę" (prieštarautų
+   pačiai rodomai datai).
+4. Anoniminis CTA apie svyruojančias pajamas (`SAVINGS_IV_LINK`) - už tą pačią
+   `premium_has_content` vėliavą kaip prisijungusio "atnaujinkite iki Premium" CTA (eval'o
+   a2dbaae item 5), ne atskirą sąlygą - krenta atgal ant kito užrakinto feature'o, jei toks yra.
+5. Anonimo limito pranešimas su kvietimu prisijungti (prisijungusiems didesnis limitas) - **jau
+   įgyvendinta** B6.6/B7-wiring fazėse, patvirtinta esamais testais, naujo darbo nereikėjo.
+6. `CLAUDE.md` skiltis "Draudžiama": niekada nemerginti PR, nepush'inti į main, nepaleisti
+   production `workflow_dispatch'o`.
+7. `docs/specs/taupymo-tikslai/PROD-checklist.md` pagal B7 patirtį: `prod.env` (atskiras
+   `CHAT_TOKEN_SECRET`/`ANTHROPIC_API_KEY` su limitu, be `eval-ci`), diegimas su
+   `AGENT_CHAT_ENABLED=false`, 404 patikra, vėliavos įjungimas per GitHub Actions "Re-run" (ne
+   rankinis `docker compose`), rollback, trumpas rankinis patikrinimas (7 žinučių pokalbis),
+   pastaba apie pasenusį `~/atsidek` checkout'ą serveryje.
+8. `usage_logging.log_usage`'o `cost_cents` → `cost_micros` (sveikasis skaičius, USD milijonosios
+   dalys, kaip API kainodara) - `cost_cents` apvalino kiekvieną realų Haiku kainą žemyn iki 0
+   (žr. B7 rezultatą aukščiau). Atnaujintas B7/PROD checklist'o `jq` receptas
+   (`avg_cost_micros`).
+
+Po PR sustoti - savininkas paleis pilną eval'ą (3 pakartojimai, `--via-endpoint`) po sulietimo.
+
 ---
 
 ## Mokymosi pastaba

@@ -17,12 +17,13 @@ ALL_GROUPS = CORE_GROUPS | NEW_GROUPS
 VARIANTS = {"anon", "logged_in"}
 
 
-def test_case_count_is_46():
+def test_case_count_is_47():
     # 30 core (5 cases x 3 groups x 2 variants) + 6 adversarial + 2 tier_spoof + 4 monthly-income
     # + 1 missing-amount (owner instruction, 2026-11-16, stat_defaults sprendimas #4)
     # + 2 more missing-income cases (owner decision, 2026-11-17, widened 2->4 total)
-    # + 1 multi_turn case (owner decision, 2026-11-17, bug 3 - the thinking-block/history crash).
-    assert len(CASES) == 46
+    # + 1 multi_turn case (owner decision, 2026-11-17, bug 3 - the thinking-block/history crash)
+    # + 1 "per X metų" genitive-duration case (B8 item 2).
+    assert len(CASES) == 47
 
 
 def test_every_case_is_an_eval_case_instance():
@@ -250,6 +251,23 @@ def test_monthly_income_cases_cover_both_variants():
 def test_cases_without_expected_annual_revenue_default_to_none():
     non_monthly = [c for c in CASES if "monthly_income" not in c.id]
     assert all(c.expected_annual_revenue is None for c in non_monthly)
+
+
+# --- B8 item 2 ("per X metų" genitive-duration case) ----------------------------------------------
+
+def test_exactly_one_per_x_metu_genitive_case_with_expected_savings_goal_years_set():
+    cases_with_years = [c for c in CASES if c.expected_savings_goal_years is not None]
+    assert len(cases_with_years) == 1
+    case = cases_with_years[0]
+    assert case.expected_savings_goal_years == 3
+    assert "metų" in case.user_message
+    assert case.group == "savings_only"
+    assert case.expected_tool_sequence == ["calculate_savings_plan"]
+
+
+def test_cases_without_expected_savings_goal_years_default_to_none():
+    others = [c for c in CASES if c.expected_savings_goal_years is None]
+    assert len(others) == len(CASES) - 1
 
 
 # --- multi_turn case (owner decision, 2026-11-17, bug 3 - the thinking-block/history crash) --------

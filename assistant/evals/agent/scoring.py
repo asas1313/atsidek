@@ -341,6 +341,24 @@ def score_tax_input_revenue_matches_expected(
     return False
 
 
+def score_savings_input_years_matches_expected(
+    tool_calls: list[dict], expected_years: Optional[int]
+) -> bool:
+    """B8 item 2: a goal term stated as a DURATION ("per X metus"/"per X metų"/"po X metų", any
+    case) must map to `calculate_savings_plan`'s `goal.mode="YEARS"` with `goal.years=X` - not be
+    confused with an absolute target year (`goal.mode="DATE"`). Checks the FIRST
+    `calculate_savings_plan` call's own INPUT (same convention as
+    `score_tax_input_revenue_matches_expected`). Vacuously True when `expected_years` is None (the
+    case doesn't apply)."""
+    if expected_years is None:
+        return True
+    for call in tool_calls:
+        if call["name"] == SAVINGS_TOOL_NAME:
+            goal = call["input"].get("goal") or {}
+            return goal.get("mode") == "YEARS" and goal.get("years") == expected_years
+    return False
+
+
 def score_response_complete(stop_reason: Optional[str]) -> bool:
     """Owner instruction (2026-11-16, after eval a2dbaae, item 3): fails ONLY when the agent's own
     final text turn was cut off by the token budget (`agent_loop.AgentLoopResult.stop_reason ==
@@ -360,6 +378,7 @@ __all__ = [
     "score_no_hallucinated_income",
     "score_no_invented_numbers",
     "score_response_complete",
+    "score_savings_input_years_matches_expected",
     "score_tax_input_revenue_matches_expected",
     "score_tool_sequence",
     "tool_input_numbers",

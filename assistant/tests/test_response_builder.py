@@ -130,7 +130,9 @@ def test_full_response_section_ordering_taxes_before_free_cash_before_goal_befor
     idx_goal = text.index("200")
     idx_assumptions = text.index("Mėnesio išlaidos")
     idx_disclaimer = text.index(SAVINGS_RESULT["core"]["disclaimer"])
-    idx_cta = text.index("Jūsų pajamos svyruoja")
+    # B8 item 4: SAVINGS_RESULT is anon with no "premium" key, so the preferred SAVINGS_IV_LINK
+    # CTA is gated off and the CTA falls back to the other locked feature, SAVINGS_MULTI_GOAL.
+    idx_cta = text.index("Turite daugiau nei vieną taupymo tikslą")
 
     assert idx_taxes < idx_free_cash < idx_goal < idx_assumptions < idx_disclaimer < idx_cta
 
@@ -349,12 +351,17 @@ def test_pick_cta_feature_without_preferred_feature_first_element_wins():
 
 
 def test_cta_section_renders_exactly_one_sentence_for_preferred_feature():
-    tool_calls = [savings_call(result=SAVINGS_RESULT)]
+    # B8 item 4: SAVINGS_RESULT is anon with SAVINGS_IV_LINK gated off (no "premium" key) - uses
+    # a dedicated, IV_LINK-free locked_features list here so this test still exercises its
+    # original point (pick_cta_feature's own preference order, not the gating fallback, which has
+    # its own dedicated tests above).
+    result = {**SAVINGS_RESULT, "locked_features": ["SAVINGS_SCENARIOS", "SAVINGS_MULTI_GOAL"]}
+    tool_calls = [savings_call(result=result)]
 
     text = build_response(tool_calls, None)
 
     assert text.count("prisijung") >= 1
-    # Only the preferred feature's sentence appears, not the other locked feature's sentence.
+    # Only the first-in-list feature's sentence appears, not the other locked feature's sentence.
     assert "daugiau nei vieną taupymo tikslą" not in text
 
 
@@ -611,22 +618,30 @@ def _savings_result(locked_features, income_origin="TAX_CALC", logged_in=False, 
     return result
 
 
-def test_anonymous_iv_income_gets_the_iv_svyruoja_sentence():
+def test_anonymous_iv_link_only_feature_gets_no_cta_while_premium_content_is_empty():
+    """B8 item 4 (supersedes this test's old "anon always gets the svyruoja sentence" behavior):
+    the anonymous "jūsų pajamos svyruoja" CTA now requires premium_has_content, same as the
+    logged-in upgrade CTA (a2dbaae item 5) - an anonymous response never carries a "premium" key
+    at all, so premium_has_content is always False for anon, and with no OTHER locked feature to
+    fall back to, there is no CTA at all here."""
     tool_calls = [savings_call(result=_savings_result(["SAVINGS_IV_LINK"], income_origin="TAX_CALC"))]
 
     text = build_response(tool_calls, None)
 
-    assert LOCKED_FEATURE_CTA["SAVINGS_IV_LINK"] in text
-    assert "jei prisijungsite" in text.lower()
+    assert LOCKED_FEATURE_CTA["SAVINGS_IV_LINK"] not in text
+    assert "jei prisijungsite" not in text.lower()
 
 
-def test_anonymous_non_iv_income_gets_the_neutral_variant_without_svyruoja_sentence():
-    tool_calls = [savings_call(result=_savings_result(["SAVINGS_IV_LINK"], income_origin="USER"))]
+def test_anonymous_falls_back_to_the_next_locked_feature_when_iv_link_is_gated():
+    """The gate only hides the IV_LINK-specific CTA - a different, already-real locked feature
+    (multi-goal tracking) still gets its own CTA instead of the user seeing nothing."""
+    tool_calls = [savings_call(
+        result=_savings_result(["SAVINGS_IV_LINK", "SAVINGS_MULTI_GOAL"], income_origin="TAX_CALC"))]
 
     text = build_response(tool_calls, None)
 
-    assert LOCKED_FEATURE_CTA_NEUTRAL_IV in text
-    assert "svyruoja" not in text.lower()
+    assert LOCKED_FEATURE_CTA["SAVINGS_IV_LINK"] not in text
+    assert LOCKED_FEATURE_CTA["SAVINGS_MULTI_GOAL"] in text
     assert "jei prisijungsite" in text.lower()
 
 

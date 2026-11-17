@@ -130,7 +130,7 @@ Kiekvienai: siųsk per TIKRĄ naršyklės sesiją (ne eval'o CI raktą) adresu
 `https://<staging-host>/` → teksto laukas apačioje → "Siųsti". Stebėk ir atsakymo pūslelės tekstą
 pokalbio lange (visas `reply` tekstas rodomas kaip yra — su disclaimer'iu ir CTA, jei yra, žr.
 `response_builder.py`), IR `docker compose -p atsidek-staging logs -f assistant` (vienas JSON
-log'o įrašas per žinutę — `tool_call_count`/`cost_cents`/`duration_ms`).
+log'o įrašas per žinutę — `tool_call_count`/`cost_micros`/`duration_ms`).
 
 | # | Atvejis | Pavyzdinė žinutė | Ko tikėtis |
 |---|---------|-------------------|------------|
@@ -181,7 +181,7 @@ pašalink eilutę) po testo ir persileisk vėl.
 - [ ] **Usage log'ų privatumo patikra** (statinė kodo patikra, ne staging veiksmas): patikrinta
       `assistant/app/usage_logging.py::log_usage` — įrašo laukai yra TIK `input_tokens`,
       `cache_creation_tokens`, `cache_read_tokens`, `output_tokens`, `tool_call_count`,
-      `duration_ms`, `cost_cents`; NIEKUR nerašomas vartotojo žinutės tekstas ar pajamų/tikslo
+      `duration_ms`, `cost_micros`; NIEKUR nerašomas vartotojo žinutės tekstas ar pajamų/tikslo
       sumos. Patvirtinta skaitant šio commit'o kodą — jei ateityje šis modulis būtų papildytas
       nauju lauku, PRIEŠ diegimą pakartoti šią patikrą perskaitant `log_usage`'o `record = {...}`
       žodyną eilutę po eilutės — ne tik grep'inant raktinius žodžius (jie pasitaiko ir
@@ -198,15 +198,15 @@ diegimo, bet fiksuok, jei pastebi, prieš produkcinį diegimą):
 
 `usage_logging.log_usage` rašo po VIENĄ JSON eilutę `assistant` konteinerio stdout kiekvienai
 apdorotai žinutei (`input_tokens`, `cache_creation_tokens`, `cache_read_tokens`, `output_tokens`,
-`tool_call_count`, `duration_ms`, `cost_cents`). Kombinuotos užklausos atpažįstamos pagal
+`tool_call_count`, `duration_ms`, `cost_micros`). Kombinuotos užklausos atpažįstamos pagal
 `tool_call_count >= 2` (vienintelis atvejis, kai per vieną žinutę kviečiami abu įrankiai).
 
 ```bash
 docker compose -p atsidek-staging logs assistant --no-log-prefix --since 1h \
-  | jq -R -c 'fromjson? | select(.cost_cents != null and .tool_call_count >= 2)' \
+  | jq -R -c 'fromjson? | select(.cost_micros != null and .tool_call_count >= 2)' \
   | jq -s '{
       n: length,
-      avg_cost_cents: (if length > 0 then (map(.cost_cents) | add / length) else null end),
+      avg_cost_micros: (if length > 0 then (map(.cost_micros) | add / length) else null end),
       avg_duration_ms: (if length > 0 then (map(.duration_ms) | add / length) else null end)
     }'
 ```
@@ -218,7 +218,7 @@ apsaugojimo viena ne-JSON eilutė sugriauna visą `jq` komandą.
 
 Pritaikyk `--since` langą pagal tai, kada vykdei 4 skyriaus rankinius testus (arba savininko
 `--via-endpoint` eval'ą — tas pats log'as, ta pati užklausa suveikia abiem atvejais). Įrašyk
-rezultatą (`n`, `avg_cost_cents`, `avg_duration_ms`) į PR/STATUS dokumentą kaip B7 Definition of
+rezultatą (`n`, `avg_cost_micros`, `avg_duration_ms`) į PR/STATUS dokumentą kaip B7 Definition of
 Done įrodymą (žr. `PLAN-taupymas-agentas.md` B7 skyrių: "Užfiksuota vidutinė kombinuotos užklausos
 kaina ir trukmė").
 

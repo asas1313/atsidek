@@ -31,6 +31,9 @@ Schema (`EvalCase`, a frozen dataclass):
   - `expected_annual_revenue`: set only for the monthly-income cases below (AC-B6-7) - the
     correctly-annualized (x12) figure the model's `calculate_iv_taxes` tool call INPUT must carry,
     scored by `scoring.score_tax_input_revenue_matches_expected`. `None` for every other case.
+  - `expected_savings_goal_years`: set only for the B8 item 2 case below - the `years` figure the
+    model's `calculate_savings_plan` tool call INPUT must carry (with `goal.mode="YEARS"`), scored
+    by `scoring.score_savings_input_years_matches_expected`. `None` for every other case.
   - `expect_amount_clarifying_question`: `True` only for the missing-amount case below (owner
     instruction, 2026-11-16) - unlike income, a savings goal's AMOUNT is still genuinely required
     (unaffected by the 2026-11-17 income decision), so the model must still ask for it, scored by
@@ -106,6 +109,7 @@ class EvalCase:
     expected_tool_sequence: list[str]
     expect_income_omitted: bool = False
     expected_annual_revenue: Optional[Decimal] = None
+    expected_savings_goal_years: Optional[int] = None
     expect_amount_clarifying_question: bool = False
     # Owner instruction (2026-11-17, bug 3 - the thinking-block/history crash): set ONLY for the
     # "multi_turn" group case below. A tuple of >=5 user messages sent as SEPARATE `/chat/send`
@@ -578,6 +582,20 @@ CASES: list[EvalCase] = [
             "Supratau, ar tai realu per tokį terminą?",
             "Taigi, kiek tiksliai turėčiau sutaupyti kas mėnesį 12000 eurų tikslui per 5 metus, turint 1700 eurų pajamų per mėnesį?",
         ),
+    ),
+    # --- B8 item 2 case (1) - "per X metų" (genitive) is grammatically unusual but a real user may
+    # type it; the already-handled "per X metus" (accusative, see e.g. savings_only_logged_in_01
+    # above) and "po X metų" (e.g. savings_only_anon_01 above) phrasings mean the same duration -
+    # this case pins the genitive variant specifically to goal.mode="YEARS", not "DATE" (scored by
+    # scoring.score_savings_input_years_matches_expected via expected_savings_goal_years).
+    EvalCase(
+        id="savings_only_anon_06_per_x_metu_genitive",
+        group="savings_only",
+        variant="anon",
+        tier=None,
+        user_message="Noriu sutaupyti 6000 eurų automobiliui per 3 metų, mano grynosios pajamos 1600 eurų per mėnesį.",
+        expected_tool_sequence=[SAVINGS_TOOL_NAME],
+        expected_savings_goal_years=3,
     ),
 ]
 

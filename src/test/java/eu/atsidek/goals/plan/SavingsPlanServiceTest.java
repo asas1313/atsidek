@@ -245,6 +245,22 @@ class SavingsPlanServiceTest {
     }
 
     @Test
+    void missingNetMonthlyIncomeWithStatisticsResolvedExpensesDoesNotSurfaceAnUnusedExpensesAssumption() {
+        // B8 item 1: monthly_expenses only ever feeds the free-cash/fit assessment (GoalsEngine
+        // never uses it for the contribution itself) - when income is unknown, that assessment is
+        // skipped entirely (see the test above), so a statistics-resolved expenses figure was
+        // never actually used for anything the user sees. Surfacing it as an "assumption" anyway
+        // would misleadingly imply it influenced the (income-less) result above.
+        SavingsPlanService service = new SavingsPlanService(entitlementAlwaysDenies(),
+                statsResolvingExpensesTo(new BigDecimal("1350.00"), true));
+        SavingsPlanRequest req = request(yearsGoal("15000", 5), null, null, null);
+
+        SavingsPlanResponse response = service.plan(req, null);
+
+        assertThat(response.core().assumptions()).noneMatch(e -> e.field().equals("monthly_expenses"));
+    }
+
+    @Test
     void netMonthlyIncomeSmallerThanTaxSetasideIsNoLongerAValidationErrorSinceTaxSetasideIsDisplayOnly() {
         // B6 incident fix removed the old cross-field check here: net_monthly_income (500) <
         // monthly_tax_setaside (900) used to 400 because the OLD buggy formula would have derived
@@ -467,6 +483,10 @@ class SavingsPlanServiceTest {
         // "ilgesnį terminą" - the whole word "termin*" must be absent for WHEN, not just that
         // one phrase.
         assertThat(response.core().generalTip()).doesNotContain("termin");
+        // B8 item 3 ("Prieš produkciją" radinys): kai WHEN režimui vėliau rodoma pasiekimo data,
+        // "tikslas nerealus" šalia konkrečios datos prieštarauja pačiai datai - žodis "nerealus"
+        // dabar visiškai pašalintas iš WHEN+UNREALISTIC patarimo.
+        assertThat(response.core().generalTip()).doesNotContain("nerealus");
     }
 
     @Test

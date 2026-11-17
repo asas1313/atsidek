@@ -303,3 +303,46 @@ def test_prompt_annualizes_a_stated_monthly_iv_income_before_calling_the_tax_too
     assert "x12" in lowered or "12" in lowered
     assert "calculate_iv_taxes" in SYSTEM_PROMPT
     assert "per mėnesį" in lowered
+
+
+# --- B8 (production prep, 2026-11-17) ------------------------------------------------------------
+
+def test_prompt_maps_genitive_per_x_metu_duration_to_years_mode_same_as_per_x_metus():
+    """Item 2: "per X metų" (genitive) is grammatically unusual but means the same duration as the
+    already-handled "per X metus" (accusative) / "po X metų" phrasings - all three must map to
+    goal.mode="YEARS", not be confused with an absolute target year (goal.mode="DATE")."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "per x metų" in lowered
+    assert "per x metus" in lowered
+    assert "po x metų" in lowered
+    assert "years" in SYSTEM_PROMPT and "mode=\"years\"" in lowered
+
+
+def test_prompt_forbids_the_model_from_pre_empting_the_templates_income_invitation():
+    """Item 1: the income-invitation sentence ("Jei norite sužinoti, ar tai telpa į biudžetą,
+    nurodykite savo pajamas.") is ALWAYS appended by the template (SavingsPlanService.generalTip)
+    after the model's own text - the model must never say something equivalent itself, or the
+    user sees the same invitation twice."""
+    assert "Jei norite sužinoti, ar tai telpa į biudžetą, nurodykite savo pajamas." in SYSTEM_PROMPT
+    lowered = SYSTEM_PROMPT.lower()
+    assert "niekada nerašyk kvietimo nurodyti pajamas" in lowered
+    assert "šablono" in lowered
+
+
+def test_prompt_forbids_restating_the_general_tip_fit_judgement_in_the_models_own_words():
+    """Item 3 ("Prieš produkciją" radinys): the model's own intro/explanation must not duplicate
+    the deterministic fit/realism judgement (general_tip) that the template renders separately -
+    only a neutral intro or clarifying question belongs to the model's free text."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "nekartok ir savais žodžiais neperfrazuok" in lowered
+    assert "pasiekiamas" in lowered and "nerealus" in lowered
+
+
+def test_prompt_forbids_the_literal_uppercase_tier_words_free_and_premium():
+    """Item 3 ("Prieš produkciją" radinys): the model must never echo the raw tier codenames
+    "FREE"/"PREMIUM" (as seen in a tool result's "tier" field) - only "nemokama versija" or the
+    product name "Premium" are acceptable user-facing vocabulary."""
+    assert "\"FREE\", \"PREMIUM\"".lower() in SYSTEM_PROMPT.lower() or "free" in SYSTEM_PROMPT.lower()
+    lowered = SYSTEM_PROMPT.lower()
+    assert "nemokama versija" in lowered
+    assert "niekada nerašyk vartotojui pažodžiui" in lowered
