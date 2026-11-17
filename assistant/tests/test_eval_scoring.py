@@ -406,6 +406,21 @@ def test_score_missing_amount_handled_still_fails_if_question_states_a_genuinely
     assert score_missing_amount_handled([], final_text, user_message) is False
 
 
+def test_score_missing_amount_handled_recognizes_kiek_pinigu_norite_sukaupti_phrasing():
+    """Owner instruction (2026-11-17, item 4, after eval 1c25e9c): the real run's phrasing used
+    "pinigų" (money), not "suma", and was an embedded/indirect question ending in "." rather than
+    a literal "?" - both "sum"-only and "?"-only detection missed it."""
+    final_text = "Norėčiau žinoti, kiek pinigų norite sukaupti šiam tikslui."
+    assert score_missing_amount_handled([], final_text) is True
+
+
+def test_score_missing_amount_handled_still_fails_on_pinigai_mentioned_without_a_request_stem():
+    """"pinig" alone (no "?", no request stem like "kiek"/"reik"/...) must still not count - mirrors
+    the existing "suma mentioned in passing" guard."""
+    final_text = "Šie pinigai priklauso nuo jūsų pasirinkto termino."
+    assert score_missing_amount_handled([], final_text) is False
+
+
 # --- score_no_banned_investment_terms (AC-B6-4, deterministic half) ---------------------------------
 #
 # Simplified 2026-11-13 (owner decision, after 3 review rounds each found a new regex-edge-case
