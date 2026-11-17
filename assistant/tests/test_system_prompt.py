@@ -157,13 +157,27 @@ def test_prompt_allows_generic_investment_vocabulary_without_naming_a_specific_p
     assert "pavadinim" in lowered
 
 
-def test_prompt_says_missing_income_asks_only_income_other_fields_get_assumption_defaults():
-    """Item 6c: when income is missing, the model must ask ONLY about income - every other
-    missing field (expenses, return/inflation assumptions) gets a default, surfaced as an
-    assumption by calculate_savings_plan itself, never a separate clarifying question."""
+def test_prompt_says_missing_income_still_calls_the_tool_without_asking_first():
+    """Owner decision, 2026-11-17 (first real staging walkthrough, supersedes the old item 6c
+    "ask only about income" rule): when income is missing entirely, the model must NOT ask a
+    clarifying question before calculating at all - it must call calculate_savings_plan with
+    both income fields omitted and let the deterministic reply template invite the user to
+    provide income, exactly as it does for every other missing field (expenses, return/inflation
+    assumptions), which already gets a default surfaced as an assumption, never a question."""
     lowered = SYSTEM_PROMPT.lower()
-    assert "tik pajam" in lowered
+    assert "vis tiek kviesk calculate_savings_plan" in lowered
+    assert "neklausk pajamų" in lowered or "neklausk pajam" in lowered
     assert "numatytosios reikšmės" in lowered or "numatytąsias reikšmes" in lowered
+
+
+def test_prompt_forbids_deriving_income_from_goal_amount_or_term():
+    """Owner decision, 2026-11-17 (real staging bug: for "Noriu sutaupyti 8000 eurų per 4 metus
+    kelionei." the model computed 8000/4=2000 and passed it off as monthly income) - the prompt
+    must explicitly forbid deriving an income figure from the goal amount, term, or any other
+    number in the message, not just forbid guessing from statistics."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "neišvedi pajamų skaičiaus" in lowered or "neišveda pajamų skaičiaus" in lowered
+    assert "8000" in SYSTEM_PROMPT and "4" in SYSTEM_PROMPT  # the concrete incident example
 
 
 def test_prompt_handles_a_year_only_goal_as_december_without_asking():

@@ -7,12 +7,16 @@ framing itself no longer applies.
   * `CalculateSavingsPlanInput` (AC-B2-1) — schema shape, tax_calc_id/net_monthly_income
     mutually exclusive.
   * `resolve_income` (AC-B2-2/3) — the one place that decides where net_monthly_income comes
-    from: a prior calculate_iv_taxes result (tax_calc_id), a user-stated figure, or
-    MissingIncomeError when neither is given (income is never guessed from statistics).
+    from: a prior calculate_iv_taxes result (tax_calc_id), a user-stated figure, or `None` when
+    neither is given (owner decision, 2026-11-17, after the first real staging walkthrough:
+    income is never guessed from statistics, but the monthly contribution/reach-date CAN still be
+    computed without it — only the free-cash fit assessment needs income, see
+    `SavingsPlanService.buildCore` on the Java side).
   * `make_calculate_savings_plan_tool` (AC-B2-4) — thin handler: validate -> resolve_income ->
     call `Calculator.savings_plan()` (same context-token-relay convention as B1's tax tool) ->
     curate what the model sees.
 """
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Callable, Literal, Optional
@@ -20,15 +24,52 @@ from typing import Callable, Literal, Optional
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from .calculator import Calculator
-from .errors import MissingIncomeError
+from .errors import HallucinatedIncomeError
 from .request_context import RequestContext
 
 TOOL_NAME = "calculate_savings_plan"
 
-MISSING_INCOME_MESSAGE = (
-    "Nėra grynųjų pajamų: paklausk vartotojo mėnesio grynųjų pajamų arba pirmiau iškviesk "
-    "calculate_iv_taxes."
+# Owner decision, 2026-11-17 (real staging bug: for "Noriu sutaupyti 8000 eurų per 4 metus
+# kelionei." the model computed 8000/4=2000 and passed it off as net_monthly_income - a number it
+# invented from the GOAL itself). Written AS AN INSTRUCTION TO THE MODEL (same convention as
+# MISSING_INCOME_MESSAGE used to be) - this is exactly what the model sees in the is_error
+# tool_result block, and must tell it how to recover: retry without the fabricated figure.
+HALLUCINATED_INCOME_MESSAGE = (
+    "net_monthly_income atrodo išvestas iš tikslo sumos/termino (amount/years ar jo ×12), ne iš "
+    "vartotojo pasakytos pajamų sumos - tai NIEKADA leidžiama, net kaip apytikslė prielaida. "
+    "Pakartok kvietimą BE net_monthly_income ir BE tax_calc_id laukų (jei vartotojas tikrai "
+    "nenurodė savo pajamų), arba su TIKRU jo paties pasakytu pajamų skaičiumi, jei toks yra."
 )
+
+_DIGIT_RUN = re.compile(r"\d+")
+
+
+def _number_appears_in_text(value: Decimal, text: str) -> bool:
+    """Heuristic (not exact-NLP) containment check: True if VALUE's integer part appears as a
+    standalone digit run anywhere in TEXT. Good enough for a GUARD against an obviously-derived
+    number; not meant to parse amounts/formatting precisely."""
+    target = str(int(value))
+    return target in _DIGIT_RUN.findall(text)
+
+
+def _income_looks_derived_from_goal(goal: "GoalInput", candidate: Decimal) -> bool:
+    """Owner decision, 2026-11-17: matches the exact hallucination pattern from the real bug - a
+    model-supplied income figure that coincidentally equals the goal amount divided by its term,
+    or that quotient times 12 (monthly-income -> annual-revenue style confusion). A term is only
+    unambiguously known here for YEARS (the `years` field directly) and CHILD_AGE (target minus
+    current age) - DATE's term would need "today" (a time-dependent computation this heuristic
+    deliberately doesn't attempt), and WHEN mode's `monthly_contribution` IS the user's own input,
+    not a figure to derive income from."""
+    term_years: Optional[int] = None
+    if goal.mode == "YEARS" and goal.years:
+        term_years = goal.years
+    elif goal.mode == "CHILD_AGE" and goal.child_current_age is not None and goal.child_target_age is not None:
+        term_years = goal.child_target_age - goal.child_current_age
+    if not term_years or term_years <= 0:
+        return False
+    quotient = goal.amount / term_years
+    tolerance = Decimal("0.01")
+    return abs(candidate - quotient) <= tolerance or abs(candidate - quotient * 12) <= tolerance
 
 
 def _nullable(t: str, description: str) -> dict:
@@ -108,8 +149,9 @@ SCHEMA = {
             "description": (
                 "Ankstesnio calculate_iv_taxes kvietimo grąžintas tax_calc_id, iš kurio paimamos "
                 "grynosios mėnesio pajamos. Naudok ARBA šitą, ARBA net_monthly_income - NIEKADA "
-                "abu vienu metu. Jei nei vieno neturi, NESPĖLIOK pajamų - paklausk vartotojo arba "
-                "pirmiau iškviesk calculate_iv_taxes."
+                "abu vienu metu. Jei nei vieno neturi, NESPĖLIOK pajamų (niekada neišvesk jos iš "
+                "tikslo sumos, termino ar kito skaičiaus žinutėje) - tiesiog praleisk abu šiuos "
+                "laukus, vis tiek paskaičiuosi mėnesio įmoką/datą, tik be laisvų pinigų įvertinimo."
             ),
         },
         "net_monthly_income": {
@@ -126,9 +168,12 @@ SCHEMA = {
 TOOL_DEF = {
     "name": TOOL_NAME,
     "description": (
-        "Paskaičiuoja taupymo planą tikslui pagal grynąsias mėnesio pajamas, išlaidas ir namų "
-        "ūkio sudėtį. Pajamas nustato TIK per tax_calc_id arba net_monthly_income - niekada "
-        "nespėlioja jų pats."
+        "Paskaičiuoja taupymo planą tikslui: mėnesio įmoką (arba datą, kai goal.mode=WHEN). "
+        "Pajamas (tax_calc_id arba net_monthly_income) nustato TIK iš ankstesnio "
+        "calculate_iv_taxes kvietimo arba vartotojo AIŠKIAI pasakyto skaičiaus - niekada "
+        "nespėlioja/neišveda jų iš tikslo sumos, termino ar kito žinutės skaičiaus. Kai nei "
+        "vieno neturi, abu laukus praleisk - įmoka/data vis tiek paskaičiuojama, tik atsakyme "
+        "nebus laisvų pinigų/telpa-netelpa įvertinimo."
     ),
     "input_schema": SCHEMA,
 }
@@ -201,11 +246,14 @@ class CalculateSavingsPlanInput(BaseModel):
 class ResolvedIncome:
     """Result of `resolve_income` - a concrete income figure to call Java with, plus where it
     came from (`origin`, surfaced to the model/B4's narration so it can say e.g. "pagal tavo
-    anksčiau apskaičiuotus mokesčius" vs. "pagal tavo nurodytas pajamas")."""
+    anksčiau apskaičiuotus mokesčius" vs. "pagal tavo nurodytas pajamas"). Both `net_monthly_income`
+    and `origin` are `None` when the caller gave neither `tax_calc_id` nor `net_monthly_income`
+    (owner decision, 2026-11-17) - Java still computes the monthly contribution/reach date without
+    income, it just skips the free-cash fit assessment (see `SavingsPlanService.buildCore`)."""
 
-    net_monthly_income: Decimal
+    net_monthly_income: Optional[Decimal]
     monthly_tax_setaside: Optional[Decimal]
-    origin: Literal["TAX_CALC", "USER"]
+    origin: Optional[Literal["TAX_CALC", "USER"]]
 
 
 def resolve_income(parsed: CalculateSavingsPlanInput, request_context: RequestContext) -> ResolvedIncome:
@@ -221,7 +269,12 @@ def resolve_income(parsed: CalculateSavingsPlanInput, request_context: RequestCo
       deliberately NOT wrapped into a ToolError.
     - `net_monthly_income` given directly (no `tax_calc_id`, enforced mutually exclusive by the
       schema already) -> use it as-is, origin USER, no tax set-aside (Java treats None as 0).
-    - Neither given -> `MissingIncomeError` (PLAN.md principle: never guess income from stats).
+    - Neither given -> `ResolvedIncome(None, None, None)` (owner decision, 2026-11-17: the FIRST
+      real staging walkthrough found that the previous behavior - a hard `MissingIncomeError`
+      stopping the whole calculation - was the wrong product call for e.g. "I want to save €8000
+      in 4 years for a trip" with no income mentioned at all. Income is STILL never guessed from
+      statistics or derived from the goal's own numbers (system_prompt.py), but the contribution/
+      reach-date math doesn't need it, so there's no reason to refuse to answer).
     """
     if parsed.tax_calc_id is not None:
         stored = request_context.get_result(parsed.tax_calc_id)
@@ -237,7 +290,7 @@ def resolve_income(parsed: CalculateSavingsPlanInput, request_context: RequestCo
             monthly_tax_setaside=None,
             origin="USER",
         )
-    raise MissingIncomeError(MISSING_INCOME_MESSAGE)
+    return ResolvedIncome(net_monthly_income=None, monthly_tax_setaside=None, origin=None)
 
 
 def make_calculate_savings_plan_tool(api: Calculator) -> Callable[[dict, RequestContext, Optional[str]], dict]:
@@ -252,6 +305,14 @@ def make_calculate_savings_plan_tool(api: Calculator) -> Callable[[dict, Request
     def handle(tool_input: dict, request_context: RequestContext, context_token: Optional[str] = None) -> dict:
         parsed = CalculateSavingsPlanInput.model_validate(tool_input)
         income = resolve_income(parsed, request_context)
+
+        # Owner decision, 2026-11-17: only the USER-stated-figure path can possibly be a
+        # hallucination - a TAX_CALC-origin income came from a prior, already-validated
+        # calculate_iv_taxes result, never from the model inventing a number.
+        if (income.origin == "USER" and income.net_monthly_income is not None
+                and _income_looks_derived_from_goal(parsed.goal, income.net_monthly_income)
+                and not _number_appears_in_text(income.net_monthly_income, request_context.message_text)):
+            raise HallucinatedIncomeError(HALLUCINATED_INCOME_MESSAGE)
 
         goal = parsed.goal.model_dump()
         household = parsed.household.model_dump() if parsed.household is not None else None

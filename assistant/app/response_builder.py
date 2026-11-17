@@ -177,7 +177,15 @@ def _build_goal_section(core: dict) -> str:
     > 100`, Java's UNREALISTIC verdict can still have this even though `fits` only flips off at
     >50%) - "150,0% laisvų pinigų" is just as misleading there, say plainly that it doesn't fit
     instead of rendering a percentage over 100.
+
+    Owner decision, 2026-11-17 (first real staging walkthrough): `free_cash_monthly` is `None`
+    when the user never stated income at all (Java never guesses it) - there is no fit assessment
+    to report, just the contribution itself plus Java's own invitation to provide income
+    (`core["general_tip"]`, see `SavingsPlanService.generalTip`).
     """
+    if core["free_cash_monthly"] is None:
+        sentence = f"Tikslui reikėtų atsidėti {_eur(core['monthly_contribution'])} per mėnesį."
+        return f"{sentence} {core['general_tip']}"
     free_cash = Decimal(str(core["free_cash_monthly"]))
     if free_cash <= 0:
         # Owner instruction (2026-11-16, after eval fae9e00, item 2): general_tip is no longer
@@ -224,7 +232,11 @@ def _build_when_reach_section(core: dict) -> Optional[str]:
     #
     # Item 4d: `_format_date_lt` already ends with "mėn." (an abbreviation period) - NO further
     # "." is appended after it, which used to render as a stray double period ("mėn..").
-    if not core.get("fits", True):
+    #
+    # Owner decision, 2026-11-17: `fits` is `None` ("unknown", income not stated), NOT the same as
+    # `False` ("known, doesn't fit") - must use `is False` here, not a truthiness check, or an
+    # unknown fit would wrongly trigger the "jei pavyktų" reframing below.
+    if core.get("fits") is False:
         return (
             f"Jei pavyktų atidėti {_eur(core['monthly_contribution'])} per mėnesį, tikslą "
             f"pasiektumėte {_format_date_lt(reach_date)}"
@@ -324,7 +336,10 @@ def build_response(tool_calls: list[dict], final_text: Optional[str]) -> str:
 
     if savings_result is not None:
         core = savings_result["core"]
-        sections.append(_build_free_cash_section(core))
+        # Owner decision, 2026-11-17: no free-cash line at all when income was never stated
+        # (core["free_cash_monthly"] is None) - _build_goal_section covers the invitation instead.
+        if core["free_cash_monthly"] is not None:
+            sections.append(_build_free_cash_section(core))
         sections.append(_build_goal_section(core))
         goal_mode = ((savings_call.get("input") or {}).get("goal") or {}).get("mode")
         if goal_mode == "WHEN":

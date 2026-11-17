@@ -45,4 +45,22 @@ class MissingIncomeError(ToolError):
     PLAN.md principle: income is never guessed from statistics. The message is written AS AN
     INSTRUCTION TO THE MODEL (B2 owner decision), not just a human-readable description, since
     this is exactly the text the model will see inside the `is_error` tool_result block.
+
+    No longer raised by `savings_tool.resolve_income` itself (owner decision, 2026-11-17: income
+    genuinely absent is handled by calling Java WITHOUT it, not by erroring - see that module's
+    own docstring) - kept as a public, documented error class since nothing else depended on its
+    removal, and `test_agent_loop.py`/`test_errors.py` use it as a generic `ToolError` example.
+    """
+
+
+class HallucinatedIncomeError(ToolError):
+    """Owner decision, 2026-11-17 (real staging bug: for "Noriu sutaupyti 8000 eurų per 4 metus
+    kelionei." the model computed 8000/4=2000 and passed it off as `net_monthly_income`, a
+    number it invented from the GOAL itself, not from anything the user actually said about their
+    income). Raised by `savings_tool.py`'s heuristic guard when a model-supplied income figure
+    suspiciously equals the goal amount divided by its term (or that quotient times 12) AND that
+    literal figure does not appear anywhere in the user's own message - PLAN.md's "income is
+    never guessed" principle applies just as much to numbers derived from OTHER numbers in the
+    request as it does to statistics. The message is written AS AN INSTRUCTION TO THE MODEL, same
+    convention as `MissingIncomeError`.
     """

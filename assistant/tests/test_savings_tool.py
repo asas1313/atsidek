@@ -13,7 +13,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.errors import MissingIncomeError
+from app.errors import HallucinatedIncomeError
 from app.request_context import RequestContext, UnknownResultError
 from app.savings_tool import (
     ASSUMPTIONS_SCHEMA,
@@ -185,13 +185,18 @@ def test_resolve_income_from_user_stated_figure_returns_origin_user_no_tax_setas
     assert resolved.origin == "USER"
 
 
-def test_resolve_income_raises_missing_income_error_with_instructive_message_when_neither_given():
+def test_resolve_income_returns_all_none_when_neither_given():
+    """Owner decision, 2026-11-17 (first real staging walkthrough): neither given no longer
+    raises - it returns a fully-None ResolvedIncome so the handler can still call Java and get a
+    contribution/reach-date back, just without a free-cash fit assessment."""
     ctx = RequestContext()
     parsed = CalculateSavingsPlanInput.model_validate({"goal": goal()})
 
-    with pytest.raises(MissingIncomeError) as exc:
-        resolve_income(parsed, ctx)
-    assert "calculate_iv_taxes" in str(exc.value)
+    resolved = resolve_income(parsed, ctx)
+
+    assert resolved.net_monthly_income is None
+    assert resolved.monthly_tax_setaside is None
+    assert resolved.origin is None
 
 
 def test_resolve_income_unknown_tax_calc_id_propagates_unknown_result_error():
@@ -258,18 +263,107 @@ def test_user_stated_net_monthly_income_is_used_directly():
     assert api.calls[0][1] == Decimal("1500")
 
 
-def test_neither_tax_calc_id_nor_net_monthly_income_is_a_tool_error_not_a_guess():
-    """The handler must NEVER fall back to a stats-derived or fabricated income figure (PLAN.md
-    principle, same rule B1/A3 already follow) — missing income is always an explicit error for
-    the model/agent loop to handle (ask the user), never a silent guess."""
+def test_neither_tax_calc_id_nor_net_monthly_income_still_calls_java_with_none_income():
+    """Owner decision, 2026-11-17: the handler must NEVER fall back to a stats-derived or
+    fabricated income figure (PLAN.md principle, same rule B1/A3 already follow) - but it no
+    longer refuses to call Java either; it calls it with net_monthly_income=None so the
+    contribution/reach-date still gets computed, just without a free-cash fit assessment."""
     ctx = RequestContext(user_id=None, tier="anonymous")
     api = FakeSavingsApi()
-    handler = make_calculate_savings_plan_tool(api)  # currently: NotImplementedError
+    handler = make_calculate_savings_plan_tool(api)
 
-    with pytest.raises(MissingIncomeError):
-        handler({"goal": goal()}, ctx, None)
+    out = handler({"goal": goal()}, ctx, None)
 
-    assert api.calls == []  # Java must never be called with a fabricated/absent income.
+    assert api.calls[0][1] is None  # net_monthly_income arg
+    assert out["income_origin"] is None
+
+
+# --- hallucinated-income heuristic guard (owner decision, 2026-11-17 real staging bug) ---------
+
+def test_income_matching_goal_amount_over_term_and_absent_from_the_message_is_a_tool_error():
+    """Reproduces the real bug: "Noriu sutaupyti 8000 eurų per 4 metus kelionei." - the model
+    computed 8000/4=2000 and passed it as net_monthly_income, a number it invented from the goal,
+    not from anything the user said."""
+    ctx = RequestContext(message_text="Noriu sutaupyti 8000 eurų per 4 metus kelionei.")
+    api = FakeSavingsApi()
+    handler = make_calculate_savings_plan_tool(api)
+
+    with pytest.raises(HallucinatedIncomeError):
+        handler({"goal": {"type": "OTHER", "mode": "YEARS", "amount": Decimal("8000"), "years": 4},
+                  "net_monthly_income": Decimal("2000")}, ctx, None)
+
+    assert api.calls == []  # Java must never be called with the fabricated figure
+
+
+def test_income_matching_goal_amount_over_term_times_12_is_also_a_tool_error():
+    """The ×12 variant from the bug report: 8000/4=2000 monthly, then ×12=24000 passed as if it
+    were an annual figure."""
+    ctx = RequestContext(message_text="Noriu sutaupyti 8000 eurų per 4 metus kelionei.")
+    api = FakeSavingsApi()
+    handler = make_calculate_savings_plan_tool(api)
+
+    with pytest.raises(HallucinatedIncomeError):
+        handler({"goal": {"type": "OTHER", "mode": "YEARS", "amount": Decimal("8000"), "years": 4},
+                  "net_monthly_income": Decimal("24000")}, ctx, None)
+
+
+def test_income_matching_goal_amount_over_term_is_allowed_when_user_actually_said_that_number():
+    """The SAME 2000 figure is fine when the user's own message actually states it - a coincidence
+    with the goal-amount/term math is not itself proof of hallucination."""
+    ctx = RequestContext(message_text="Noriu sutaupyti 8000 eurų per 4 metus, gaunu 2000 € per mėnesį.")
+    api = FakeSavingsApi()
+    handler = make_calculate_savings_plan_tool(api)
+
+    handler({"goal": {"type": "OTHER", "mode": "YEARS", "amount": Decimal("8000"), "years": 4},
+              "net_monthly_income": Decimal("2000")}, ctx, None)
+
+    assert api.calls[0][1] == Decimal("2000")
+
+
+def test_income_from_tax_calc_id_is_never_checked_even_if_it_matches_the_goal_math():
+    """A TAX_CALC-origin income came from a prior, already-validated calculate_iv_taxes result -
+    never from the model inventing a number - so the heuristic must never fire for it, even on an
+    unlucky numeric coincidence with the goal amount/term."""
+    ctx = RequestContext(message_text="Noriu sutaupyti 8000 eurų per 4 metus kelionei.")
+    stored_tax_result = {"better": {"netMonthlyIncome": Decimal("2000"), "monthlyReserve": Decimal("100")}}
+    tax_calc_id = ctx.store_result(stored_tax_result)
+    api = FakeSavingsApi()
+    handler = make_calculate_savings_plan_tool(api)
+
+    handler({"goal": {"type": "OTHER", "mode": "YEARS", "amount": Decimal("8000"), "years": 4},
+              "tax_calc_id": tax_calc_id}, ctx, None)
+
+    assert api.calls[0][1] == Decimal("2000")
+
+
+def test_income_unrelated_to_goal_math_is_never_flagged_even_if_absent_from_the_message():
+    """A user-stated income that does NOT match the goal-amount/term pattern must never be
+    flagged, regardless of whether it happens to appear in the (here deliberately empty)
+    message - the heuristic is scoped to the specific derived-number pattern, not "any number
+    absent from the message"."""
+    ctx = RequestContext(message_text="")
+    api = FakeSavingsApi()
+    handler = make_calculate_savings_plan_tool(api)
+
+    handler({"goal": {"type": "OTHER", "mode": "YEARS", "amount": Decimal("8000"), "years": 4},
+              "net_monthly_income": Decimal("1234")}, ctx, None)
+
+    assert api.calls[0][1] == Decimal("1234")
+
+
+def test_child_age_mode_term_is_also_checked():
+    """child_target_age - child_current_age is CHILD_AGE mode's term - same hallucination
+    pattern, different mode."""
+    ctx = RequestContext(message_text="Vaikui reikės 12000 € studijoms, dabar jam 8, mokysis nuo 18.")
+    api = FakeSavingsApi()
+    handler = make_calculate_savings_plan_tool(api)
+
+    with pytest.raises(HallucinatedIncomeError):
+        handler({
+            "goal": {"type": "CHILD", "mode": "CHILD_AGE", "amount": Decimal("12000"),
+                     "child_current_age": 8, "child_target_age": 18},
+            "net_monthly_income": Decimal("1200"),  # 12000 / 10
+        }, ctx, None)
 
 
 # --- AC-B2-4: identity/token forwarding, tier-scoped disclosure (RED) ------------------------
