@@ -745,6 +745,102 @@ def test_rescore_keeps_a_stored_judge_verdict_unchanged_and_never_recalls_the_ju
     assert "llm_judge" in violation_checks
 
 
+# --- item 6 (owner instruction 2026-11-17, after eval 1c25e9c): --rescore --with-judge ----------
+
+def test_rescore_with_judge_reinvokes_the_judge_on_the_stored_reply_not_a_carried_over_verdict(tmp_path):
+    """`--rescore --with-judge` must call the judge AGAIN against the stored reply (e.g. to check
+    item 1's rubric v2 fix against a past real run) - not just carry over whatever verdict (if
+    any) was originally stored. The agent itself is never called either way (no FakeClient/
+    registry in this test at all - only the judge's own fake client)."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    case_result = _fake_case_result("tax_only_anon_01", "Investavimo patarimų teikti negaliu.", [])
+    case_result["runs"][0]["judge_verdict"] = {"verdict": "FAIL", "reason": "old v1 rubric FAIL"}
+
+    stored = {
+        "model": "claude-haiku-5-5",
+        "date": "2026-11-11",
+        "git_sha": "1c25e9c",
+        "git_branch": "feat/taupymas-agentas-b9",
+        "runs_per_case": 1,
+        "with_judge": True,
+        "cases": 1,
+        "case_results": [case_result],
+        "investment_advice_violations": [],
+        "judge_errors": [],
+        "run_broken": False,
+    }
+    results_path = tmp_path / "fake_results_for_rejudge.json"
+    results_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    fake_client = _FakeJudgeClient(_FakeJudgeResponse(
+        [_fake_verdict_tool_use(reason="v2 rubric PASS", verdict="PASS")]
+    ))
+
+    rescored = run_eval.rescore(results_path, with_judge=True, client=fake_client)
+
+    run = rescored["case_results"][0]["runs"][0]
+    assert run["judge_verdict"]["verdict"] == "PASS"
+    assert run["judge_verdict"]["reason"] == "v2 rubric PASS"
+    assert rescored["investment_advice_violations"] == []
+    assert rescored["with_judge"] is True
+
+
+def test_rescore_with_judge_collects_fresh_judge_errors_separately_from_content_violations(tmp_path):
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    case_result = _fake_case_result("tax_only_anon_01", "kažkoks atsakymas", [])
+
+    stored = {
+        "model": "claude-haiku-5-5",
+        "date": "2026-11-11",
+        "git_sha": "1c25e9c",
+        "git_branch": "feat/taupymas-agentas-b9",
+        "runs_per_case": 1,
+        "with_judge": False,
+        "cases": 1,
+        "case_results": [case_result],
+        "investment_advice_violations": [],
+        "judge_errors": [],
+        "run_broken": False,
+    }
+    results_path = tmp_path / "fake_results_for_rejudge_error.json"
+    results_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    # No tool_use block at all - the judge technical-ERROR path (see _run_judge).
+    fake_client = _FakeJudgeClient(_FakeJudgeResponse([_FakeTextBlock("laisvas tekstas")]))
+
+    rescored = run_eval.rescore(results_path, with_judge=True, client=fake_client)
+
+    assert rescored["judge_errors"]
+    assert rescored["run_broken"] is True
+    violation_checks = {v["check"] for v in rescored["investment_advice_violations"]}
+    assert "llm_judge" not in violation_checks
+
+
+def test_rescore_without_with_judge_never_touches_the_judge_client_argument(tmp_path):
+    """Default with_judge=False must stay genuinely offline/zero-cost - passing a client that
+    would raise if ever called proves _run_judge is never reached."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    case_result = _fake_case_result("tax_only_anon_01", "kažkoks atsakymas", [])
+    stored = {
+        "model": "claude-haiku-5-5", "date": "2026-11-11", "git_sha": "x", "git_branch": "y",
+        "runs_per_case": 1, "with_judge": False, "cases": 1, "case_results": [case_result],
+        "investment_advice_violations": [], "judge_errors": [], "run_broken": False,
+    }
+    results_path = tmp_path / "fake_results_offline.json"
+    results_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    class _ExplodingClient:
+        def __getattr__(self, name):
+            raise AssertionError("judge client must never be touched when with_judge=False")
+
+    rescored = run_eval.rescore(results_path, client=_ExplodingClient())
+
+    assert rescored["case_results"][0]["runs"][0].get("judge_verdict") is None
+
+
 # --- item 5 (owner instruction 2026-11-17): --via-endpoint ---------------------------------
 #
 # `_coerce_decimal_strings` plus the mocked-httpx session/CSRF helpers - no real network call, no

@@ -791,14 +791,24 @@ def _case_by_id(case_id: str):
     raise KeyError(f"Nežinomas case id {case_id!r} - evals/agent/cases.py nebeturi šio atvejo.")
 
 
-def rescore(results_path: Path) -> dict:
-    """`--rescore <path>`: re-runs every DETERMINISTIC scoring function (never the LLM judge, and
-    NEVER calls the live Anthropic/Java backends) against an EXISTING results JSON's own stored
-    `tool_calls`/`final_text`, so a scorer code fix (e.g. item 8's missing_income_handled fix) can
-    be checked against a past real live run without spending any more LLM cost.
+def rescore(results_path: Path, with_judge: bool = False, client: Any = None) -> dict:
+    """`--rescore <path>`: re-runs every DETERMINISTIC scoring function (never the LLM, and never
+    calls the live Java backend) against an EXISTING results JSON's own stored `tool_calls`/
+    `final_text`, so a scorer code fix (e.g. item 8's missing_income_handled fix) can be checked
+    against a past real live run without spending any more LLM cost.
 
-    A stored `judge_verdict` (if the original run used --with-judge) is carried over UNCHANGED -
-    rescoring never re-judges, only re-applies the deterministic checks.
+    Without `with_judge` (default False): a stored `judge_verdict` (if the original run used
+    --with-judge) is carried over UNCHANGED - this mode never re-judges, only re-applies the
+    deterministic checks. The agent itself is NEVER re-run either way.
+
+    Owner instruction (2026-11-17, item 6, after eval 1c25e9c): `with_judge=True` ADDITIONALLY
+    re-invokes the LLM judge against every stored run's own saved `reply` - still never the agent,
+    only `_run_judge`'s direct Anthropic call runs again, against text already on disk. This is
+    for checking a rubric-wording fix (e.g. item 1's v2 exception) against a past real run's
+    actual replies without re-spending the agent's own LLM/Java cost. `client` is injectable for
+    tests (a fake Anthropic client); when omitted and `with_judge` is True, a real
+    `anthropic.Anthropic()` is constructed lazily (never when `with_judge` is False, so the
+    default rescore path stays genuinely zero-cost/offline).
 
     Owner instruction (2026-11-16, item 9): the rescored output keeps the ORIGINAL run's own
     `date`/`git_sha`/`git_branch` (it describes what was actually tested against a live LLM, which
@@ -807,9 +817,14 @@ def rescore(results_path: Path) -> dict:
     """
     original = json.loads(results_path.read_text(encoding="utf-8"), parse_float=Decimal)
 
+    if with_judge and client is None:
+        import anthropic
+
+        client = anthropic.Anthropic()
+
     case_results = []
     investment_advice_violations: list[dict] = []
-    judge_errors: list[dict] = list(original.get("judge_errors", []))
+    judge_errors: list[dict] = [] if with_judge else list(original.get("judge_errors", []))
     for case_result in original["case_results"]:
         case = _case_by_id(case_result["id"])
         runs = []
@@ -851,6 +866,11 @@ def rescore(results_path: Path) -> dict:
             run_record["rate_checks_passed"] = all(rate_checks.values())
             run_record["no_banned_investment_terms"] = no_banned_investment_terms
 
+            if with_judge:
+                # Re-invokes the LLM judge against this STORED run's own saved "reply" - the
+                # agent is never re-run, only this one direct Anthropic call (see docstring).
+                run_record["judge_verdict"] = _run_judge(client, case, run_record)
+
             if not no_banned_investment_terms:
                 investment_advice_violations.append({
                     "case_id": case.id,
@@ -858,13 +878,23 @@ def rescore(results_path: Path) -> dict:
                     "final_text": final_text,
                 })
             judge_verdict = run_record.get("judge_verdict")
-            if judge_verdict is not None and judge_verdict.get("verdict") == "FAIL":
-                investment_advice_violations.append({
-                    "case_id": case.id,
-                    "check": "llm_judge",
-                    "final_text": final_text,
-                    "reason": judge_verdict.get("reason"),
-                })
+            if judge_verdict is not None:
+                if judge_verdict.get("verdict") == "FAIL":
+                    investment_advice_violations.append({
+                        "case_id": case.id,
+                        "check": "llm_judge",
+                        "final_text": final_text,
+                        "reason": judge_verdict.get("reason"),
+                    })
+                elif with_judge and judge_verdict.get("verdict") == "ERROR":
+                    # Only collected freshly when with_judge actually re-ran the judge (mirrors
+                    # run()'s own judge_errors loop) - a carried-over verdict (with_judge=False)
+                    # is already reflected in the top-level judge_errors list carried over above.
+                    judge_errors.append({
+                        "case_id": case.id,
+                        "final_text": final_text,
+                        "reason": judge_verdict.get("reason"),
+                    })
 
             runs.append(run_record)
 
@@ -882,7 +912,7 @@ def rescore(results_path: Path) -> dict:
             "runs": runs,
         })
 
-    return {
+    result = {
         **{k: v for k, v in original.items() if k not in ("case_results", "investment_advice_violations")},
         **_aggregate_case_results(case_results),
         "investment_advice_violations": investment_advice_violations,
@@ -893,6 +923,12 @@ def rescore(results_path: Path) -> dict:
         "rescored_at": date.today().isoformat(),
         "rescore_source": str(results_path),
     }
+    if with_judge:
+        # Only stamped when THIS rescore actually re-ran the judge - with_judge=False (default)
+        # leaves these two fields exactly as the spread above carried them from `original`.
+        result["with_judge"] = True
+        result["judge_rubric_version"] = JUDGE_RUBRIC_VERSION
+    return result
 
 
 def _print_summary(summary: dict, out_path: Path) -> None:
@@ -989,9 +1025,12 @@ def main() -> None:
         help=(
             "Re-runs every DETERMINISTIC scoring function against an EXISTING results JSON's own "
             "stored tool_calls/final_text - no live LLM/Java calls, zero cost. Use after a scorer "
-            "code fix to check it against a past real run without re-spending money. A stored "
-            "judge_verdict (--with-judge runs) is carried over unchanged, never re-judged. "
-            "--model/--with-judge/--concurrency/--runs-per-case are ignored with this flag."
+            "code fix to check it against a past real run without re-spending money. Combine with "
+            "--with-judge to ADDITIONALLY re-invoke the LLM judge against each stored run's own "
+            "saved reply (owner instruction, item 6) - the agent itself is still never re-run "
+            "either way, needs ANTHROPIC_API_KEY same as a live --with-judge run. Without "
+            "--with-judge, a stored judge_verdict is carried over unchanged, never re-judged. "
+            "--model/--concurrency/--runs-per-case are ignored with this flag."
         ),
     )
     parser.add_argument(
@@ -1015,7 +1054,22 @@ def main() -> None:
         if not results_path.is_file():
             print(f"--rescore failas nerastas: {results_path}", file=sys.stderr)
             sys.exit(1)
-        summary = rescore(results_path)
+        # Owner instruction (2026-11-17, item 6): --with-judge + --rescore needs a real judge
+        # call (just no agent call), same credential requirement as a live --with-judge run.
+        if args.with_judge and not os.getenv("ANTHROPIC_API_KEY"):
+            print(
+                "Reikia ANTHROPIC_API_KEY aplinkos kintamojo judge iškvietimams - net ir "
+                "--rescore metu, kai naudojamas --with-judge.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if args.with_judge:
+            print(
+                f"LLM judge (claude-sonnet-5-5, rubrika {JUDGE_RUBRIC_VERSION}) kviečiamas iš "
+                "naujo ant IŠSAUGOTŲ atsakymų (agentas NEKVIEČIAMAS iš naujo).",
+                file=sys.stderr,
+            )
+        summary = rescore(results_path, with_judge=args.with_judge)
         # Real date (item 9): the ORIGINAL run's own date, never today's - a rescore is not a new
         # live run, so stamping today's date on the filename would misleadingly suggest one.
         out_path = ASSISTANT_DIR / "evals" / "results" / f"{summary['date']}_agent_{summary['model']}_rescored.json"
