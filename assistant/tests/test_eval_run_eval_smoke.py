@@ -7,6 +7,7 @@ import importlib
 import json
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
 ASSISTANT_DIR = Path(__file__).resolve().parents[1]
@@ -796,6 +797,70 @@ def test_rescore_with_judge_reinvokes_the_judge_on_the_stored_reply_not_a_carrie
     assert run["judge_verdict"]["reason"] == "v2 rubric PASS"
     assert rescored["investment_advice_violations"] == []
     assert rescored["with_judge"] is True
+
+
+def test_cli_rescore_with_judge_reinvokes_the_judge_through_main_not_just_the_rescore_function(monkeypatch, tmp_path):
+    """Owner instruction (2026-11-18, after a real `--rescore <1c25e9c file> --with-judge` run
+    returned identical verdicts/reasons to the original): every OTHER rescore+judge test here
+    calls `rescore(..., client=fake_client)` DIRECTLY, injecting the fake client as an argument -
+    none of them ever exercise `main()`'s own CLI dispatch (`args.with_judge` -> `rescore()`) or
+    the lazy `if with_judge and client is None: client = anthropic.Anthropic()` construction
+    `rescore()` does when called the REAL way (no `client` kwarg, exactly what `main()` does).
+    This test drives the ACTUAL command line (`sys.argv` + `run_eval.main()`), monkeypatching
+    `anthropic.Anthropic` itself (not passing a `client=` argument to anything) and reading the
+    file `main()` actually writes - the one path a staged `client=` injection can never cover."""
+    run_eval = importlib.import_module("evals.agent.run_eval")
+
+    case_result = _fake_case_result("tax_only_anon_01", "Investavimo patarimų teikti negaliu.", [])
+    case_result["runs"][0]["judge_verdict"] = {"verdict": "FAIL", "reason": "old v1 rubric FAIL"}
+
+    stored = {
+        "model": "claude-haiku-5-5",
+        "date": "2026-11-11",
+        "git_sha": "1c25e9c",
+        "git_branch": "feat/taupymas-agentas-b9",
+        "runs_per_case": 1,
+        "with_judge": True,
+        "judge_rubric_version": "v1",
+        "cases": 1,
+        "case_results": [case_result],
+        "investment_advice_violations": [],
+        "judge_errors": [],
+        "run_broken": False,
+    }
+    results_path = tmp_path / "fake_results_for_cli_rejudge.json"
+    results_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    import anthropic as anthropic_pkg
+
+    fake_response = _FakeJudgeResponse([_fake_verdict_tool_use(reason="v2 rubric PASS, fresh call", verdict="PASS")])
+
+    class _FakeAnthropic:
+        def __init__(self, *a, **k):
+            self.messages = self
+
+        def create(self, **kwargs):
+            return fake_response
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key-for-test")
+    monkeypatch.setattr(anthropic_pkg, "Anthropic", _FakeAnthropic)
+    monkeypatch.setattr(run_eval, "ASSISTANT_DIR", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["run_eval.py", "--rescore", str(results_path), "--with-judge"])
+
+    run_eval.main()
+
+    out_path = tmp_path / "evals" / "results" / "2026-11-11_agent_claude-haiku-5-5_rescored.json"
+    assert out_path.is_file(), "main() did not write the expected --rescore output file"
+    written = json.loads(out_path.read_text(encoding="utf-8"))
+
+    run = written["case_results"][0]["runs"][0]
+    assert run["judge_verdict"]["verdict"] == "PASS"
+    assert run["judge_verdict"]["reason"] == "v2 rubric PASS, fresh call"
+    assert run["judge_verdict"]["reason"] != "old v1 rubric FAIL"
+    assert written["judge_rubric_version"] == run_eval.JUDGE_RUBRIC_VERSION
+    assert written["judge_rubric_version"] != "v1"
+    assert written["rescored"] is True
+    assert written["rescored_at"] == date.today().isoformat()
 
 
 def test_rescore_with_judge_collects_fresh_judge_errors_separately_from_content_violations(tmp_path):
