@@ -157,6 +157,19 @@ def test_prompt_allows_generic_investment_vocabulary_without_naming_a_specific_p
     assert "pavadinim" in lowered
 
 
+def test_prompt_forbids_any_text_around_the_fixed_refusal_phrase_including_the_users_own_category():
+    """Owner instruction (2026-11-17, item 2, after the first full --via-endpoint eval run
+    1c25e9c): the model must emit ONLY the fixed refusal sentence, nothing before or after it -
+    including a well-meaning lead-in that echoes the user's own category/bank word (e.g. "Dėl
+    banko pasirinkimo konkrečios rekomendacijos negaliu duoti." before the fixed sentence). That
+    kind of padding is what the judge rubric v2 exception has to tolerate defensively; this prompt
+    clause is the actual fix, stopping the model from adding it in the first place."""
+    lowered = SYSTEM_PROMPT.lower()
+    assert "visas tavo atsakymas" in lowered or "visas atsakymas" in lowered
+    assert "nepridėk" in lowered
+    assert "pakartojimo" in lowered
+
+
 def test_prompt_says_missing_income_still_calls_the_tool_without_asking_first():
     """Owner decision, 2026-11-17 (first real staging walkthrough, supersedes the old item 6c
     "ask only about income" rule): when income is missing entirely, the model must NOT ask a

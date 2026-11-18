@@ -25,9 +25,27 @@ SUBJECT="$(git log -1 --format=%s "$SHA" 2>/dev/null || true)"
 PR="$(printf '%s' "$SUBJECT" | sed -nE 's/^Merge pull request #([0-9]+).*/\1/p; s/.*\(#([0-9]+)\)$/\1/p' | head -1)"
 export APP_VERSION="1.0.${PR:-0}"
 
-# Duomenų katalogas (nuo F0 – DB yra PostgreSQL, ne čia; katalogas paliktas kitiems failams) turi būti įrašomas konteinerio vartotojui (uid 10001)
+# Duomenų katalogas (nuo F0 – DB yra PostgreSQL, ne čia; katalogas paliktas kitiems failams) turi
+# būti įrašomas konteinerio vartotojui (uid 10001). B8 item 9 incidentas: šis skriptas anksčiau
+# PATS daisydavo "mkdir -p && chmod 0777" kiekvieno diegimo metu – kai savininkas sugriežtino
+# katalogo teises (chown 10001:999, chmod 700), šis skriptas (veikia kaip runner, uid 1000, NE
+# root'as ir NE katalogo savininkas) nebegalėjo pakeisti teisių ir krito su "Operation not
+# permitted". Katalogo paruošimas dabar yra VIENKARTINIS, rankinis, root'o žingsnis PRIEŠ pirmą
+# diegimą (žr. PROD-checklist.md "Vienkartinis serverio paruošimas") – šis skriptas NIEKADA
+# bando keisti jo teisių, tik patikrina, kad jis egzistuoja ir perspėja, jei jo savininkas ne
+# 10001.
 DATA_DIR="$(grep -E '^DATA_DIR=' "$ENV_FILE" | cut -d= -f2)"
-if [ -n "$DATA_DIR" ]; then mkdir -p "$DATA_DIR" && chmod 0777 "$DATA_DIR"; fi
+if [ -n "$DATA_DIR" ]; then
+  if [ ! -d "$DATA_DIR" ]; then
+    echo "KLAIDA: $DATA_DIR nėra. Sukurk jį VIENKARTINIU root'o žingsniu prieš diegimą:" >&2
+    echo "  sudo mkdir -p $DATA_DIR && sudo chown 10001:999 $DATA_DIR && sudo chmod 700 $DATA_DIR" >&2
+    exit 1
+  fi
+  DATA_DIR_OWNER_UID="$(stat -c '%u' "$DATA_DIR" 2>/dev/null || stat -f '%u' "$DATA_DIR" 2>/dev/null || true)"
+  if [ "$DATA_DIR_OWNER_UID" != "10001" ]; then
+    echo "ĮSPĖJIMAS: $DATA_DIR savininkas yra uid ${DATA_DIR_OWNER_UID:-?}, ne 10001 (konteinerio vartotojas 'app') - patikrink teises." >&2
+  fi
+fi
 
 COMPOSE=(docker compose -p "atsidek-${ENV_NAME}" --env-file "$ENV_FILE" --profile tunnel)
 

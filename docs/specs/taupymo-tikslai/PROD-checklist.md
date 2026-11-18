@@ -12,6 +12,34 @@ anoniminio IV CTA feature flag). Likę trys (pilnas eval'as prieš prod, LT kalb
 vertintojas, VDA realūs išlaidų duomenys vietoj iliustracinių) — savininko sprendimas, ar jie
 blokuoja šį diegimą, ar paliekami tolesniam darbui po jo.
 
+## Vienkartinis serverio paruošimas — duomenų katalogas (B8 item 9)
+
+**Atlik PRIEŠ pirmą `production` diegimą, root'o teisėmis, VIENĄ KARTĄ** (žr. incidentą žemiau):
+
+```bash
+sudo mkdir -p /opt/atsidek/production-data
+sudo chown 10001:999 /opt/atsidek/production-data
+sudo chmod 700 /opt/atsidek/production-data
+```
+
+- `10001` = konteinerio vartotojas `app` (`Dockerfile`: `useradd --system --create-home --uid
+  10001 app`); `999` = jo grupė šiame serveryje (patikrink realią reikšmę su `id app` konteineryje
+  arba `stat` host'e, jei skiriasi).
+- `deploy/deploy.sh` NIEKADA pats nebekeičia šio katalogo teisių (žr. incidentą žemiau) — jis TIK
+  patikrina, kad katalogas egzistuoja (kitaip krinta su aiškiu pranešimu, kuriame yra ŠI PATI
+  komanda) ir perspėja (ne krinta), jei savininkas ne `uid 10001`.
+- Ta pati tvarka taikoma `staging-data` katalogui (`/opt/atsidek/staging-data`,
+  `B7-staging-checklist.md`) — abu diegimai naudoja TĄ PATĮ `deploy.sh`.
+
+**Incidentas (B8 item 9, 2026-11-17)**: `deploy.sh` anksčiau pats darė `mkdir -p "$DATA_DIR" &&
+chmod 0777 "$DATA_DIR"` KIEKVIENO diegimo metu. Kai savininkas sugriežtino `staging-data` teises
+(`chown 10001:999`, `chmod 700`) tiesiogiai, kitas diegimas krito: `chmod: changing permissions of
+'/opt/atsidek/staging-data': Operation not permitted` — `deploy.sh` veikia kaip GitHub runner
+vartotojas (`uid 1000`), kuris NEI yra root'as, NEI katalogo savininkas, tad negali keisti jo
+teisių. Savininkas laikinai grąžino `0777`, kad diegimas praeitų. Pataisyta: katalogo
+paruošimas (chown/chmod) dabar yra TIK šis vienkartinis, rankinis, root'o žingsnis — `deploy.sh`
+to niekada nebedaro, tik patikrina ir, jei reikia, perspėja.
+
 ## 0. Prieš diegimą — `/opt/atsidek/production.env`
 
 `deploy/deploy.sh`'o bazinis sąrašas (žr. `DEPLOY.md` "Aplinkų failai serveryje"):

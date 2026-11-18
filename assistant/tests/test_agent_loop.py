@@ -141,6 +141,33 @@ def test_unknown_tool_name_dispatches_through_the_registry_not_a_direct_call():
     assert result.status == "completed"
 
 
+def test_model_calling_a_literal_noop_tool_name_still_returns_is_error_not_an_exception():
+    """Owner instruction (2026-11-17, item 5, after eval 1c25e9c): case tax_only_anon_04 showed
+    the real claude-haiku-5-5 model hallucinate a tool call to a name ("noop") never offered in
+    its tool schema, alongside a registry that has REAL tools registered (calculate_iv_taxes),
+    not an empty one. Confirms the existing UnknownToolError path (tools.py/agent_loop.py) holds
+    in that more realistic shape too - the turn completes with an is_error tool_result, it does
+    not crash."""
+    registry = ToolRegistry()
+    registry.register("calculate_iv_taxes", lambda tool_input, ctx, token=None: {"ok": True})
+    client = FakeClient([
+        FakeResponse([tool_use_block("tu1", "noop", {})]),
+        FakeResponse([text_block("Atsiprašau, pabandykime iš naujo.")]),
+    ])
+    ctx = RequestContext()
+
+    result = run_agent_loop(client, registry, [], ctx, None, "Kiek mokesčių mokėsiu?")
+
+    [block] = result.messages[2]["content"]
+    assert block["is_error"] is True
+    assert block["content"] == "Nežinomas įrankis: noop"
+    assert result.status == "completed"
+    assert result.tool_calls == [{
+        "id": "tu1", "name": "noop", "input": {}, "result": None,
+        "error": "Nežinomas įrankis: noop", "is_error": True,
+    }]
+
+
 def test_non_tool_error_exception_propagates_uncaught_not_swallowed():
     """A bug in a handler (anything NOT a ToolError) must crash the turn, not be papered over by
     a blanket `except Exception`."""

@@ -215,17 +215,27 @@ def score_no_hallucinated_income(tool_calls: list[dict], user_message: str = "")
 # goal with no stated target amount must make the model ASK for it, not call the tool. Mirrors
 # _is_income_request/score_missing_income_handled exactly, keyed on "sum" (covers suma/sumos/
 # sumą/sumai) instead of "pajam", reusing the same request-stem vocabulary.
-_AMOUNT_REQUEST_STEMS = ("reik", "pasaky", "nurody", "praš", "trūksta")
+#
+# Owner instruction (2026-11-17, item 4, after eval 1c25e9c): "sum" alone missed a real run's
+# phrasing, "kiek pinigų norite sukaupti" - it says "pinigų" (money), never "sum[a]", and when
+# phrased as an embedded/indirect question ("Norėčiau žinoti, kiek pinigų norite sukaupti.") it
+# can end in "." rather than "?", so the earlier "?" short-circuit didn't catch it either.
+# `_AMOUNT_NOUN_STEMS` adds "pinig"; `"kiek"` (interrogative "how much/many") joins the stem list
+# below, since it is -together with a money noun- a reliable signal of an amount request even
+# without a literal "?".
+_AMOUNT_NOUN_STEMS = ("sum", "pinig")
+_AMOUNT_REQUEST_STEMS = ("reik", "pasaky", "nurody", "praš", "trūksta", "kiek")
 
 
 def _is_amount_request(final_text: str) -> bool:
     """True for a genuine clarifying question ("?" present) OR a direct, non-question amount
-    request that both mentions a sum ("sum") and uses one of `_AMOUNT_REQUEST_STEMS` - merely
-    mentioning a sum in passing does NOT count, only an actual request/need phrasing does."""
+    request that both mentions a money noun (`_AMOUNT_NOUN_STEMS`) and uses one of
+    `_AMOUNT_REQUEST_STEMS` - merely mentioning a sum/money in passing does NOT count, only an
+    actual request/need phrasing does."""
     if "?" in final_text:
         return True
     lowered = final_text.lower()
-    if "sum" not in lowered:
+    if not any(noun in lowered for noun in _AMOUNT_NOUN_STEMS):
         return False
     return any(stem in lowered for stem in _AMOUNT_REQUEST_STEMS)
 
